@@ -1,0 +1,12 @@
+services:
+  victoria-metrics:
+    image: victoriametrics/victoria-metrics:latest
+    container_name: vm_single_node
+    ports:
+      - "8428:8428"
+    volumes:
+      - /opt/monitoring_storage:/storage
+    command:
+      - "-storageDataPath=/storage"
+      - "-retentionPeriod=30d"
+    restart: unless-stopped
