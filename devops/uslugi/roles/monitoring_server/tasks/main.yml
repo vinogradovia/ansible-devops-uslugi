@@ -1,0 +1,10 @@
+---
+# tasks file for monitoring-server
+
+- name: Include check-and-install-requirements tasks
+  ansible.builtin.include_tasks:
+    file: check-and-install-requirements.yml
+
+- name: Include monitoring-server tasks
+  ansible.builtin.include_tasks:
+    file: monitoring-server.yml
