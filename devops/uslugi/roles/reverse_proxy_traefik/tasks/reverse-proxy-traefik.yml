@@ -1,0 +1,52 @@
+---
+- name: Create config dirs
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - "{{ reverse_proxy_traefik_config_dir }}"
+    - "{{ reverse_proxy_traefik_config_dir }}/certs"
+    - "{{ reverse_proxy_traefik_config_dir }}/dynamic"
+    - "{{ reverse_proxy_traefik_config_dir }}/users"
+
+- name: Render reverse-proxy-traefik compose.yml
+  ansible.builtin.template:
+    src: compose-reverse-proxy-traefik.yml.j2
+    dest: "{{ reverse_proxy_traefik_config_dir }}/compose.yml"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Render traefik-dashboard.yml
+  ansible.builtin.template:
+    src: traefik-dashboard.yml.j2
+    dest: "{{ reverse_proxy_traefik_config_dir }}/dynamic/traefik-dashboard.yml"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Add a user to a password file dashboard-users
+  community.general.htpasswd:
+    path: "{{ reverse_proxy_traefik_config_dir }}/users/dashboard-auth"
+    name: "{{ item.name }}"
+    password: "{{ item.password }}"
+    owner: root
+    group: www-data
+    mode: '0644'
+    state: "{{ item.state | default('present') }}"
+  with_items:
+    - "{{ reverse_proxy_traefik_dashboard_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Create and start services
+  community.docker.docker_compose_v2:
+    project_src: "{{ reverse_proxy_traefik_config_dir }}"
+  register: reverse_proxy_traefik_start_result
+
+- name: Show reverse_proxy_traefik_start_result
+  ansible.builtin.debug:
+    var: reverse_proxy_traefik_start_result
