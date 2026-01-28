@@ -1,0 +1,18 @@
+---
+- name: Install Packages
+  ansible.builtin.apt:
+    pkg:
+      - python3-passlib
+  check_mode: false
+
+# TODO: check OS version
+
+- name: Fail if using default_passwors
+  ansible.builtin.fail:
+    msg: "Error, hange default_passwors"
+  when: item.password == reverse_proxy_traefik_default_password
+  # ignore_errors: True
+  with_items:
+    - "{{ reverse_proxy_traefik_dashboard_users }}"
+  loop_control:
+    label: "{{ item.name }}"
