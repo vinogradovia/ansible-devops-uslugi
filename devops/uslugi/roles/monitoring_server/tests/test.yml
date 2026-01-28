@@ -1,5 +1,6 @@
 ---
-- hosts: localhost
+- name: Run test
+  hosts: localhost
   remote_user: root
   roles:
-    - monitoring-server
+    - monitoring_server

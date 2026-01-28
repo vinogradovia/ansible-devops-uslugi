@@ -2,5 +2,5 @@
 # tasks file for monitoring-server
 
 - name: Include monitoring-server tasks
-  include_tasks:
+  ansible.builtin.include_tasks:
     file: monitoring-server.yml
