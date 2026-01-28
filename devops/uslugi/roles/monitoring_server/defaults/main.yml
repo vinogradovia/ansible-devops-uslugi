@@ -2,3 +2,21 @@
 # defaults file for monitoring-server
 
 monitoring_server_config_dir: /opt/monitoring-server/
+
+monitoring_server_victoria_metrics_enabled: false
+
+monitoring_server_grafana_enabled: false
+
+monitoring_server_default_password: "PleAse_Change_ME!"
+
+# GF_SECURITY_ADMIN_PASSWORD
+monitoring_server_grafana_security_admin_password: "{{ monitoring_server_default_password }}"
+
+# GF_INSTALL_PLUGINS
+monitoring_server_grafana_install_plugins: "grafana-clock-panel,grafana-simple-json-datasource"
+
+# GF_SERVER_ROOT_URL
+monitoring_server_grafana_server_root_url: "https://grafana.docker.localhost"
+
+# GF_SERVER_DOMAIN
+monitoring_server_grafana_server_domain: .docker.localhost
