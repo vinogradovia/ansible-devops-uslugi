@@ -1,0 +1,10 @@
+---
+# tasks file for reverse-proxy-traefik
+
+- name: Include check-and-install-requirements tasks
+  ansible.builtin.include_tasks:
+    file: check-and-install-requirements.yml
+
+- name: Include reverse-proxy-traefik tasks
+  ansible.builtin.include_tasks:
+    file: reverse-proxy-traefik.yml

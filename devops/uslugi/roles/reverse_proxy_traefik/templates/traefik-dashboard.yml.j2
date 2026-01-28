@@ -1,0 +1,16 @@
+# Dashboard router
+http:
+  middlewares:
+    dashboard-auth:
+      basicAuth:
+        usersFile: /etc/traefik/users/dashboard-auth
+  routers:
+    dashboard:
+      entrypoints:
+        - websecure
+      rule: "Host(`traefik-dashboard.{{ reverse_proxy_traefik_internal_domain }}`)"
+      middlewares:
+        - dashboard-auth@file
+      tls: true
+      service: api@internal
+

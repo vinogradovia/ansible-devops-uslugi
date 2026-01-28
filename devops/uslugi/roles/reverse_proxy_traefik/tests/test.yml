@@ -1,0 +1,6 @@
+---
+- name: Run test
+  hosts: localhost
+  remote_user: root
+  roles:
+    - reverse_proxy_traefik
