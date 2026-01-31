@@ -2,6 +2,7 @@
 # defaults file for monitoring-server
 
 monitoring_server_config_dir: /opt/monitoring-server/
+monitoring_server_storage_dir: /opt/monitoring_storage
 
 monitoring_server_victoria_metrics_enabled: false
 
@@ -20,3 +21,39 @@ monitoring_server_grafana_server_root_url: "https://grafana.docker.localhost"
 
 # GF_SERVER_DOMAIN
 monitoring_server_grafana_server_domain: .docker.localhost
+
+monitoring_server_local_storage_s3_enabled: false
+
+monitoring_server_local_storage_s3:
+  access_key: local_storage_s3
+  secret_key: supersecret_local_storage_s3
+
+monitoring_server_local_storage_s3_volume_device: false
+
+monitoring_server_local_storage_s3_image_registry: docker.io
+monitoring_server_local_storage_s3_image_name: minio/minio
+monitoring_server_local_storage_s3_image_version: RELEASE.2025-09-07T16-13-09Z
+monitoring_server_local_storage_s3_image: >-
+  {{ monitoring_server_local_storage_s3_image_registry }}/{{ monitoring_server_local_storage_s3_image_name }}:{{ monitoring_server_local_storage_s3_image_version }}
+
+monitoring_server_grafana_loki_enabled: false
+
+monitoring_server_grafana_loki_image_registry: docker.io
+monitoring_server_grafana_loki_image_name: grafana/loki
+monitoring_server_grafana_loki_image_version: 3.6.4
+monitoring_server_grafana_loki_image: >-
+  {{ monitoring_server_grafana_loki_image_registry }}/{{ monitoring_server_grafana_loki_image_name }}:{{ monitoring_server_grafana_loki_image_version }}
+
+monitoring_server_grafana_loki_common_storage_s3:
+  endpoint: s3:9000
+  insecure: true
+  bucketnames: loki-data
+  access_key_id: "{{ monitoring_server_local_storage_s3.access_key }}"
+  secret_access_key: "{{ monitoring_server_local_storage_s3.secret_key }}"
+  s3forcepathstyle: true
+
+monitoring_server_grafana_loki_gateway_image_registry: docker.io
+monitoring_server_grafana_loki_gateway_image_name: library/nginx
+monitoring_server_grafana_loki_gateway_image_version: 1.29.4
+monitoring_server_grafana_loki_gateway_image: >-
+  {{ monitoring_server_grafana_loki_gateway_image_registry }}/{{ monitoring_server_grafana_loki_gateway_image_name }}:{{ monitoring_server_grafana_loki_gateway_image_version }}
