@@ -7,6 +7,7 @@
     owner: root
     group: root
     mode: '0644'
+    validate: docker compose -f %s config
 
 - name: Create Grafana config dirs
   when: monitoring_server_grafana_enabled
@@ -51,3 +52,63 @@
               url: http://victoria-metrics:8428
               isDefault: true
               editable: true
+
+- name: Create Grafana Loki config dirs
+  when: monitoring_server_grafana_loki_enabled
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - "{{ monitoring_server_config_dir }}/loki"
+
+- name: Create S3 data dirs
+  when: monitoring_server_local_storage_s3_volume_device and monitoring_server_grafana_loki_enabled
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0777'
+  loop:
+    - "{{ monitoring_server_local_storage_s3_volume_device }}/s3-data"
+
+- name: Render loki-config.yaml
+  ansible.builtin.template:
+    src: loki-config.yaml.j2
+    dest: "{{ monitoring_server_config_dir }}/loki/loki-config.yaml"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Provisioning Grafana datasources for local Grafana Loki
+  block:
+    - name: Provisioning local grafana Loki remove
+      when: not monitoring_server_grafana_loki_enabled
+      ansible.builtin.file:
+        owner: root
+        group: root
+        mode: '0644'
+        state: absent
+        dest: "{{ monitoring_server_config_dir }}/grafana/provisioning/datasources/loki.yml"
+    - name: Provisioning local grafana Loki copy
+      when: monitoring_server_grafana_loki_enabled
+      ansible.builtin.template:
+        src: oneitemtemplate_nice_yaml.j2
+        dest: "{{ monitoring_server_config_dir }}/grafana/provisioning/datasources/loki.yml"
+        owner: root
+        group: root
+        mode: '0644'
+      with_items:
+        - apiVersion: 1
+          datasources:
+            - name: Loki
+              type: loki
+              access: proxy
+              url: http://loki_gateway:3100
+              jsonData:
+                httpHeaderName1: "X-Scope-OrgID"
+              secureJsonData:
+                httpHeaderValue1: "tenant1"
