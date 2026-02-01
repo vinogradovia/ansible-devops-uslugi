@@ -1,5 +1,5 @@
 ---
-- name: run test
+- name: Run test
   hosts: localhost
   remote_user: root
   roles:
