@@ -2,4 +2,4 @@
 - name: Run test
   remote_user: root
   roles:
-    - monitoring-agent
+    - devops.uslugi.monitoring_agent
