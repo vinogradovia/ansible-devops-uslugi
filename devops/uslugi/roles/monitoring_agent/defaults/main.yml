@@ -1,2 +1,38 @@
 ---
 # defaults file for monitoring-agent
+monitoring_agent_config_dir: /opt/monitoring-agent
+
+monitoring_agent_promtail_enabled: false
+monitoring_agent_promtail_config_dir: "{{ monitoring_agent_config_dir }}/promtail"
+monitoring_agent_promtail_image_registry: docker.io
+monitoring_agent_promtail_image_repository: grafana/promtail
+monitoring_agent_promtail_image_version: "3.6.0"
+monitoring_agent_promtail_image: >-
+  {{ monitoring_agent_promtail_image_registry }}/{{ monitoring_agent_promtail_image_repository }}:{{ monitoring_agent_promtail_image_version }}
+monitoring_agent_promtail_loki_addr: http://loki:3100
+monitoring_agent_promtail_loki_url: "{{ monitoring_agent_promtail_loki_addr }}/loki/api/v1/push"
+monitoring_agent_promtail_loki_tenant_id: 1
+
+monitoring_agent_node_exporter_enabled: false
+monitoring_agent_node_exporter_image_registry: quay.io
+monitoring_agent_node_exporter_image_repository: prometheus/node-exporter
+monitoring_agent_node_exporter_image_version: v1.10.2
+monitoring_agent_node_exporter_image: >-
+  {{ monitoring_agent_node_exporter_image_registry }}/{{ monitoring_agent_node_exporter_image_repository }}:{{ monitoring_agent_node_exporter_image_version }}
+monitoring_agent_node_exporter_port: '9100'
+
+monitoring_agent_docker_exporter_enabled: false
+monitoring_agent_docker_exporter_patch_docker: true
+monitoring_agent_docker_exporter_docker_daemon_json: /etc/docker/daemon.json
+monitoring_agent_docker_exporter_port: 9323
+monitoring_agent_docker_exporter_docker_daemon_metrics_listener: '0.0.0.0'
+monitoring_agent_docker_exporter_docker_daemon_metrics_addr: >-
+  {{ monitoring_agent_docker_exporter_docker_daemon_metrics_listener }}:{{ monitoring_agent_docker_exporter_port | string }}
+
+monitoring_agent_cadvisor_enabled: false
+monitoring_agent_cadvisor_port: 9326
+monitoring_agent_cadvisor_image_registry: ghcr.io
+monitoring_agent_cadvisor_image_repository: google/cadvisor
+monitoring_agent_cadvisor_image_version: "0.56.2"
+monitoring_agent_cadvisor_image: >-
+  {{ monitoring_agent_cadvisor_image_registry }}/{{ monitoring_agent_cadvisor_image_repository }}:{{ monitoring_agent_cadvisor_image_version }}

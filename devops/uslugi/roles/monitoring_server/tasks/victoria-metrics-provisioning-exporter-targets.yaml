@@ -1,0 +1,17 @@
+---
+- name: Provisioning victoria-metrics node_exporter_targets remove
+  when: not monitoring_server_victoria_metrics_exporters_target_item.state
+  ansible.builtin.file:
+    owner: root
+    group: root
+    mode: '0644'
+    state: absent
+    dest: "{{ monitoring_server_victoria_metrics_exporters_target_item.dest }}"
+- name: Provisioning node_exporter_targets
+  when: monitoring_server_victoria_metrics_enabled and monitoring_server_victoria_metrics_exporters_target_item.state
+  ansible.builtin.template:
+    src: "{{ monitoring_server_victoria_metrics_exporters_target_item.src }}"
+    dest: "{{ monitoring_server_victoria_metrics_exporters_target_item.dest }}"
+    owner: root
+    group: root
+    mode: '0644'

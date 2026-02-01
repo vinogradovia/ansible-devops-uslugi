@@ -1,2 +1,16 @@
 ---
 # handlers file for monitoring-server
+
+- name: Reload victoria-metrics by api
+  community.docker.docker_compose_v2_exec:
+    service: victoria-metrics
+    command: wget http://127.0.0.1:8428/-/reload
+    chdir: /
+    project_src: "{{ monitoring_server_config_dir }}"
+  register: monitoring_server_result_reload_victoria_metrics_by_api
+  notify:
+    - Print result of reload victoria-metrics by api
+
+- name: Print result of reload victoria-metrics by api
+  ansible.builtin.debug:
+    var: monitoring_server_result_reload_victoria_metrics_by_api

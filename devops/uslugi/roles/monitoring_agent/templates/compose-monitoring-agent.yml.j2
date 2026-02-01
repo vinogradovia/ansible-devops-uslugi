@@ -1,0 +1,51 @@
+services:
+{% if monitoring_agent_promtail_enabled %}
+  promtail:
+    image: grafana/promtail:3.6.0
+    restart: "no"
+    command:
+      - -config.file=/mnt/config/promtail-config.yaml
+    volumes:
+      - type: bind
+        source: {{ monitoring_agent_promtail_config_dir }}
+        target: /mnt/config
+        bind: {}
+      - type: bind
+        source: /var/log
+        target: /var/log
+        bind: {}
+    networks:
+      monitoring_agent: null
+{% endif %}
+{% if monitoring_agent_node_exporter_enabled %}
+  node_exporter:
+    image: {{ monitoring_agent_node_exporter_image }}
+    container_name: node_exporter
+    restart: "unless-stopped"
+    command:
+      - '--path.rootfs=/host'
+    network_mode: host
+    pid: host
+    volumes:
+      - '/:/host:ro,rslave'
+{% endif %}
+{% if monitoring_agent_cadvisor_enabled %}
+  cadvisor:
+    image: {{ monitoring_agent_cadvisor_image }}
+    container_name: cadvisor
+    restart: "unless-stopped"
+    privileged: true
+    ports:
+      - {{ monitoring_agent_cadvisor_port }}:8080
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    devices:
+      - /dev/kmsg:/dev/kmsg
+{% endif %}
+networks:
+  monitoring_agent:
+    driver: bridge

@@ -7,11 +7,13 @@ services:
       - "8428:8428"
     volumes:
       - {{ monitoring_server_storage_dir }}/victoria-metrics-data:/storage
+      - {{ monitoring_server_victoria_metrics_config_dir }}/scrape_config:/opt/victoria/scrape_config
     command:
       - "-storageDataPath=/storage"
       - "-retentionPeriod=30d"
       - "-selfScrapeInterval=10s"
       - "-selfScrapeInstance=127.0.0.1:8428"
+      - "-promscrape.config=/opt/victoria/scrape_config/scrape.yaml"
     restart: unless-stopped
     networks:
       - monitoring_net

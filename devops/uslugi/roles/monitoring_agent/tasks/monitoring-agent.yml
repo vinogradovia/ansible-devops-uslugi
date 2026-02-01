@@ -1,0 +1,94 @@
+---
+
+- name: Create Promtail config dirs
+  when: monitoring_agent_promtail_enabled
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - "{{ monitoring_agent_promtail_config_dir }}"
+
+- name: Provisioning promtail config
+  block:
+    - name: Provisioning promtail config remove
+      when: not monitoring_agent_promtail_enabled
+      ansible.builtin.file:
+        owner: root
+        group: root
+        mode: '0644'
+        state: absent
+        dest: "{{ monitoring_agent_promtail_config_dir }}/promtail-config.yaml"
+    - name: Provisioning promtail config copy
+      when: monitoring_agent_promtail_enabled
+      ansible.builtin.template:
+        src: promtail-config.yaml
+        dest: "{{ monitoring_agent_promtail_config_dir }}/promtail-config.yaml"
+        owner: root
+        group: root
+        mode: '0644'
+
+# docker-metrics
+- name: Patch docker daemon for metrics-addr
+  when: monitoring_agent_docker_exporter_enabled and monitoring_agent_docker_exporter_patch_docker
+  notify:
+    - Restart Docker daemon
+  tags: debug
+  block:
+    - name: Create docker daemon.json
+      ansible.builtin.file:
+        path: monitoring_agent_docker_exporter_docker_daemon_json
+        mode: '0644'
+        owner: root
+        group: root
+        state: touch
+      changed_when: false
+
+    - name: Read daemon JSON file
+      ansible.builtin.slurp:
+        path: "{{ monitoring_agent_docker_exporter_docker_daemon_json }}"
+      register: monitoring_agent_docker_exporter_docker_daemon_json_raw
+
+    - name: Convert JSON content to string
+      when: monitoring_agent_docker_exporter_docker_daemon_json_raw.content != ""
+      ansible.builtin.set_fact:
+        monitoring_agent_docker_exporter_docker_daemon_json_content: "{{ monitoring_agent_docker_exporter_docker_daemon_json_raw.content | b64decode | from_json }}"
+
+    - name: Set empty JSON content
+      when: monitoring_agent_docker_exporter_docker_daemon_json_raw.content == ""
+      ansible.builtin.set_fact:
+        monitoring_agent_docker_exporter_docker_daemon_json_content: {}
+    - name: Add new metrics-addr
+      ansible.builtin.set_fact:
+        monitoring_agent_docker_exporter_docker_daemon_json_content: "{{ monitoring_agent_docker_exporter_docker_daemon_json_content | combine({'metrics-addr': (monitoring_agent_docker_exporter_docker_daemon_metrics_addr | string)}) }}"
+    - name: Write updated JSON content back to file
+      ansible.builtin.copy:
+        content: "{{ monitoring_agent_docker_exporter_docker_daemon_json_content | to_json }}\n"
+        dest: "{{ monitoring_agent_docker_exporter_docker_daemon_json }}"
+        mode: '0644'
+        owner: root
+        group: root
+
+# monitoring-agent
+- name: Render monitoring-agent compose.yml
+  ansible.builtin.template:
+    src: compose-monitoring-agent.yml.j2
+    dest: "{{ monitoring_agent_config_dir }}/compose.yml"
+    owner: root
+    group: root
+    mode: '0644'
+    validate: docker compose -f %s config
+  tags: debug
+
+- name: Create and start services
+  community.docker.docker_compose_v2:
+    project_src: "{{ monitoring_agent_config_dir }}"
+    remove_orphans: true
+    wait: true
+  register: monitoring_agent_start_result
+
+- name: Show monitoring_agent_start_result
+  ansible.builtin.debug:
+    var: monitoring_agent_start_result.stderr_lines

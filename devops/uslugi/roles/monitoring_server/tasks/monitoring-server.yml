@@ -1,13 +1,61 @@
 ---
 
-- name: Render monitoring-server compose.yml
-  ansible.builtin.template:
-    src: compose-monitoring-server.yml.j2
-    dest: "{{ monitoring_server_config_dir }}/compose.yml"
+- name: Create monitoring-server config dirs
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - "{{ monitoring_server_config_dir }}"
+
+- name: Create victoria-metrics config dirs
+  when: monitoring_server_victoria_metrics_enabled
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - "{{ monitoring_server_victoria_metrics_config_dir }}"
+    - "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config"
+
+- name: Provisioning victoria-metrics scrape_config remove
+  when: not monitoring_server_victoria_metrics_enabled
+  ansible.builtin.file:
     owner: root
     group: root
     mode: '0644'
-    validate: docker compose -f %s config
+    state: absent
+    dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/scrape.yml"
+
+- name: Provisioning local victoria-metrics scrape_config
+  when: monitoring_server_victoria_metrics_enabled
+  notify:
+    - Reload victoria-metrics by api
+  ansible.builtin.template:
+    src: victoria-metrics-scrape-config.yaml.j2
+    dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/scrape.yaml"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Provisioning victoria-metrics exporters scrape_config/targets
+  ansible.builtin.include_tasks: victoria-metrics-provisioning-exporter-targets.yaml
+  loop_control:
+    loop_var: monitoring_server_victoria_metrics_exporters_target_item
+  with_items:
+    - src: victoria-metrics-scrape-node-exporter-targets.json.j2
+      dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/node_exporter_targets.json"
+      state: "{{ monitoring_server_victoria_metrics_scrape_node_exporter }}"
+    - src: victoria-metrics-scrape-docker-exporter-targets.json.j2
+      dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/docker_exporter_targets.json"
+      state: "{{ monitoring_server_victoria_metrics_scrape_docker_exporter }}"
+    - src: victoria-metrics-scrape-cadvisor-targets.json.j2
+      dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/cadvisor_targets.json"
+      state: "{{ monitoring_server_victoria_metrics_scrape_cadvisor }}"
 
 - name: Create Grafana config dirs
   when: monitoring_server_grafana_enabled
@@ -112,3 +160,12 @@
                 httpHeaderName1: "X-Scope-OrgID"
               secureJsonData:
                 httpHeaderValue1: "tenant1"
+
+- name: Render monitoring-server compose.yml
+  ansible.builtin.template:
+    src: compose-monitoring-server.yml.j2
+    dest: "{{ monitoring_server_config_dir }}/compose.yml"
+    owner: root
+    group: root
+    mode: '0644'
+    validate: docker compose -f %s config
