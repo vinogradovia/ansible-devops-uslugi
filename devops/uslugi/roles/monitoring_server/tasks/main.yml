@@ -8,3 +8,4 @@
 - name: Include monitoring-server tasks
   ansible.builtin.include_tasks:
     file: monitoring-server.yml
+  tags: debug

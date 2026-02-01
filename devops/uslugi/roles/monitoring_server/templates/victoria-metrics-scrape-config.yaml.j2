@@ -1,0 +1,19 @@
+scrape_configs:
+{% if monitoring_server_victoria_metrics_scrape_node_exporter %}
+  - job_name: node-exporter
+    file_sd_configs:
+      - files:
+          - node_exporter_targets.json
+{% endif %}
+{% if monitoring_server_victoria_metrics_scrape_docker_exporter %}
+  - job_name: docker-exporter
+    file_sd_configs:
+      - files:
+          - docker_exporter_targets.json
+{% endif %}
+{% if monitoring_server_victoria_metrics_scrape_cadvisor %}
+  - job_name: cadvisor
+    file_sd_configs:
+      - files:
+          - cadvisor_targets.json
+{% endif %}

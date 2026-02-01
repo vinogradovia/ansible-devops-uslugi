@@ -5,6 +5,13 @@ monitoring_server_config_dir: /opt/monitoring-server/
 monitoring_server_storage_dir: /opt/monitoring_storage
 
 monitoring_server_victoria_metrics_enabled: false
+monitoring_server_victoria_metrics_config_dir: "{{ monitoring_server_config_dir }}/victoria-metrics"
+monitoring_server_victoria_metrics_scrape_node_exporter: true
+monitoring_server_victoria_metrics_scrape_node_exporter_port_default: 9100
+monitoring_server_victoria_metrics_scrape_docker_exporter: true
+monitoring_server_victoria_metrics_scrape_docker_exporter_port_default: 9323
+monitoring_server_victoria_metrics_scrape_cadvisor: true
+monitoring_server_victoria_metrics_scrape_cadvisor_port_default: 9326
 
 monitoring_server_grafana_enabled: false
 

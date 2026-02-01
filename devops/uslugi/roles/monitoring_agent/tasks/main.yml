@@ -1,2 +1,11 @@
 ---
 # tasks file for monitoring-agent
+
+# - name: Include check-and-install-requirements tasks
+#   ansible.builtin.include_tasks:
+#     file: check-and-install-requirements.yml
+
+- name: Include monitoring-agent tasks
+  ansible.builtin.include_tasks:
+    file: monitoring-agent.yml
+  tags: debug

@@ -1,2 +1,7 @@
 ---
 # handlers file for monitoring-agent
+
+- name: Restart Docker daemon
+  ansible.builtin.service:
+    name: docker
+    state: restarted
