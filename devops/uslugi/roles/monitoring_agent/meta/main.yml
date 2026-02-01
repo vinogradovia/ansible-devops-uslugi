@@ -1,7 +1,7 @@
 ---
 galaxy_info:
   author: Ivan Vinogradov <vinogradovia@gmail.com>
-  description: configure monitoring stack
+  description: configure monitoring stack agent
   license: WTFPL
   min_ansible_version: "2.2"
   galaxy_tags:
