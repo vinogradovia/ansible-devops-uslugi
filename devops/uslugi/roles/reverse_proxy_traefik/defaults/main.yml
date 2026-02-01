@@ -7,12 +7,10 @@ reverse_proxy_traefik_image_version: "v3.6.7"
 
 reverse_proxy_traefik_image: "{{ reverse_proxy_traefik_image_name }}:{{ reverse_proxy_traefik_image_version }}"
 
-
 reverse_proxy_traefik_internal_domain: "docker.localhost"
-
 
 reverse_proxy_traefik_default_password: "PleAse_Change_ME!"
 
 reverse_proxy_traefik_dashboard_users:
-  - { name: 'monitor', password: "{{ reverse_proxy_traefik_default_password }}" }
-  - { name: 'olduser', password: 'null', state: 'absent' }
+  - {name: 'monitor', password: "{{ reverse_proxy_traefik_default_password }}"}
+  - {name: 'olduser', password: 'null', state: 'absent'}
