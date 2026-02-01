@@ -3,4 +3,4 @@
   hosts: localhost
   remote_user: root
   roles:
-    - reverse_proxy_traefik
+    - devops.uslugi.reverse_proxy_traefik

@@ -1,5 +1,5 @@
 ---
-- hosts: localhost
+- name: Run test
   remote_user: root
   roles:
     - monitoring-agent
