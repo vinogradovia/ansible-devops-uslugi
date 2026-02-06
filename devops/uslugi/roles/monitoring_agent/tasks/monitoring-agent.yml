@@ -1,5 +1,13 @@
 ---
 
+- name: Create monitoring-agent config dir
+  ansible.builtin.file:
+    path: "{{ monitoring_agent_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
 - name: Create Promtail config dirs
   when: monitoring_agent_promtail_enabled
   ansible.builtin.file:

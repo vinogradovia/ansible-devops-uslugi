@@ -1,0 +1,5 @@
+---
+- hosts: monitoring_agents
+  become: true
+  roles:
+    - monitoring_agent
