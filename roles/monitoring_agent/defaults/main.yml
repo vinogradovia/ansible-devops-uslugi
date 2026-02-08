@@ -37,6 +37,16 @@ monitoring_agent_cadvisor_image_version: "0.56.2"
 monitoring_agent_cadvisor_image: >-
   {{ monitoring_agent_cadvisor_image_registry }}/{{ monitoring_agent_cadvisor_image_repository }}:{{ monitoring_agent_cadvisor_image_version }}
 
+monitoring_agent_redis_exporter_enabled: false
+monitoring_agent_redis_exporter_image_registry: docker.io
+monitoring_agent_redis_exporter_image_repository: bitnami/redis-exporter
+monitoring_agent_redis_exporter_image_version: "latest"
+monitoring_agent_redis_exporter_image: >-
+  {{ monitoring_agent_redis_exporter_image_registry }}/{{ monitoring_agent_redis_exporter_image_repository }}:{{ monitoring_agent_redis_exporter_image_version }}
+monitoring_agent_redis_exporter_port: '9121'
+monitoring_agent_redis_exporter_addr: "redis://localhost:6379"
+monitoring_agent_redis_exporter_password: ""
+
 monitoring_agent_ipa_exporter_enabled: false
 monitoring_agent_ipa_exporter_image_registry: docker.io
 monitoring_agent_ipa_exporter_image_repository: kpaciu/freeipa-exporter
