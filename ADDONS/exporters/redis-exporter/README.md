@@ -1,8 +1,5 @@
 # Prometheus Valkey & Redis Metrics Exporter
 
-[![Tests](https://github.com/oliver006/redis_exporter/actions/workflows/tests.yml/badge.svg)](https://github.com/oliver006/redis_exporter/actions/workflows/tests.yml)
- [![Coverage Status](https://coveralls.io/repos/github/oliver006/redis_exporter/badge.svg?branch=master)](https://coveralls.io/github/oliver006/redis_exporter?branch=master) [![codecov](https://codecov.io/gh/oliver006/redis_exporter/branch/master/graph/badge.svg)](https://codecov.io/gh/oliver006/redis_exporter) [![docker_pulls](https://img.shields.io/docker/pulls/oliver006/redis_exporter.svg)](https://img.shields.io/docker/pulls/oliver006/redis_exporter.svg) [![Stand With Ukraine](https://raw.githubusercontent.com/vshymanskyy/StandWithUkraine/main/badges/StandWithUkraine.svg)](https://stand-with-ukraine.pp.ua)
-
 Prometheus exporter for Valkey metrics (Redis-compatible).\
 Supports Valkey 7.x, 8.x, 9.x (and Redis)
 
