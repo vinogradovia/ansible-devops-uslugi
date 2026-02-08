@@ -46,6 +46,19 @@ services:
     devices:
       - /dev/kmsg:/dev/kmsg
 {% endif %}
+{% if monitoring_agent_ipa_exporter_enabled %}
+  ipa_exporter:
+    image: {{ monitoring_agent_ipa_exporter_image }}
+    container_name: ipa_exporter
+    restart: "unless-stopped"
+    network_mode: host
+    environment:
+      FREEIPA_HOSTS: "{{ monitoring_agent_ipa_exporter_hosts }}"
+      FREEIPA_DOMAIN: "{{ monitoring_agent_ipa_exporter_domain }}"
+      FREEIPA_BIND_DN: "{{ monitoring_agent_ipa_exporter_user }}"
+      FREEIPA_BIND_PW: "{{ monitoring_agent_ipa_exporter_password }}"
+      EXPORTER_PORT: "{{ monitoring_agent_ipa_exporter_port }}"
+{% endif %}
 networks:
   monitoring_agent:
     driver: bridge

@@ -17,3 +17,9 @@ scrape_configs:
       - files:
           - cadvisor_targets.json
 {% endif %}
+{% if monitoring_server_victoria_metrics_scrape_ipa_exporter %}
+  - job_name: ipa-exporter
+    file_sd_configs:
+      - files:
+          - ipa_exporter_targets.json
+{% endif %}
