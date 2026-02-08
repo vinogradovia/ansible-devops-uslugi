@@ -44,7 +44,7 @@ monitoring_agent_ipa_exporter_image_version: "1.0.0"
 monitoring_agent_ipa_exporter_image: >-
   {{ monitoring_agent_ipa_exporter_image_registry }}/{{ monitoring_agent_ipa_exporter_image_repository }}:{{ monitoring_agent_ipa_exporter_image_version }}
 monitoring_agent_ipa_exporter_port: '9189'
-monitoring_agent_ipa_exporter_hosts: "" # "host1.example.com host2.example.com"
-monitoring_agent_ipa_exporter_domain: "" # only domain, not FQDN
-monitoring_agent_ipa_exporter_user: "" # for example, uid=user,cn=users,cn=accounts,dc=example,dc=com
+monitoring_agent_ipa_exporter_hosts: ""  # "host1.example.com host2.example.com"
+monitoring_agent_ipa_exporter_domain: ""  # only domain, not FQDN
+monitoring_agent_ipa_exporter_user: ""  # for example, uid=user,cn=users,cn=accounts,dc=example,dc=com
 monitoring_agent_ipa_exporter_password: ""

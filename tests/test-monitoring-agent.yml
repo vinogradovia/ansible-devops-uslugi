@@ -1,5 +1,6 @@
 ---
-- hosts: monitoring_agents
+- name: Run test monitoring_agents
+  hosts: monitoring_agents
   become: true
   roles:
     - monitoring_agent

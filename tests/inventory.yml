@@ -1,3 +1,4 @@
+---
 all:
   children:
     monitoring_agents:
