@@ -7,3 +7,4 @@ all:
           ansible_host: 10.20.30.240
           ansible_user: ansible
           monitoring_agent_ipa_exporter_enabled: true
+          monitoring_agent_redis_exporter_enabled: true
