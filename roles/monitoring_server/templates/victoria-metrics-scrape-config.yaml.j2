@@ -23,3 +23,9 @@ scrape_configs:
       - files:
           - ipa_exporter_targets.json
 {% endif %}
+{% if monitoring_server_victoria_metrics_scrape_redis_exporter %}
+  - job_name: redis-exporter
+    file_sd_configs:
+      - files:
+          - redis_exporter_targets.json
+{% endif %}

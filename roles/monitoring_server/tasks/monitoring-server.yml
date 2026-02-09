@@ -59,6 +59,9 @@
     - src: victoria-metrics-scrape-ipa-exporter-targets.json.j2
       dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/ipa_exporter_targets.json"
       state: "{{ monitoring_server_victoria_metrics_scrape_ipa_exporter }}"
+    - src: victoria-metrics-scrape-redis-exporter-targets.json.j2
+      dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/redis_exporter_targets.json"
+      state: "{{ monitoring_server_victoria_metrics_scrape_redis_exporter }}"
 
 - name: Create Grafana config dirs
   when: monitoring_server_grafana_enabled

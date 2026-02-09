@@ -46,6 +46,18 @@ services:
     devices:
       - /dev/kmsg:/dev/kmsg
 {% endif %}
+{% if monitoring_agent_redis_exporter_enabled %}
+  redis_exporter:
+    image: {{ monitoring_agent_redis_exporter_image }}
+    container_name: redis_exporter
+    restart: "unless-stopped"
+    network_mode: host
+    environment:
+      REDIS_ADDR: "{{ monitoring_agent_redis_exporter_addr }}"
+{% if monitoring_agent_redis_exporter_password != "" %}
+      REDIS_PASSWORD: "{{ monitoring_agent_redis_exporter_password }}"
+{% endif %}
+{% endif %}
 {% if monitoring_agent_ipa_exporter_enabled %}
   ipa_exporter:
     image: {{ monitoring_agent_ipa_exporter_image }}
