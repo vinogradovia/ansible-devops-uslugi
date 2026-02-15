@@ -1,6 +1,13 @@
 ---
 # defaults file for monitoring-agent
 monitoring_agent_config_dir: /opt/monitoring-agent
+monitoring_agent_dist_dir: "{{ monitoring_agent_config_dir }}/dist"
+
+# docker, systemd
+monitoring_agent_orchestrator: docker
+
+monitoring_agent_systemd_unit_dir: /etc/systemd/system
+monitoring_agent_systemd_sysconfig_dir: /etc/sysconfig
 
 monitoring_agent_promtail_enabled: false
 monitoring_agent_promtail_config_dir: "{{ monitoring_agent_config_dir }}/promtail"
@@ -20,6 +27,9 @@ monitoring_agent_node_exporter_image_version: v1.10.2
 monitoring_agent_node_exporter_image: >-
   {{ monitoring_agent_node_exporter_image_registry }}/{{ monitoring_agent_node_exporter_image_repository }}:{{ monitoring_agent_node_exporter_image_version }}
 monitoring_agent_node_exporter_port: '9100'
+monitoring_agent_node_exporter_systemd_name: node_exporter
+monitoring_agent_node_exporter_binary_download_url: https://github.com/prometheus/node_exporter/releases/download/v1.10.2/node_exporter-1.10.2.linux-amd64.tar.gz
+monitoring_agent_node_exporter_binary_install_path: /usr/sbin/node_exporter
 
 monitoring_agent_docker_exporter_enabled: false
 monitoring_agent_docker_exporter_patch_docker: true
@@ -55,6 +65,9 @@ monitoring_agent_nginx_exporter_image: >-
   {{ monitoring_agent_nginx_exporter_image_registry }}/{{ monitoring_agent_nginx_exporter_image_repository }}:{{ monitoring_agent_nginx_exporter_image_version }}
 monitoring_agent_nginx_exporter_port: '9113'
 monitoring_agent_nginx_exporter_scrape_uri: "http://localhost:80/nginx_status"
+monitoring_agent_nginx_exporter_systemd_name: nginx_exporter
+monitoring_agent_nginx_exporter_binary_download_url: https://github.com/nginx/nginx-prometheus-exporter/releases/download/v1.5.0/nginx-prometheus-exporter_1.5.0_linux_amd64.tar.gz
+monitoring_agent_nginx_exporter_binary_install_path: /usr/sbin/nginx-prometheus-exporter
 
 monitoring_agent_nginxlog_exporter_enabled: false
 monitoring_agent_nginxlog_exporter_config_dir: "{{ monitoring_agent_config_dir }}/nginxlog-exporter"
@@ -65,29 +78,17 @@ monitoring_agent_nginxlog_exporter_image: >-
   {{ monitoring_agent_nginxlog_exporter_image_registry }}/{{ monitoring_agent_nginxlog_exporter_image_repository }}:{{ monitoring_agent_nginxlog_exporter_image_version }}
 monitoring_agent_nginxlog_exporter_port: '4040'
 monitoring_agent_nginxlog_exporter_log_dir: /var/log/nginx
-# формат лога nginx (должен совпадать с log_format в nginx.conf)
-# по умолчанию — стандартный combined формат nginx
-# для метрик по времени ответа добавьте в nginx log_format: rt=$request_time
-# и укажите формат: '$remote_addr - $remote_user [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent" rt=$request_time'
-monitoring_agent_nginxlog_exporter_format: >-
-  $remote_addr - $remote_user [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent"
-# список namespaces — для per-domain метрик, каждый элемент:
-#   name: имя namespace (будет лейблом vhost)
-#   source_files: список файлов логов
-#   format: (опционально) переопределить формат для этого namespace
-# пример:
-#   monitoring_agent_nginxlog_exporter_namespaces:
-#     - name: example-com
-#       source_files:
-#         - /mnt/nginxlogs/example.com-access.log
-#     - name: app-example-com
-#       source_files:
-#         - /mnt/nginxlogs/app.example.com-access.log
-#       format: '$remote_addr - $remote_user [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent" rt=$request_time uct="$upstream_connect_time" urt="$upstream_response_time"'
+monitoring_agent_nginxlog_exporter_format: >- # default format for nginx logs
+  $remote_addr - $remote_user [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent" 
 monitoring_agent_nginxlog_exporter_namespaces:
   - name: nginx
     source_files:
-      - /mnt/nginxlogs/access.log
+      - /var/log/nginx/access.log
+monitoring_agent_nginxlog_exporter_systemd_name: nginxlog_exporter
+
+monitoring_agent_nginxlog_exporter_log_group: adm # group for log directory
+monitoring_agent_nginxlog_exporter_binary_download_url: https://github.com/martin-helmich/prometheus-nginxlog-exporter/releases/download/v1.11.0/prometheus-nginxlog-exporter_1.11.0_linux_amd64.tar.gz
+monitoring_agent_nginxlog_exporter_binary_install_path: /usr/sbin/prometheus-nginxlog-exporter
 
 monitoring_agent_ipa_exporter_enabled: false
 monitoring_agent_ipa_exporter_image_registry: docker.io

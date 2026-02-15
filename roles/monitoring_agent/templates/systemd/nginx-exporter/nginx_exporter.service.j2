@@ -1,0 +1,10 @@
+[Unit]
+Description=Nginx Prometheus Exporter
+Requires={{ monitoring_agent_nginx_exporter_systemd_name }}.socket
+
+[Service]
+User={{ monitoring_agent_nginx_exporter_systemd_name }}
+ExecStart={{ monitoring_agent_nginx_exporter_binary_install_path }} --web.systemd-socket --nginx.scrape-uri={{ monitoring_agent_nginx_exporter_scrape_uri }}
+
+[Install]
+WantedBy=multi-user.target

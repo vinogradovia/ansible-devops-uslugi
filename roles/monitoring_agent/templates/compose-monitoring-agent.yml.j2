@@ -79,7 +79,7 @@ services:
       - "/etc/prometheus-nginxlog-exporter.hcl"
     volumes:
       - {{ monitoring_agent_nginxlog_exporter_config_dir }}/config.hcl:/etc/prometheus-nginxlog-exporter.hcl:ro
-      - {{ monitoring_agent_nginxlog_exporter_log_dir }}:/mnt/nginxlogs:ro
+      - {{ monitoring_agent_nginxlog_exporter_log_dir }}:{{ monitoring_agent_nginxlog_exporter_log_dir }}:ro
 {% endif %}
 {% if monitoring_agent_ipa_exporter_enabled %}
   ipa_exporter:
