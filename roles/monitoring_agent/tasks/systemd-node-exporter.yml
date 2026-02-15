@@ -1,0 +1,75 @@
+---
+
+- name: Install node-exporter
+  notify:
+    - Reload systemd daemon
+    - Restart service node-exporter
+  block:
+    - name: Add the user for node-exporter
+      ansible.builtin.user:
+        name: "{{ monitoring_agent_node_exporter_systemd_name }}"
+        create_home: false
+        shell: /bin/false
+        state: "{{ 'present' if monitoring_agent_node_exporter_enabled else 'absent' }}"
+
+    - name: Download node-exporter
+      ansible.builtin.get_url:
+        url: "{{ monitoring_agent_node_exporter_binary_download_url }}"
+        dest: "{{ monitoring_agent_dist_dir }}"
+        tmp_dest: "{{ monitoring_agent_dist_dir }}"
+        owner: root
+        group: root
+        mode: '0644'
+      register: monitoring_agent_node_exporter_binary_download_url_result
+
+    - name: Unarchive node-exporter
+      ansible.builtin.unarchive:
+        remote_src: true
+        src: "{{ monitoring_agent_node_exporter_binary_download_url_result.dest }}"
+        include:
+          - "*/node_exporter"
+        extra_opts:
+          - "--strip-component=1"
+          - "--wildcards"
+        dest: "{{ monitoring_agent_node_exporter_binary_install_path | dirname }}"
+
+- name: Configure service node-exporter
+  notify:
+    - Reload systemd daemon
+    - Restart service node-exporter
+  block:
+    - name: Render node-exporter systemd service
+      ansible.builtin.template:
+        src: "systemd/node-exporter/{{ monitoring_agent_node_exporter_systemd_name }}.service.j2"
+        dest: "{{ monitoring_agent_systemd_unit_dir }}/{{ monitoring_agent_node_exporter_systemd_name }}.service"
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Render node-exporter systemd socket
+      ansible.builtin.template:
+        src: "systemd/node-exporter/{{ monitoring_agent_node_exporter_systemd_name }}.socket.j2"
+        dest: "{{ monitoring_agent_systemd_unit_dir }}/{{ monitoring_agent_node_exporter_systemd_name }}.socket"
+        owner: root
+        group: root
+        mode: '0644'
+
+    # - name: Render node-exporter sysconfig
+    #   ansible.builtin.template:
+    #     src: "systemd/node-exporter/{{ monitoring_agent_node_exporter_systemd_name }}.socket.j2"
+    #     dest: "{{ monitoring_agent_systemd_sysconfig_dir }}/sysconfig.{{ monitoring_agent_node_exporter_systemd_name }}"
+    #     owner: root
+    #     group: root
+    #     mode: '0644'
+
+    - name: State service node-exporter.socket
+      ansible.builtin.systemd:
+        name: "{{ monitoring_agent_node_exporter_systemd_name }}.socket"
+        enabled: "{{ monitoring_agent_node_exporter_enabled }}"
+        state: "{{ 'started' if monitoring_agent_node_exporter_enabled else 'stopped' }}"
+
+    - name: State service node-exporter.socket
+      ansible.builtin.systemd:
+        name: "{{ monitoring_agent_node_exporter_systemd_name }}"
+        enabled: "{{ monitoring_agent_node_exporter_enabled }}"
+        state: "{{ 'started' if monitoring_agent_node_exporter_enabled else 'stopped' }}"
