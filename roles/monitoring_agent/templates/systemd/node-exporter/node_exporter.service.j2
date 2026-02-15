@@ -1,0 +1,13 @@
+[Unit]
+Description=Node Exporter
+Requires={{ monitoring_agent_node_exporter_systemd_name }}.socket
+
+[Service]
+User={{ monitoring_agent_node_exporter_systemd_name }}
+# Fallback when environment file does not exist
+# Environment=OPTIONS=
+# EnvironmentFile=-{{ monitoring_agent_systemd_sysconfig_dir }} /{{ monitoring_agent_node_exporter_systemd_name }}
+ExecStart={{ monitoring_agent_node_exporter_binary_install_path }} --web.systemd-socket $OPTIONS
+
+[Install]
+WantedBy=multi-user.target
