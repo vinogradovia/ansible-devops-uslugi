@@ -7,5 +7,5 @@
 
 - name: Include monitoring-server tasks
   ansible.builtin.include_tasks:
-    file: monitoring-server.yml
+    file: monitoring-server.docker.yml
   tags: debug
