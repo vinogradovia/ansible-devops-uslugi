@@ -38,6 +38,37 @@
         group: root
         mode: '0644'
 
+# nginxlog-exporter
+- name: Create nginxlog-exporter config dirs
+  when: monitoring_agent_nginxlog_exporter_enabled
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - "{{ monitoring_agent_nginxlog_exporter_config_dir }}"
+
+- name: Provisioning nginxlog-exporter config
+  block:
+    - name: Provisioning nginxlog-exporter config remove
+      when: not monitoring_agent_nginxlog_exporter_enabled
+      ansible.builtin.file:
+        owner: root
+        group: root
+        mode: '0644'
+        state: absent
+        dest: "{{ monitoring_agent_nginxlog_exporter_config_dir }}/config.hcl"
+    - name: Provisioning nginxlog-exporter config copy
+      when: monitoring_agent_nginxlog_exporter_enabled
+      ansible.builtin.template:
+        src: nginxlog-exporter-config.hcl.j2
+        dest: "{{ monitoring_agent_nginxlog_exporter_config_dir }}/config.hcl"
+        owner: root
+        group: root
+        mode: '0644'
+
 # docker-metrics
 - name: Patch docker daemon for metrics-addr
   when: monitoring_agent_docker_exporter_enabled and monitoring_agent_docker_exporter_patch_docker

@@ -47,6 +47,48 @@ monitoring_agent_redis_exporter_port: '9121'
 monitoring_agent_redis_exporter_addr: "redis://localhost:6379"
 monitoring_agent_redis_exporter_password: ""
 
+monitoring_agent_nginx_exporter_enabled: false
+monitoring_agent_nginx_exporter_image_registry: docker.io
+monitoring_agent_nginx_exporter_image_repository: nginx/nginx-prometheus-exporter
+monitoring_agent_nginx_exporter_image_version: "1.4.1"
+monitoring_agent_nginx_exporter_image: >-
+  {{ monitoring_agent_nginx_exporter_image_registry }}/{{ monitoring_agent_nginx_exporter_image_repository }}:{{ monitoring_agent_nginx_exporter_image_version }}
+monitoring_agent_nginx_exporter_port: '9113'
+monitoring_agent_nginx_exporter_scrape_uri: "http://localhost:80/nginx_status"
+
+monitoring_agent_nginxlog_exporter_enabled: false
+monitoring_agent_nginxlog_exporter_config_dir: "{{ monitoring_agent_config_dir }}/nginxlog-exporter"
+monitoring_agent_nginxlog_exporter_image_registry: quay.io
+monitoring_agent_nginxlog_exporter_image_repository: martinhelmich/prometheus-nginxlog-exporter
+monitoring_agent_nginxlog_exporter_image_version: "v1"
+monitoring_agent_nginxlog_exporter_image: >-
+  {{ monitoring_agent_nginxlog_exporter_image_registry }}/{{ monitoring_agent_nginxlog_exporter_image_repository }}:{{ monitoring_agent_nginxlog_exporter_image_version }}
+monitoring_agent_nginxlog_exporter_port: '4040'
+monitoring_agent_nginxlog_exporter_log_dir: /var/log/nginx
+# формат лога nginx (должен совпадать с log_format в nginx.conf)
+# по умолчанию — стандартный combined формат nginx
+# для метрик по времени ответа добавьте в nginx log_format: rt=$request_time
+# и укажите формат: '$remote_addr - $remote_user [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent" rt=$request_time'
+monitoring_agent_nginxlog_exporter_format: >-
+  $remote_addr - $remote_user [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent"
+# список namespaces — для per-domain метрик, каждый элемент:
+#   name: имя namespace (будет лейблом vhost)
+#   source_files: список файлов логов
+#   format: (опционально) переопределить формат для этого namespace
+# пример:
+#   monitoring_agent_nginxlog_exporter_namespaces:
+#     - name: example-com
+#       source_files:
+#         - /mnt/nginxlogs/example.com-access.log
+#     - name: app-example-com
+#       source_files:
+#         - /mnt/nginxlogs/app.example.com-access.log
+#       format: '$remote_addr - $remote_user [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent" rt=$request_time uct="$upstream_connect_time" urt="$upstream_response_time"'
+monitoring_agent_nginxlog_exporter_namespaces:
+  - name: nginx
+    source_files:
+      - /mnt/nginxlogs/access.log
+
 monitoring_agent_ipa_exporter_enabled: false
 monitoring_agent_ipa_exporter_image_registry: docker.io
 monitoring_agent_ipa_exporter_image_repository: kpaciu/freeipa-exporter

@@ -58,6 +58,29 @@ services:
       REDIS_PASSWORD: "{{ monitoring_agent_redis_exporter_password }}"
 {% endif %}
 {% endif %}
+{% if monitoring_agent_nginx_exporter_enabled %}
+  nginx_exporter:
+    image: {{ monitoring_agent_nginx_exporter_image }}
+    container_name: nginx_exporter
+    restart: "unless-stopped"
+    network_mode: host
+    command:
+      - "--nginx.scrape-uri={{ monitoring_agent_nginx_exporter_scrape_uri }}"
+      - "--web.listen-address=:{{ monitoring_agent_nginx_exporter_port }}"
+{% endif %}
+{% if monitoring_agent_nginxlog_exporter_enabled %}
+  nginxlog_exporter:
+    image: {{ monitoring_agent_nginxlog_exporter_image }}
+    container_name: nginxlog_exporter
+    restart: "unless-stopped"
+    network_mode: host
+    command:
+      - "-config-file"
+      - "/etc/prometheus-nginxlog-exporter.hcl"
+    volumes:
+      - {{ monitoring_agent_nginxlog_exporter_config_dir }}/config.hcl:/etc/prometheus-nginxlog-exporter.hcl:ro
+      - {{ monitoring_agent_nginxlog_exporter_log_dir }}:/mnt/nginxlogs:ro
+{% endif %}
 {% if monitoring_agent_ipa_exporter_enabled %}
   ipa_exporter:
     image: {{ monitoring_agent_ipa_exporter_image }}

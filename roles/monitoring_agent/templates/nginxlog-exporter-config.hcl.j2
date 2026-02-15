@@ -1,0 +1,22 @@
+listen {
+  port = {{ monitoring_agent_nginxlog_exporter_port }}
+  address = "0.0.0.0"
+}
+
+{% for ns in monitoring_agent_nginxlog_exporter_namespaces %}
+namespace "{{ ns.name }}" {
+  format = "{{ (ns.format | default(monitoring_agent_nginxlog_exporter_format)) | replace('"', '\\"') }}"
+
+  source {
+    files = [
+{% for file in ns.source_files %}
+      "{{ file }}"{{ "," if not loop.last else "" }}
+{% endfor %}
+    ]
+  }
+
+  metrics_override = { prefix = "nginxlog" }
+  namespace_label = "vhost"
+}
+
+{% endfor %}
