@@ -3,7 +3,7 @@
 
 - name: Include check-and-install-requirements tasks
   ansible.builtin.include_tasks:
-    file: check-and-install-requirements.yml
+    file: check-and-install-requirements.docker.yml
 
 - name: Include monitoring-server tasks
   ansible.builtin.include_tasks:
