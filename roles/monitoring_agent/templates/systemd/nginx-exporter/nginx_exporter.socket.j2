@@ -1,0 +1,8 @@
+[Unit]
+Description=Nginx Prometheus Exporter
+
+[Socket]
+ListenStream={{ monitoring_agent_nginx_exporter_port }}
+
+[Install]
+WantedBy=sockets.target

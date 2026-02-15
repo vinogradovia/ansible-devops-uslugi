@@ -62,6 +62,12 @@
     - src: victoria-metrics-scrape-redis-exporter-targets.json.j2
       dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/redis_exporter_targets.json"
       state: "{{ monitoring_server_victoria_metrics_scrape_redis_exporter }}"
+    - src: victoria-metrics-scrape-nginx-exporter-targets.json.j2
+      dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/nginx_exporter_targets.json"
+      state: "{{ monitoring_server_victoria_metrics_scrape_nginx_exporter }}"
+    - src: victoria-metrics-scrape-nginxlog-exporter-targets.json.j2
+      dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/nginxlog_exporter_targets.json"
+      state: "{{ monitoring_server_victoria_metrics_scrape_nginxlog_exporter }}"
 
 - name: Create Grafana config dirs
   when: monitoring_server_grafana_enabled

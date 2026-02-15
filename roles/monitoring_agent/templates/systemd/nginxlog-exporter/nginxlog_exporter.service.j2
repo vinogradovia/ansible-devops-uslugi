@@ -1,0 +1,11 @@
+[Unit]
+Description=Prometheus Nginxlog Exporter
+After=network.target
+
+[Service]
+User={{ monitoring_agent_nginxlog_exporter_systemd_name }}
+Group={{ monitoring_agent_nginxlog_exporter_systemd_name }}
+ExecStart={{ monitoring_agent_nginxlog_exporter_binary_install_path }} -config-file {{ monitoring_agent_nginxlog_exporter_config_dir }}/config.hcl
+
+[Install]
+WantedBy=multi-user.target
