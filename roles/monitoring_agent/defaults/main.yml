@@ -79,14 +79,14 @@ monitoring_agent_nginxlog_exporter_image: >-
 monitoring_agent_nginxlog_exporter_port: '4040'
 monitoring_agent_nginxlog_exporter_log_dir: /var/log/nginx
 monitoring_agent_nginxlog_exporter_format: >- # default format for nginx logs
-  $remote_addr - $remote_user [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent" 
+  $remote_addr - $remote_user [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent"
 monitoring_agent_nginxlog_exporter_namespaces:
   - name: nginx
     source_files:
       - /var/log/nginx/access.log
 monitoring_agent_nginxlog_exporter_systemd_name: nginxlog_exporter
 
-monitoring_agent_nginxlog_exporter_log_group: adm # group for log directory
+monitoring_agent_nginxlog_exporter_log_group: adm  # group for log directory
 monitoring_agent_nginxlog_exporter_binary_download_url: https://github.com/martin-helmich/prometheus-nginxlog-exporter/releases/download/v1.11.0/prometheus-nginxlog-exporter_1.11.0_linux_amd64.tar.gz
 monitoring_agent_nginxlog_exporter_binary_install_path: /usr/sbin/prometheus-nginxlog-exporter
 
