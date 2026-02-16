@@ -38,6 +38,37 @@
         group: root
         mode: '0644'
 
+# nginxlog-exporter config (needed for both docker and systemd)
+- name: Create nginxlog-exporter config dirs
+  when: monitoring_agent_nginxlog_exporter_enabled
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - "{{ monitoring_agent_nginxlog_exporter_config_dir }}"
+
+- name: Provisioning nginxlog-exporter config
+  block:
+    - name: Provisioning nginxlog-exporter config remove
+      when: not monitoring_agent_nginxlog_exporter_enabled
+      ansible.builtin.file:
+        owner: root
+        group: root
+        mode: '0644'
+        state: absent
+        dest: "{{ monitoring_agent_nginxlog_exporter_config_dir }}/config.hcl"
+    - name: Provisioning nginxlog-exporter config copy
+      when: monitoring_agent_nginxlog_exporter_enabled
+      ansible.builtin.template:
+        src: nginxlog-exporter-config.hcl.j2
+        dest: "{{ monitoring_agent_nginxlog_exporter_config_dir }}/config.hcl"
+        owner: root
+        group: root
+        mode: '0644'
+
 # monitoring-agent in docker
 - name: Block for monitoring_server_orchestrator docker
   when: monitoring_agent_orchestrator == "docker"
@@ -108,7 +139,7 @@
 - name: Block for monitoring_server_orchestrator systemd
   when: monitoring_agent_orchestrator == "systemd"
   block:
-    - name: Create monitoring-agent config dir
+    - name: Create monitoring-agent dist dir
       ansible.builtin.file:
         path: "{{ monitoring_agent_dist_dir }}"
         state: directory
@@ -120,3 +151,13 @@
       when: monitoring_agent_node_exporter_enabled
       ansible.builtin.include_tasks:
         file: systemd-node-exporter.yml
+
+    - name: Include systemd-nginx-exporter tasks
+      when: monitoring_agent_nginx_exporter_enabled
+      ansible.builtin.include_tasks:
+        file: systemd-nginx-exporter.yml
+
+    - name: Include systemd-nginxlog-exporter tasks
+      when: monitoring_agent_nginxlog_exporter_enabled
+      ansible.builtin.include_tasks:
+        file: systemd-nginxlog-exporter.yml

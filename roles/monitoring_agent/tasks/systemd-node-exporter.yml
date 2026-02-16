@@ -54,21 +54,13 @@
         group: root
         mode: '0644'
 
-    # - name: Render node-exporter sysconfig
-    #   ansible.builtin.template:
-    #     src: "systemd/node-exporter/{{ monitoring_agent_node_exporter_systemd_name }}.socket.j2"
-    #     dest: "{{ monitoring_agent_systemd_sysconfig_dir }}/sysconfig.{{ monitoring_agent_node_exporter_systemd_name }}"
-    #     owner: root
-    #     group: root
-    #     mode: '0644'
-
     - name: State service node-exporter.socket
       ansible.builtin.systemd:
         name: "{{ monitoring_agent_node_exporter_systemd_name }}.socket"
         enabled: "{{ monitoring_agent_node_exporter_enabled }}"
         state: "{{ 'started' if monitoring_agent_node_exporter_enabled else 'stopped' }}"
 
-    - name: State service node-exporter.socket
+    - name: State service node-exporter
       ansible.builtin.systemd:
         name: "{{ monitoring_agent_node_exporter_systemd_name }}"
         enabled: "{{ monitoring_agent_node_exporter_enabled }}"

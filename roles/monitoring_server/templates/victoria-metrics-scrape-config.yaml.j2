@@ -29,3 +29,15 @@ scrape_configs:
       - files:
           - redis_exporter_targets.json
 {% endif %}
+{% if monitoring_server_victoria_metrics_scrape_nginx_exporter %}
+  - job_name: nginx-exporter
+    file_sd_configs:
+      - files:
+          - nginx_exporter_targets.json
+{% endif %}
+{% if monitoring_server_victoria_metrics_scrape_nginxlog_exporter %}
+  - job_name: nginxlog-exporter
+    file_sd_configs:
+      - files:
+          - nginxlog_exporter_targets.json
+{% endif %}
