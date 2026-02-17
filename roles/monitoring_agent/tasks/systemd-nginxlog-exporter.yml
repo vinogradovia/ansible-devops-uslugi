@@ -1,0 +1,52 @@
+---
+
+- name: Install nginxlog-exporter
+  notify:
+    - Reload systemd daemon
+    - Restart service nginxlog-exporter
+  block:
+    - name: Add the user for nginxlog-exporter
+      ansible.builtin.user:
+        name: "{{ monitoring_agent_nginxlog_exporter_systemd_name }}"
+        create_home: false
+        shell: /bin/false
+        groups: "{{ monitoring_agent_nginxlog_exporter_log_group }}"
+        append: true
+        state: "{{ 'present' if monitoring_agent_nginxlog_exporter_enabled else 'absent' }}"
+
+    - name: Download nginxlog-exporter
+      ansible.builtin.get_url:
+        url: "{{ monitoring_agent_nginxlog_exporter_binary_download_url }}"
+        dest: "{{ monitoring_agent_dist_dir }}"
+        tmp_dest: "{{ monitoring_agent_dist_dir }}"
+        owner: root
+        group: root
+        mode: '0644'
+      register: monitoring_agent_nginxlog_exporter_binary_download_url_result
+
+    - name: Unarchive nginxlog-exporter
+      ansible.builtin.unarchive:
+        remote_src: true
+        src: "{{ monitoring_agent_nginxlog_exporter_binary_download_url_result.dest }}"
+        include:
+          - "prometheus-nginxlog-exporter"
+        dest: "{{ monitoring_agent_nginxlog_exporter_binary_install_path | dirname }}"
+
+- name: Configure service nginxlog-exporter
+  notify:
+    - Reload systemd daemon
+    - Restart service nginxlog-exporter
+  block:
+    - name: Render nginxlog-exporter systemd service
+      ansible.builtin.template:
+        src: "systemd/nginxlog-exporter/{{ monitoring_agent_nginxlog_exporter_systemd_name }}.service.j2"
+        dest: "{{ monitoring_agent_systemd_unit_dir }}/{{ monitoring_agent_nginxlog_exporter_systemd_name }}.service"
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: State service nginxlog-exporter
+      ansible.builtin.systemd:
+        name: "{{ monitoring_agent_nginxlog_exporter_systemd_name }}"
+        enabled: "{{ monitoring_agent_nginxlog_exporter_enabled }}"
+        state: "{{ 'started' if monitoring_agent_nginxlog_exporter_enabled else 'stopped' }}"

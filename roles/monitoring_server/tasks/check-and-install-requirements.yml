@@ -1,7 +1,0 @@
----
-
-- name: Fail if using default_passwors
-  ansible.builtin.fail:
-    msg: "Error, change monitoring_server_grafana_security_admin_password"
-  when: monitoring_server_grafana_security_admin_password == monitoring_server_default_password
-  # ignore_errors: True
