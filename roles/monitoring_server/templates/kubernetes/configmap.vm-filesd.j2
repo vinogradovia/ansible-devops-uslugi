@@ -1,0 +1,9 @@
+---
+apiVersion: v1
+data:
+  data.json: |
+    {% macro someop() %}{% include monitoring_server_victoria_metrics_exporters_target_item.src %}{% endmacro %}{{ someop()|indent }}
+kind: ConfigMap
+metadata:
+  name: vm-filesd-{{ monitoring_server_victoria_metrics_exporters_target_item.name }}
+  namespace: {{ monitoring_server_kubernetes_namespace }}
