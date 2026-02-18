@@ -1,17 +1,60 @@
 ---
-- name: Provisioning victoria-metrics node_exporter_targets remove
-  when: not monitoring_server_victoria_metrics_exporters_target_item.state
-  ansible.builtin.file:
-    owner: root
-    group: root
-    mode: '0644'
-    state: absent
-    dest: "{{ monitoring_server_victoria_metrics_exporters_target_item.dest }}"
-- name: Provisioning node_exporter_targets
-  when: monitoring_server_victoria_metrics_enabled and monitoring_server_victoria_metrics_exporters_target_item.state
-  ansible.builtin.template:
-    src: "{{ monitoring_server_victoria_metrics_exporters_target_item.src }}"
-    dest: "{{ monitoring_server_victoria_metrics_exporters_target_item.dest }}"
-    owner: root
-    group: root
-    mode: '0644'
+- name: Block for monitoring_server_orchestrator docker
+  when: monitoring_server_orchestrator == 'docker'
+  block:
+    - name: Provisioning victoria-metrics node_exporter_targets remove
+      when: not monitoring_server_victoria_metrics_exporters_target_item.state
+      ansible.builtin.file:
+        owner: root
+        group: root
+        mode: '0644'
+        state: absent
+        dest: "{{ monitoring_server_victoria_metrics_exporters_target_item.dest }}"
+    - name: Provisioning node_exporter_targets
+      when: monitoring_server_victoria_metrics_enabled and monitoring_server_victoria_metrics_exporters_target_item.state
+      ansible.builtin.template:
+        src: "{{ monitoring_server_victoria_metrics_exporters_target_item.src }}"
+        dest: "{{ monitoring_server_victoria_metrics_exporters_target_item.dest }}"
+        owner: root
+        group: root
+        mode: '0644'
+
+- name: Block for monitoring_server_orchestrator k3s
+  when: monitoring_server_orchestrator == 'k3s' and monitoring_server_victoria_metrics_exporters_target_item.state
+  delegate_to: localhost
+  delegate_facts: true
+  become: false
+  run_once: true
+  block:
+    - name: Create tmpfile ConfigMap vm-filesd for {{ monitoring_server_victoria_metrics_exporters_target_item.name }}
+      ansible.builtin.tempfile:
+        # path:
+        prefix: ansible-vm-filesd-
+      register: monitoring_server_tempfile_vm_filesd
+      check_mode: false
+      changed_when: false
+
+    - name: Render ConfigMap vm-filesd for {{ monitoring_server_victoria_metrics_exporters_target_item.name }}
+      changed_when: false
+      ansible.builtin.template:
+        src: "kubernetes/configmap.vm-filesd.j2"
+        dest: "{{ monitoring_server_tempfile_vm_filesd.path }}"
+        mode: '0644'
+
+    - name: Deploy ConfigMap vm-filesd for {{ monitoring_server_victoria_metrics_exporters_target_item.name }}
+      kubernetes.core.k8s:
+        # state: "{{ 'present' if monitoring_server_victoria_metrics_exporters_target_item.state else 'absent' }}"
+        state: present
+        kubeconfig: "{{ monitoring_server_orchestrator_context.dest }}"
+        src: "{{ monitoring_server_tempfile_vm_filesd.path }}"
+        # template: тут не работал inslude внутри шаблона
+
+    - name: Delete tmpfile ConfigMap vm-filesd for {{ monitoring_server_victoria_metrics_exporters_target_item.name }}
+      ansible.builtin.file:
+        # owner: root
+        # group: root
+        # mode: '0644'
+        state: absent
+        dest: "{{ monitoring_server_tempfile_vm_filesd.path }}"
+      check_mode: false
+      changed_when: false

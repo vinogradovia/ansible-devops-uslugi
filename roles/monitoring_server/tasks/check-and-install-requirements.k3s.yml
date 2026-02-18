@@ -1,0 +1,18 @@
+---
+- name: Check helmwave command
+  delegate_to: localhost
+  become: false
+  ansible.builtin.command: helmwave --version
+  register: monitoring_server_helmwave_version_check
+  check_mode: false
+  changed_when: false
+  ignore_errors: true
+
+- name: Stop if helmwave command run with error
+  delegate_to: localhost
+  become: false
+  ansible.builtin.fail:
+    msg: >-
+      Command 'helmwave --version' run with error: {{ monitoring_server_helmwave_version_check.rc }}
+      Please, install helmwave manualy
+  when: monitoring_server_helmwave_version_check.rc !=0

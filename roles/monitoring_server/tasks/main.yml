@@ -1,11 +1,55 @@
 ---
 # tasks file for monitoring-server
 
-- name: Include check-and-install-requirements tasks
+- name: Run checks for monitoring_server_orchestrator docker
   ansible.builtin.include_tasks:
     file: check-and-install-requirements.docker.yml
 
-- name: Include monitoring-server tasks
+- name: Run checks for monitoring_server_orchestrator k3s
+  when: monitoring_server_orchestrator == 'k3s'
+  ansible.builtin.include_tasks:
+    file: check-and-install-requirements.k3s.yml
+
+- name: Include tasks for monitoring_server_orchestrator docker
+  when: monitoring_server_orchestrator == 'docker'
   ansible.builtin.include_tasks:
     file: monitoring-server.docker.yml
-  tags: debug
+
+- name: Include tasks for monitoring_server_orchestrator k3s
+  when: monitoring_server_orchestrator == 'k3s'
+  ansible.builtin.include_tasks:
+    file: monitoring-server.k3s.yml
+
+- name: Provisioning victoria-metrics exporters scrape_config/targets
+  ansible.builtin.include_tasks: victoria-metrics-provisioning-exporter-targets.yaml
+  loop_control:
+    loop_var: monitoring_server_victoria_metrics_exporters_target_item
+  with_items:
+    - src: victoria-metrics-scrape-node-exporter-targets.json.j2
+      dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/node_exporter_targets.json"
+      state: "{{ monitoring_server_victoria_metrics_scrape_node_exporter }}"
+      name: node-exporter
+    - src: victoria-metrics-scrape-docker-exporter-targets.json.j2
+      dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/docker_exporter_targets.json"
+      state: "{{ monitoring_server_victoria_metrics_scrape_docker_exporter }}"
+      name: docker-exporter
+    - src: victoria-metrics-scrape-cadvisor-targets.json.j2
+      dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/cadvisor_targets.json"
+      state: "{{ monitoring_server_victoria_metrics_scrape_cadvisor }}"
+      name: cadvisor
+    - src: victoria-metrics-scrape-ipa-exporter-targets.json.j2
+      dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/ipa_exporter_targets.json"
+      state: "{{ monitoring_server_victoria_metrics_scrape_ipa_exporter }}"
+      name: ipa-exporter
+    - src: victoria-metrics-scrape-redis-exporter-targets.json.j2
+      dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/redis_exporter_targets.json"
+      state: "{{ monitoring_server_victoria_metrics_scrape_redis_exporter }}"
+      name: redis-exporter
+    - src: victoria-metrics-scrape-nginx-exporter-targets.json.j2
+      dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/nginx_exporter_targets.json"
+      state: "{{ monitoring_server_victoria_metrics_scrape_nginx_exporter }}"
+      name: nginx-exporter
+    - src: victoria-metrics-scrape-nginxlog-exporter-targets.json.j2
+      dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/nginxlog_exporter_targets.json"
+      state: "{{ monitoring_server_victoria_metrics_scrape_nginxlog_exporter }}"
+      name: nginxlog-exporter

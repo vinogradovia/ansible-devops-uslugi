@@ -1,6 +1,8 @@
 ---
 # defaults file for reverse-proxy-traefik
 
+reverse_proxy_traefik_enabled: true
+
 reverse_proxy_traefik_config_dir: /opt/reverse-proxy-traefik
 reverse_proxy_traefik_image_name: "traefik"
 reverse_proxy_traefik_image_version: "v3.6.7"

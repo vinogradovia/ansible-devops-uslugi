@@ -16,6 +16,8 @@ tags:
 dependencies:
   community.general: ">=12.2.0"
   community.docker: ">=5.0.0"
+  kubernetes.core: ">=6.2.0"
+  # xanmanning.k3s: ">=v3.6.2"
 
 repository: https://github.com/vinogradovia/devops-uslugi
 documentation: https://github.com/vinogradovia/devops-uslugi

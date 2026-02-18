@@ -1,11 +1,8 @@
-{% set monitoring_server_victoria_metrics_scrape_cadvisor_targets=[] %}
-{%  for host in groups['monitoring_agents'] -%}
-{% if hostvars[host].get('monitoring_agent_cadvisor_enabled', false) %}
-{{ monitoring_server_victoria_metrics_scrape_cadvisor_targets.append(hostvars[host]['ansible_facts']['default_ipv4']['address'] + ':' + (monitoring_agent_cadvisor_port | default(monitoring_server_victoria_metrics_scrape_cadvisor_port_default) | string ) ) }}
-{% endif %}
-{% endfor %}
-[
-    {
-        "targets": {{ monitoring_server_victoria_metrics_scrape_cadvisor_targets | to_json }}
-    }
-]
+{%- set monitoring_server_victoria_metrics_scrape_cadvisor_targets=[] %}
+{%- for host in groups['monitoring_agents'] -%}
+{%- if hostvars[host].get('monitoring_agent_cadvisor_enabled', false) %}
+{%- set targethost = hostvars[host].get('ansible_host', host)  %}
+{{ monitoring_server_victoria_metrics_scrape_cadvisor_targets.append(targethost + ':' + (monitoring_agent_cadvisor_port | default(monitoring_server_victoria_metrics_scrape_cadvisor_port_default) | string ) ) }}
+{%- endif %}
+{%- endfor %}
+{{ [{"targets": monitoring_server_victoria_metrics_scrape_cadvisor_targets}] | to_nice_json }}
