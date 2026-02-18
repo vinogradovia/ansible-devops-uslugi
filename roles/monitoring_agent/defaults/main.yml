@@ -67,7 +67,7 @@ monitoring_agent_nginx_exporter_image_version: "1.4.1"
 monitoring_agent_nginx_exporter_image: >-
   {{ monitoring_agent_nginx_exporter_image_registry }}/{{ monitoring_agent_nginx_exporter_image_repository }}:{{ monitoring_agent_nginx_exporter_image_version }}
 monitoring_agent_nginx_exporter_port: '9113'
-monitoring_agent_nginx_exporter_scrape_uri: "http://localhost:8012/basic_status"
+monitoring_agent_nginx_exporter_scrape_uri: ""  # for example "http://localhost:80/basic_status", use stub for it
 monitoring_agent_nginx_exporter_systemd_name: nginx_exporter
 monitoring_agent_nginx_exporter_binary_download_url: https://github.com/nginx/nginx-prometheus-exporter/releases/download/v1.5.0/nginx-prometheus-exporter_1.5.0_linux_amd64.tar.gz
 monitoring_agent_nginx_exporter_binary_install_path: /usr/sbin/nginx-prometheus-exporter
