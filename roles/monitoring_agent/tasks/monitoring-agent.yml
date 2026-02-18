@@ -51,6 +51,8 @@
     - "{{ monitoring_agent_nginxlog_exporter_config_dir }}"
 
 - name: Provisioning nginxlog-exporter config
+  notify:
+    - Restart service nginxlog-exporter
   block:
     - name: Provisioning nginxlog-exporter config remove
       when: not monitoring_agent_nginxlog_exporter_enabled
