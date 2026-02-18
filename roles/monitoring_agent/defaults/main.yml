@@ -56,6 +56,9 @@ monitoring_agent_redis_exporter_image: >-
 monitoring_agent_redis_exporter_port: '9121'
 monitoring_agent_redis_exporter_addr: "redis://localhost:6379"
 monitoring_agent_redis_exporter_password: ""
+monitoring_agent_redis_exporter_systemd_name: redis_exporter
+monitoring_agent_redis_exporter_binary_download_url: https://github.com/oliver006/redis_exporter/releases/download/v1.81.0/redis_exporter-v1.81.0.linux-amd64.tar.gz
+monitoring_agent_redis_exporter_binary_install_path: /usr/sbin/redis_exporter
 
 monitoring_agent_nginx_exporter_enabled: false
 monitoring_agent_nginx_exporter_image_registry: docker.io
