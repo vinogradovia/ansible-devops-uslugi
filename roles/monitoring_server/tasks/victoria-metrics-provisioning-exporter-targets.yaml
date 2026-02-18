@@ -39,8 +39,6 @@
       ansible.builtin.template:
         src: "kubernetes/configmap.vm-filesd.j2"
         dest: "{{ monitoring_server_tempfile_vm_filesd.path }}"
-        owner: vinogradov
-        group: vinogradov
         mode: '0644'
 
     - name: Deploy ConfigMap vm-filesd for {{ monitoring_server_victoria_metrics_exporters_target_item.name }}
