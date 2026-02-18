@@ -152,6 +152,11 @@
       ansible.builtin.include_tasks:
         file: systemd-node-exporter.yml
 
+    - name: Include systemd-redis-exporter tasks
+      when: monitoring_agent_redis_exporter_enabled
+      ansible.builtin.include_tasks:
+        file: systemd-redis-exporter.yml
+
     - name: Include systemd-nginx-exporter tasks
       when: monitoring_agent_nginx_exporter_enabled
       ansible.builtin.include_tasks:
