@@ -11,3 +11,4 @@ all:
           monitoring_agent_redis_exporter_enabled: true
           monitoring_agent_nginx_exporter_enabled: true
           monitoring_agent_nginxlog_exporter_enabled: true
+          monitoring_agent_nginxlog_exporter_parser: "json"
