@@ -86,9 +86,9 @@ monitoring_agent_nginxlog_exporter_format: >- # default format for nginx logs (i
   $remote_addr - $remote_user [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent"
 monitoring_agent_nginxlog_exporter_namespaces: []
 # example:
-# - name: moon.ru
+# - name: example.com
 #   source_files:
-#     - /var/log/nginx/json_access.log
+#     - /var/log/nginx/example-access.log
 monitoring_agent_nginxlog_exporter_systemd_name: nginxlog_exporter
 monitoring_agent_nginxlog_exporter_metrics_prefix: "nginx"
 
