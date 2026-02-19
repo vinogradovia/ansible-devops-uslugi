@@ -104,3 +104,6 @@ monitoring_agent_ipa_exporter_hosts: ""  # "host1.example.com host2.example.com"
 monitoring_agent_ipa_exporter_domain: ""  # only domain, not FQDN
 monitoring_agent_ipa_exporter_user: ""  # for example, uid=user,cn=users,cn=accounts,dc=example,dc=com
 monitoring_agent_ipa_exporter_password: ""
+monitoring_agent_ipa_exporter_systemd_name: ipa_exporter
+monitoring_agent_ipa_exporter_binary_download_url: https://github.com/vinogradovia/ansible-devops-uslugi/releases/download/v1.0.0/freeipa-exporter-1.0.0.linux-amd64.tar.gz
+monitoring_agent_ipa_exporter_binary_install_path: /usr/sbin/freeipa-exporter
