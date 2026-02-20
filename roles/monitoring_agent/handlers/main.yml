@@ -43,3 +43,9 @@
     name: "{{ monitoring_agent_nginxlog_exporter_systemd_name }}"
     enabled: "{{ monitoring_agent_nginxlog_exporter_enabled }}"
     state: restarted
+
+- name: Restart service ipa-exporter
+  ansible.builtin.systemd:
+    name: "{{ monitoring_agent_ipa_exporter_systemd_name }}"
+    enabled: "{{ monitoring_agent_ipa_exporter_enabled }}"
+    state: restarted

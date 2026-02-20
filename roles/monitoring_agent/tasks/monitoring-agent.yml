@@ -168,3 +168,8 @@
       when: monitoring_agent_nginxlog_exporter_enabled
       ansible.builtin.include_tasks:
         file: systemd-nginxlog-exporter.yml
+
+    - name: Include systemd-ipa-exporter tasks
+      when: monitoring_agent_ipa_exporter_enabled
+      ansible.builtin.include_tasks:
+        file: systemd-ipa-exporter.yml
