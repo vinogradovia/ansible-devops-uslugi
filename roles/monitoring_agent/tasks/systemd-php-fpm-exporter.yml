@@ -1,0 +1,52 @@
+---
+
+- name: Install php-fpm-exporter
+  notify:
+    - Reload systemd daemon
+    - Restart service php-fpm-exporter
+  block:
+    - name: Add the user for php-fpm-exporter
+      ansible.builtin.user:
+        name: "{{ monitoring_agent_php_fpm_exporter_systemd_name }}"
+        groups: "{{ monitoring_agent_php_fpm_exporter_socket_group }}"
+        append: true
+        create_home: false
+        shell: /bin/false
+        state: "{{ 'present' if monitoring_agent_php_fpm_exporter_enabled else 'absent' }}"
+
+    - name: Download php-fpm-exporter
+      ansible.builtin.get_url:
+        url: "{{ monitoring_agent_php_fpm_exporter_binary_download_url }}"
+        dest: "{{ monitoring_agent_dist_dir }}"
+        tmp_dest: "{{ monitoring_agent_dist_dir }}"
+        owner: root
+        group: root
+        mode: '0644'
+      register: monitoring_agent_php_fpm_exporter_binary_download_url_result
+
+    - name: Unarchive php-fpm-exporter
+      ansible.builtin.unarchive:
+        remote_src: true
+        src: "{{ monitoring_agent_php_fpm_exporter_binary_download_url_result.dest }}"
+        include:
+          - "php-fpm_exporter"
+        dest: "{{ monitoring_agent_php_fpm_exporter_binary_install_path | dirname }}"
+
+- name: Configure service php-fpm-exporter
+  notify:
+    - Reload systemd daemon
+    - Restart service php-fpm-exporter
+  block:
+    - name: Render php-fpm-exporter systemd service
+      ansible.builtin.template:
+        src: "systemd/php-fpm-exporter/{{ monitoring_agent_php_fpm_exporter_systemd_name }}.service.j2"
+        dest: "{{ monitoring_agent_systemd_unit_dir }}/{{ monitoring_agent_php_fpm_exporter_systemd_name }}.service"
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: State service php-fpm-exporter
+      ansible.builtin.systemd:
+        name: "{{ monitoring_agent_php_fpm_exporter_systemd_name }}"
+        enabled: "{{ monitoring_agent_php_fpm_exporter_enabled }}"
+        state: "{{ 'started' if monitoring_agent_php_fpm_exporter_enabled else 'stopped' }}"

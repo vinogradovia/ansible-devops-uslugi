@@ -81,6 +81,17 @@ services:
       - {{ monitoring_agent_nginxlog_exporter_config_dir }}/config.hcl:/etc/prometheus-nginxlog-exporter.hcl:ro
       - {{ monitoring_agent_nginxlog_exporter_log_dir }}:{{ monitoring_agent_nginxlog_exporter_log_dir }}:ro
 {% endif %}
+{% if monitoring_agent_php_fpm_exporter_enabled %}
+  php_fpm_exporter:
+    image: {{ monitoring_agent_php_fpm_exporter_image }}
+    container_name: php_fpm_exporter
+    restart: "unless-stopped"
+    network_mode: host
+    command:
+      - "server"
+      - "--phpfpm.scrape-uri={{ monitoring_agent_php_fpm_exporter_scrape_uri }}"
+      - "--web.listen-address=:{{ monitoring_agent_php_fpm_exporter_port }}"
+{% endif %}
 {% if monitoring_agent_ipa_exporter_enabled %}
   ipa_exporter:
     image: {{ monitoring_agent_ipa_exporter_image }}

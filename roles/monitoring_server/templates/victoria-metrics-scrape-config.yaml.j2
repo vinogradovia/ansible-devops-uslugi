@@ -35,6 +35,12 @@ scrape_configs:
       - files:
           - nginx_exporter_targets.json
 {% endif %}
+{% if monitoring_server_victoria_metrics_scrape_php_fpm_exporter %}
+  - job_name: php-fpm-exporter
+    file_sd_configs:
+      - files:
+          - php_fpm_exporter_targets.json
+{% endif %}
 {% if monitoring_server_victoria_metrics_scrape_nginxlog_exporter %}
   - job_name: nginxlog-exporter
     file_sd_configs:

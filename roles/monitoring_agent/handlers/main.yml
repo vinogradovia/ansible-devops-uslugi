@@ -44,6 +44,12 @@
     enabled: "{{ monitoring_agent_nginxlog_exporter_enabled }}"
     state: restarted
 
+- name: Restart service php-fpm-exporter
+  ansible.builtin.systemd:
+    name: "{{ monitoring_agent_php_fpm_exporter_systemd_name }}"
+    enabled: "{{ monitoring_agent_php_fpm_exporter_enabled }}"
+    state: restarted
+
 - name: Restart service ipa-exporter
   ansible.builtin.systemd:
     name: "{{ monitoring_agent_ipa_exporter_systemd_name }}"
