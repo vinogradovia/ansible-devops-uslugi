@@ -49,6 +49,10 @@
       dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/nginx_exporter_targets.json"
       state: "{{ monitoring_server_victoria_metrics_scrape_nginx_exporter }}"
       name: nginx-exporter
+    - src: victoria-metrics-scrape-php-fpm-exporter-targets.json.j2
+      dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/php_fpm_exporter_targets.json"
+      state: "{{ monitoring_server_victoria_metrics_scrape_php_fpm_exporter }}"
+      name: php-fpm-exporter
     - src: victoria-metrics-scrape-nginxlog-exporter-targets.json.j2
       dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/nginxlog_exporter_targets.json"
       state: "{{ monitoring_server_victoria_metrics_scrape_nginxlog_exporter }}"

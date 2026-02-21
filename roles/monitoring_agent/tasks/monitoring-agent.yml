@@ -169,6 +169,11 @@
       ansible.builtin.include_tasks:
         file: systemd-nginxlog-exporter.yml
 
+    - name: Include systemd-php-fpm-exporter tasks
+      when: monitoring_agent_php_fpm_exporter_enabled
+      ansible.builtin.include_tasks:
+        file: systemd-php-fpm-exporter.yml
+
     - name: Include systemd-ipa-exporter tasks
       when: monitoring_agent_ipa_exporter_enabled
       ansible.builtin.include_tasks:
