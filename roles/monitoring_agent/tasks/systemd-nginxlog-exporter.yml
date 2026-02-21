@@ -37,6 +37,22 @@
     - Reload systemd daemon
     - Restart service nginxlog-exporter
   block:
+    - name: Create nginxlog-exporter config directory
+      ansible.builtin.file:
+        path: "{{ monitoring_agent_nginxlog_exporter_config_dir }}"
+        state: directory
+        owner: "{{ monitoring_agent_nginxlog_exporter_systemd_name }}"
+        group: "{{ monitoring_agent_nginxlog_exporter_systemd_name }}"
+        mode: '0755'
+
+    - name: Render nginxlog-exporter config
+      ansible.builtin.template:
+        src: "nginxlog-exporter-config.hcl.j2"
+        dest: "{{ monitoring_agent_nginxlog_exporter_config_dir }}/config.hcl"
+        owner: "{{ monitoring_agent_nginxlog_exporter_systemd_name }}"
+        group: "{{ monitoring_agent_nginxlog_exporter_systemd_name }}"
+        mode: '0644'
+
     - name: Render nginxlog-exporter systemd service
       ansible.builtin.template:
         src: "systemd/nginxlog-exporter/{{ monitoring_agent_nginxlog_exporter_systemd_name }}.service.j2"
