@@ -57,3 +57,7 @@
       dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/nginxlog_exporter_targets.json"
       state: "{{ monitoring_server_victoria_metrics_scrape_nginxlog_exporter }}"
       name: nginxlog-exporter
+    - src: victoria-metrics-scrape-mysqld-exporter-targets.json.j2
+      dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/mysqld_exporter_targets.json"
+      state: "{{ monitoring_server_victoria_metrics_scrape_mysqld_exporter }}"
+      name: mysqld-exporter
