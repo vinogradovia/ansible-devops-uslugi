@@ -1,0 +1,29 @@
+---
+# pve-exporter
+
+- name: Block monitoring_agent_pve_exporter_enabled
+  when: monitoring_agent_pve_exporter_enabled
+  block:
+    - name: Create Promtail config dirs
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      loop:
+        - "{{ monitoring_agent_pve_exporter_config_dir }}"
+
+    - name: Render pve.yml for pve-exporter
+      register: monitoring_agent_pve_exporter_pve_yml_stat
+      ansible.builtin.template:
+        src: exporters/pve-exporter/pve.yml.j2
+        dest: "{{ monitoring_agent_pve_exporter_config_dir }}/pve.yml"
+        owner: root
+        group: root
+        mode: '0644'
+
+- name: Include systemd-pve-exporter tasks
+  when: monitoring_agent_orchestrator == "systemd"
+  ansible.builtin.include_tasks:
+    file: systemd-pve-exporter.yml

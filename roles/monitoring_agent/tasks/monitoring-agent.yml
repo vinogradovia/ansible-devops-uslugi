@@ -1,5 +1,4 @@
 ---
-
 - name: Create monitoring-agent config dir
   ansible.builtin.file:
     path: "{{ monitoring_agent_config_dir }}"
@@ -152,6 +151,9 @@
 - name: Block for monitoring_server_orchestrator systemd
   when: monitoring_agent_orchestrator == "systemd"
   block:
+    - name: Populate service facts
+      ansible.builtin.service_facts:
+
     - name: Create monitoring-agent dist dir
       ansible.builtin.file:
         path: "{{ monitoring_agent_dist_dir }}"
@@ -194,3 +196,9 @@
       when: monitoring_agent_mysqld_exporter_enabled
       ansible.builtin.include_tasks:
         file: systemd-mysqld-exporter.yml
+
+# New Style of Exporters Definotions
+# pve_exporter
+- name: Include pve-exporter tasks
+  ansible.builtin.include_tasks:
+    file: exporters-pve-exporter.yml
