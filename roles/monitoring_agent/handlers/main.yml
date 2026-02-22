@@ -55,3 +55,9 @@
     name: "{{ monitoring_agent_ipa_exporter_systemd_name }}"
     enabled: "{{ monitoring_agent_ipa_exporter_enabled }}"
     state: restarted
+
+- name: Restart service mysqld-exporter
+  ansible.builtin.systemd:
+    name: "{{ monitoring_agent_mysqld_exporter_systemd_name }}"
+    enabled: "{{ monitoring_agent_mysqld_exporter_enabled }}"
+    state: restarted

@@ -123,3 +123,17 @@ monitoring_agent_ipa_exporter_password: ""
 monitoring_agent_ipa_exporter_systemd_name: ipa_exporter
 monitoring_agent_ipa_exporter_binary_download_url: https://github.com/vinogradovia/ansible-devops-uslugi/releases/download/v1.0.0/freeipa-exporter-1.0.0.linux-amd64.tar.gz
 monitoring_agent_ipa_exporter_binary_install_path: /usr/sbin/freeipa-exporter
+
+monitoring_agent_mysqld_exporter_enabled: false
+monitoring_agent_mysqld_exporter_image_registry: docker.io
+monitoring_agent_mysqld_exporter_image_repository: prom/mysqld-exporter
+monitoring_agent_mysqld_exporter_image_version: "v0.18.0"
+monitoring_agent_mysqld_exporter_image: >-
+  {{ monitoring_agent_mysqld_exporter_image_registry }}/{{ monitoring_agent_mysqld_exporter_image_repository }}:{{ monitoring_agent_mysqld_exporter_image_version }}
+monitoring_agent_mysqld_exporter_port: '9104'
+monitoring_agent_mysqld_exporter_hosts: "127.0.0.1"
+monitoring_agent_mysqld_exporter_user: "mysql-exporter"
+monitoring_agent_mysqld_exporter_password: ""
+monitoring_agent_mysqld_exporter_systemd_name: mysqld_exporter
+monitoring_agent_mysqld_exporter_binary_download_url: https://github.com/prometheus/mysqld_exporter/releases/download/v0.18.0/mysqld_exporter-0.18.0.linux-amd64.tar.gz
+monitoring_agent_mysqld_exporter_binary_install_path: /usr/sbin/mysqld_exporter

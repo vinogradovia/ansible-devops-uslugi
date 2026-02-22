@@ -1,0 +1,56 @@
+---
+
+- name: Install mysqld-exporter
+  notify:
+    - Reload systemd daemon
+    - Restart service mysqld-exporter
+  block:
+    - name: Add the user for mysqld-exporter
+      ansible.builtin.user:
+        name: "{{ monitoring_agent_mysqld_exporter_systemd_name }}"
+        create_home: false
+        shell: /bin/false
+        state: "{{ 'present' if monitoring_agent_mysqld_exporter_enabled else 'absent' }}"
+
+    - name: Download mysqld-exporter
+      ansible.builtin.get_url:
+        url: "{{ monitoring_agent_mysqld_exporter_binary_download_url }}"
+        dest: "{{ monitoring_agent_dist_dir }}"
+        tmp_dest: "{{ monitoring_agent_dist_dir }}"
+        owner: root
+        group: root
+        mode: '0644'
+      register: monitoring_agent_mysqld_exporter_binary_download_url_result
+
+    - name: Unarchive mysqld-exporter
+      ansible.builtin.unarchive:
+        remote_src: true
+        src: "{{ monitoring_agent_mysqld_exporter_binary_download_url_result.dest }}"
+        include:
+          - "*/mysqld_exporter"
+        extra_opts:
+          - "--strip-component=1"
+          - "--wildcards"
+        dest: "{{ monitoring_agent_mysqld_exporter_binary_install_path | dirname }}"
+
+- name: Configure service mysqld-exporter
+  notify:
+    - Reload systemd daemon
+    - Restart service mysqld-exporter
+  block:
+    - name: Render mysqld-exporter systemd service
+      ansible.builtin.template:
+        src: "exporters/mysqld-exporter/systemd/{{ monitoring_agent_mysqld_exporter_systemd_name }}.service.j2"
+        dest: "{{ monitoring_agent_systemd_unit_dir }}/{{ monitoring_agent_mysqld_exporter_systemd_name }}.service"
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Force all notified handlers to run at this point, not waiting for normal sync points
+      ansible.builtin.meta: flush_handlers
+
+- name: State service mysqld-exporter
+  ansible.builtin.systemd:
+    name: "{{ monitoring_agent_mysqld_exporter_systemd_name }}"
+    enabled: "{{ monitoring_agent_mysqld_exporter_enabled }}"
+    state: "{{ 'started' if monitoring_agent_mysqld_exporter_enabled else 'stopped' }}"

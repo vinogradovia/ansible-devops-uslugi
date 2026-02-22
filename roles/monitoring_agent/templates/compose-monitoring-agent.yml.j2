@@ -105,6 +105,17 @@ services:
       FREEIPA_BIND_PW: "{{ monitoring_agent_ipa_exporter_password }}"
       EXPORTER_PORT: "{{ monitoring_agent_ipa_exporter_port }}"
 {% endif %}
+{% if monitoring_agent_mysqld_exporter_enabled %}
+  mysqld_exporter:
+    image: {{ monitoring_agent_mysqld_exporter_image }}
+    container_name: mysqld_exporter
+    restart: "unless-stopped"
+    network_mode: host
+    environment:
+      MY_CONFIG_CHECKSUM: {{ monitoring_agent_mysqld_exporter_my_cnf_stat.checksum }}
+    volumes:
+      - {{ monitoring_agent_config_dir }}/.mysqld_exporter_my.cnf:/.my.cnf
+{% endif %}
 networks:
   monitoring_agent:
     driver: bridge
