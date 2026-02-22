@@ -30,6 +30,10 @@ monitoring_server_victoria_metrics_scrape_nginxlog_exporter_port_default: 4040
 monitoring_server_victoria_metrics_scrape_mysqld_exporter: true
 monitoring_server_victoria_metrics_scrape_mysqld_exporter_port_default: 9104
 
+# pve_exporter
+monitoring_server_victoria_metrics_scrape_pve_exporter: true
+monitoring_server_victoria_metrics_scrape_pve_exporter_port_default: 9221
+
 monitoring_server_grafana_enabled: false
 
 monitoring_server_default_password: "PleAse_Change_ME!"

@@ -1,0 +1,10 @@
+{%- set monitoring_agent_pve_exporter_pve_config_result = {
+        "default":{
+            "user": monitoring_agent_pve_exporter_user,
+            "token_name": monitoring_agent_pve_exporter_token_name,
+            "token_value": monitoring_agent_pve_exporter_token_value,
+            "verify_ssl": monitoring_agent_pve_exporter_verify_ssl
+        }
+    }
+-%}
+{{ monitoring_agent_pve_exporter_pve_config_result | to_nice_yaml }}

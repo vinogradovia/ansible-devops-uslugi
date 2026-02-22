@@ -1,0 +1,9 @@
+[Unit]
+Description=Pve Exporter
+
+[Service]
+User={{ monitoring_agent_pve_exporter_systemd_name }}
+Environment=MY_CONFIG_CHECKSUM={{ monitoring_agent_pve_exporter_pve_yml_stat.checksum }}
+ExecStart={{ monitoring_agent_pve_exporter_config_dir }}/.venv/bin/pve_exporter --config.file {{ monitoring_agent_pve_exporter_config_dir }}/pve.yml --web.listen-address :{{ monitoring_agent_pve_exporter_port }}
+[Install]
+WantedBy=multi-user.target

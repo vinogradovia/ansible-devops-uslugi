@@ -15,5 +15,7 @@ all:
           # monitoring_agent_nginx_exporter_enabled: true
           # monitoring_agent_nginxlog_exporter_enabled: true
           # monitoring_agent_nginxlog_exporter_parser: "json"
-          monitoring_agent_mysqld_exporter_enabled: true
-          monitoring_agent_mysqld_exporter_password: mmhpaw76
+          # monitoring_agent_mysqld_exporter_enabled: true
+          # monitoring_agent_mysqld_exporter_password: mmhpaw76
+          monitoring_agent_pve_exporter_enabled: true
+          monitoring_agent_pve_exporter_token_value: "change-me"
