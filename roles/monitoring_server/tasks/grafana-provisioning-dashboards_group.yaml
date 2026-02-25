@@ -1,0 +1,11 @@
+---
+
+- name: Render GrafanaDashboards Group
+  when: monitoring_server_grafana_dashboards_group_item.value.enable
+  with_items:
+    - "{{ monitoring_server_grafana_dashboards_group_item.value.dashboards }}"
+  loop_control:
+    label: "group: {{ monitoring_server_grafana_dashboards_group_item.key }}"
+    loop_var: monitoring_server_grafana_dashboard_item
+  ansible.builtin.include_tasks:
+    file: grafana-provisioning-dashboard.yaml
