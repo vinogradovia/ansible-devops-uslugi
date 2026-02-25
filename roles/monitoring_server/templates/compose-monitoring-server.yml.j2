@@ -26,6 +26,7 @@ services:
     ports:
       - "3000:3000"
     environment:
+      - GF_SECURITY_ADMIN_USER={{ monitoring_server_grafana_security_admin_user }}
       - GF_SECURITY_ADMIN_PASSWORD={{ monitoring_server_grafana_security_admin_password }}
       - GF_INSTALL_PLUGINS={{ monitoring_server_grafana_install_plugins }}
       - GF_PATHS_PLUGINS=/var/lib/grafana/plugins
@@ -241,8 +242,10 @@ volumes:
 {% endif %}
 networks:
   proxy:
+{% if monitoring_server_docker_proxy_network_external %}
     external: true  # Если сеть уже создана
-    # или
-    # name: proxy  # Явное имя сети
+{% else %}
+    name: {{ monitoring_server_docker_proxy_network_name }}  # Явное имя сети
+{% endif %}
   monitoring_net:
     driver: bridge
