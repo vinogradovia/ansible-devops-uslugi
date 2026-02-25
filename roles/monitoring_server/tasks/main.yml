@@ -68,3 +68,28 @@
       dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/pve_exporter_targets.json"
       state: "{{ monitoring_server_victoria_metrics_scrape_pve_exporter }}"
       name: pve-exporter
+
+- name: GrafanaDashboards
+  when: monitoring_server_grafana_dashboard_provisioning
+  block:
+    - name: Get data from monitoring_server_grafana_dashboards_group_
+      ansible.builtin.set_fact:
+        monitoring_server_grafana_dashboards_groups_default: "{{ lookup('community.general.merge_variables', 'monitoring_server_grafana_dashboards_group_default', pattern_type='prefix') }}"
+        monitoring_server_grafana_dashboards_groups_install: "{{ lookup('community.general.merge_variables', 'monitoring_server_grafana_dashboards_group_install', pattern_type='prefix') }}"
+    - name: Merge data from monitoring_server_grafana_dashboards_groups_
+      ansible.builtin.set_fact:
+        monitoring_server_grafana_dashboards_groups: "{{ monitoring_server_grafana_dashboards_groups_default | ansible.builtin.combine(monitoring_server_grafana_dashboards_groups_install, recursive=true) }}"
+    # - name: Debug
+    #   ansible.builtin.debug:
+    #     msg:
+    #       - "{{ monitoring_server_grafana_dashboards_groups_default }}"
+    #       - "{{ monitoring_server_grafana_dashboards_groups_install }}"
+    #       - "{{ monitoring_server_grafana_dashboards_groups }}"
+    - name: Render GrafanaDashboards Group
+      loop_control:
+        label: "group: {{ monitoring_server_grafana_dashboards_group_item.key }}"
+        loop_var: monitoring_server_grafana_dashboards_group_item
+      with_dict:
+        - "{{ monitoring_server_grafana_dashboards_groups }}"
+      ansible.builtin.include_tasks:
+        file: grafana-provisioning-dashboards_group.yaml

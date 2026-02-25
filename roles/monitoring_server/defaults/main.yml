@@ -58,6 +58,60 @@ monitoring_server_grafana_server_root_url: "https://grafana.docker.localhost"
 # GF_SERVER_DOMAIN
 monitoring_server_grafana_server_domain: .docker.localhost
 
+monitoring_server_grafana_dashboard_provisioning: "{{ true if monitoring_server_orchestrator == 'k3s' else monitoring_server_grafana_enabled }}"
+
+# Grafana dashboards:
+monitoring_server_grafana_dashboards_group_defaults_mysql:
+  mysql:
+    enable: false
+    dashboards:
+      - name: Mysql
+        uid: 549c2bf8936f7767ea6ac47c47b00f2a
+        src: "../../ADDONS/grafana_dashboards/MySQL-1771724748006.json"
+
+monitoring_server_grafana_dashboards_group_defaults_pve1:
+  pve1:
+    enable: false
+    dashboards:
+      - name: Proxmox via Prometheus
+        uid: Dp7Cd57Zza
+        src: "../../ADDONS/grafana_dashboards/Proxmox via Prometheus-1771778631100.json"
+
+monitoring_server_grafana_dashboards_group_defaults_nginx:
+  nginx:
+    enable: false
+    dashboards:
+      - name: Nginx 9108
+        uid: 16P-l3iGk
+        src: "../../ADDONS/grafana_dashboards/nginx_9108.json"
+      - name: Nginx Log exporter
+        uid: JfOTY2Pnk
+        src: "../../ADDONS/grafana_dashboards/nginxlog_exporter.json"
+      - name: Nginx prometheus exporter
+        uid: MsjffzSZz
+        src: "../../ADDONS/grafana_dashboards/nginx_prometheus_exporter.json"
+
+monitoring_server_grafana_dashboards_group_defaults_blackbox:
+  blackbox:
+    enable: false
+    dashboards:
+      - name: Blackbox Exporter (HTTP prober)
+        uid: NEzutrbMk
+        src: "../../ADDONS/grafana_dashboards/Blackbox Exporter (HTTP prober)-1771753132911.json"
+      - name: Blackbox Exporter (HTTP prober)
+        uid: NEzutrbMk
+        src: "../../ADDONS/grafana_dashboards/blackbox_13659_rev1.json"
+
+monitoring_server_grafana_dashboards_group_defaults_php-fpm:
+  php-fpm:
+    enable: false
+    dashboards:
+      - name: php-fpm
+        uid: LpT35aB7z
+        src: "../../ADDONS/grafana_dashboards/php_fpm_exporter.json"
+
+# -- end grafana block ----
+
 monitoring_server_local_storage_s3_enabled: false
 
 monitoring_server_local_storage_s3:
