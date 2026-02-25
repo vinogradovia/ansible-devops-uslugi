@@ -19,6 +19,9 @@
   when: monitoring_server_orchestrator == 'k3s'
   ansible.builtin.include_tasks:
     file: monitoring-server.k3s.yml
+  tags:
+    - helmwave
+    - k3s
 
 - name: Provisioning victoria-metrics exporters scrape_config/targets
   ansible.builtin.include_tasks: victoria-metrics-provisioning-exporter-targets.yaml

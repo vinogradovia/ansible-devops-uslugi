@@ -51,6 +51,40 @@
     state: present
     kubeconfig: "{{ monitoring_server_orchestrator_context.dest }}"
 
+- name: Create Secret grafana-credentials
+  delegate_to: localhost
+  delegate_facts: true
+  become: false
+  run_once: true
+  kubernetes.core.k8s:
+    kubeconfig: "{{ monitoring_server_orchestrator_context.dest }}"
+    name: grafana-admin-credentials-custom
+    namespace: "{{ monitoring_server_kubernetes_namespace }}"
+    state: present
+    kind: Secret
+    definition:
+      apiVersion: v1
+      metadata:
+        labels:
+          app.kubernetes.io/managed-by: ansible
+          ansible.com/role: "{{ role_name }}"
+      stringData:
+        GF_SECURITY_ADMIN_PASSWORD: "{{ monitoring_server_grafana_security_admin_password }}"
+        GF_SECURITY_ADMIN_USER: "{{ monitoring_server_grafana_security_admin_user }}"
+      type: Opaque
+
+# - name: Helmwave up
+#   delegate_to: localhost
+#   delegate_facts: true
+#   become: false
+#   run_once: true
+#   ansible.builtin.command:
+#     chdir: "{{ monitoring_server_helmwave_dir }}"
+#     argv:
+#       - helmwave up --build --yml
+#   tags:
+#     helmwave
+
 # restat k3s after changed config/manifests
 # create config-map for exporters
 # reload vmaget? after update exporter configmap
