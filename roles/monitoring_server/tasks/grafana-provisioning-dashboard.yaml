@@ -54,6 +54,11 @@
           metadata:
             name: "{{ monitoring_server_grafana_dashboards_group_item.key | lower }}-{{ monitoring_server_grafana_dashboard_item.uid | lower }}"
           spec:
+            datasources:
+              - datasourceName: VictoriaMetrics
+                inputName: DS_PROMETHEUS
+              - datasourceName: VictoriaMetrics
+                inputName: DS_VICTORIAMETRICS
             instanceSelector:
               matchLabels:
                 dashboards: "grafana"
