@@ -59,6 +59,7 @@ monitoring_server_grafana_server_root_url: "https://grafana.docker.localhost"
 monitoring_server_grafana_server_domain: .docker.localhost
 
 monitoring_server_grafana_dashboard_provisioning: "{{ true if monitoring_server_orchestrator == 'k3s' else monitoring_server_grafana_enabled }}"
+monitoring_server_grafana_dashboard_default_folder: addons
 
 # Grafana dashboards:
 monitoring_server_grafana_dashboards_group_defaults_mysql:
@@ -80,6 +81,7 @@ monitoring_server_grafana_dashboards_group_defaults_pve1:
 monitoring_server_grafana_dashboards_group_defaults_nginx:
   nginx:
     enable: false
+    folder: Nginx
     dashboards:
       - name: Nginx 9108
         uid: 16P-l3iGk
