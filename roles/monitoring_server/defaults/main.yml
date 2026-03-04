@@ -106,16 +106,16 @@ monitoring_server_grafana_dashboards_group_defaults_blackbox:
         uid: NEzutrbMk
         src: "../../ADDONS/grafana_dashboards/blackbox_13659_rev1.json"
 
-monitoring_server_grafana_dashboards_group_defaults_php-fpm:
-  php-fpm:
+monitoring_server_grafana_dashboards_group_defaults_php_fpm:
+  php_fpm:
     enable: false
     dashboards:
       - name: php-fpm
         uid: LpT35aB7z
         src: "../../ADDONS/grafana_dashboards/php_fpm_exporter.json"
 
-monitoring_server_grafana_dashboards_group_defaults_prom-client:
-  prom-client:
+monitoring_server_grafana_dashboards_group_defaults_prom_client:
+  prom_client:
     enable: false
     dashboards:
       - name: prom-client
