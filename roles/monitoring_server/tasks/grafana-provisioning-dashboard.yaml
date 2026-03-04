@@ -37,7 +37,7 @@
           apiVersion: v1
           kind: ConfigMap
           metadata:
-            name: "grafana-dashboard-definition-{{ monitoring_server_grafana_dashboards_group_item.key | lower }}-{{ monitoring_server_grafana_dashboard_item.uid | lower }}"  #  yamllint disable-line rule:line-length
+            name: "grafana-dashboard-definition-{{ monitoring_server_grafana_dashboards_group_item.key | lower | replace('_', '-') }}-{{ monitoring_server_grafana_dashboard_item.uid | lower }}"  #  yamllint disable-line rule:line-length
           data:
             json: "{{ lookup('file', role_path + '/' + monitoring_server_grafana_dashboard_item.src) | string }}"
 
@@ -51,7 +51,7 @@
           apiVersion: grafana.integreatly.org/v1beta1
           kind: GrafanaDashboard
           metadata:
-            name: "{{ monitoring_server_grafana_dashboards_group_item.key | lower }}-{{ monitoring_server_grafana_dashboard_item.uid | lower }}"
+            name: "{{ monitoring_server_grafana_dashboards_group_item.key | lower | replace('_', '-') }}-{{ monitoring_server_grafana_dashboard_item.uid | lower }}"
           spec:
             folderRef: "{{ monitoring_server_grafana_dashboards_group_item.value.folder | default(monitoring_server_grafana_dashboard_default_folder) | lower }}"
             datasources:
@@ -63,5 +63,5 @@
               matchLabels:
                 dashboards: "grafana"
             configMapRef:
-              name: "grafana-dashboard-definition-{{ monitoring_server_grafana_dashboards_group_item.key | lower }}-{{ monitoring_server_grafana_dashboard_item.uid | lower }}"  #  yamllint disable-line rule:line-length
+              name: "grafana-dashboard-definition-{{ monitoring_server_grafana_dashboards_group_item.key | lower | replace('_', '-') }}-{{ monitoring_server_grafana_dashboard_item.uid | lower }}"  #  yamllint disable-line rule:line-length
               key: json
