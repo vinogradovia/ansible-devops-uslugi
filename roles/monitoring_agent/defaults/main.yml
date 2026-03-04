@@ -157,4 +157,4 @@ monitoring_agent_pve_exporter_systemd_fullname: "{{ monitoring_agent_pve_exporte
 
 monitoring_agent_prom_client_enabled: false
 monitoring_agent_prom_client_port: '3000'
-monitoring_agent_prom_client_metrics_path: '/api/metrics'
+monitoring_agent_prom_client_metrics_path: '/metrics'

@@ -2,7 +2,7 @@
 {%- for host in groups['monitoring_agents'] -%}
 {%- if hostvars[host].get('monitoring_agent_prom_client_enabled', false) %}
 {%- set targethost = hostvars[host].get('ansible_host', host)  %}
-{{ monitoring_server_victoria_metrics_scrape_prom_client_targets.append(targethost + ':' + (monitoring_agent_prom_client_port | default(monitoring_server_victoria_metrics_scrape_prom_client_port_default) | string ) ) }}
+{{ monitoring_server_victoria_metrics_scrape_prom_client_targets.append(targethost + ':' + (hostvars[host].get('monitoring_agent_prom_client_port', monitoring_server_victoria_metrics_scrape_prom_client_port_default) | string ) ) }}
 {%- endif %}
 {%- endfor %}
 {{ [{"targets": monitoring_server_victoria_metrics_scrape_prom_client_targets}] | to_nice_json }}
