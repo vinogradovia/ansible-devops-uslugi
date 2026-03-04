@@ -114,6 +114,14 @@ monitoring_server_grafana_dashboards_group_defaults_php-fpm:
         uid: LpT35aB7z
         src: "../../ADDONS/grafana_dashboards/php_fpm_exporter.json"
 
+monitoring_server_grafana_dashboards_group_defaults_prom-client:
+  prom-client:
+    enable: false
+    dashboards:
+      - name: prom-client
+        uid: 0623c745-0ac3-479b-9e4b-5e7b8facbaf4
+        src: "../../ADDONS/grafana_dashboards/nodejs_application.json"
+
 # -- end grafana block ----
 
 monitoring_server_local_storage_s3_enabled: false

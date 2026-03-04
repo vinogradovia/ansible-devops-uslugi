@@ -154,3 +154,5 @@ monitoring_agent_pve_exporter_token_value: ""
 monitoring_agent_pve_exporter_verify_ssl: false
 monitoring_agent_pve_exporter_systemd_name: pve_exporter
 monitoring_agent_pve_exporter_systemd_fullname: "{{ monitoring_agent_pve_exporter_systemd_name }}.service"
+
+monitoring_agent_prom_client_enabled: false
