@@ -68,6 +68,10 @@
       dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/pve_exporter_targets.json"
       state: "{{ monitoring_server_victoria_metrics_scrape_pve_exporter }}"
       name: pve-exporter
+    - src: victoria-metrics-scrape-prom-client-targets.json.j2
+      dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/prom_client_targets.json"
+      state: "{{ monitoring_server_victoria_metrics_scrape_prom_client }}"
+      name: prom-client
 
 - name: GrafanaDashboards
   when: monitoring_server_grafana_dashboard_provisioning

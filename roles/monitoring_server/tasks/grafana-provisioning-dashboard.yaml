@@ -39,8 +39,7 @@
           metadata:
             name: "grafana-dashboard-definition-{{ monitoring_server_grafana_dashboards_group_item.key | lower }}-{{ monitoring_server_grafana_dashboard_item.uid | lower }}"  #  yamllint disable-line rule:line-length
           data:
-            json: >
-              {{ lookup('file', role_path + '/' + monitoring_server_grafana_dashboard_item.src) | indent }}
+            json: "{{ lookup('file', role_path + '/' + monitoring_server_grafana_dashboard_item.src) | string }}"
 
     - name: Deploy GrafanaDashboard {{ monitoring_server_grafana_dashboard_item.name }}
       kubernetes.core.k8s:

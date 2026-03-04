@@ -33,6 +33,8 @@ monitoring_server_victoria_metrics_scrape_nginxlog_exporter: true
 monitoring_server_victoria_metrics_scrape_nginxlog_exporter_port_default: 4040
 monitoring_server_victoria_metrics_scrape_mysqld_exporter: true
 monitoring_server_victoria_metrics_scrape_mysqld_exporter_port_default: 9104
+monitoring_server_victoria_metrics_scrape_prom_client: false
+monitoring_server_victoria_metrics_scrape_prom_client_port_default: 9464
 
 # pve_exporter
 monitoring_server_victoria_metrics_scrape_pve_exporter: true
@@ -104,13 +106,21 @@ monitoring_server_grafana_dashboards_group_defaults_blackbox:
         uid: NEzutrbMk
         src: "../../ADDONS/grafana_dashboards/blackbox_13659_rev1.json"
 
-monitoring_server_grafana_dashboards_group_defaults_php-fpm:
-  php-fpm:
+monitoring_server_grafana_dashboards_group_defaults_php_fpm:
+  php_fpm:
     enable: false
     dashboards:
       - name: php-fpm
         uid: LpT35aB7z
         src: "../../ADDONS/grafana_dashboards/php_fpm_exporter.json"
+
+monitoring_server_grafana_dashboards_group_defaults_prom_client:
+  prom_client:
+    enable: false
+    dashboards:
+      - name: prom-client
+        uid: 0623c745-0ac3-479b-9e4b-5e7b8facbaf4
+        src: "../../ADDONS/grafana_dashboards/nodejs_application.json"
 
 # -- end grafana block ----
 

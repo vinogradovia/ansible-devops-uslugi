@@ -47,3 +47,9 @@ scrape_configs:
       - files:
           - nginxlog_exporter_targets.json
 {% endif %}
+{% if monitoring_server_victoria_metrics_scrape_prom_client %}
+  - job_name: prom-client
+    file_sd_configs:
+      - files:
+          - prom_client_targets.json
+{% endif %}
