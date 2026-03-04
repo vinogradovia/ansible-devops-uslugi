@@ -49,6 +49,7 @@ scrape_configs:
 {% endif %}
 {% if monitoring_server_victoria_metrics_scrape_prom_client %}
   - job_name: prom-client
+    metrics_path: {{ monitoring_server_victoria_metrics_scrape_prom_client_metrics_path }}
     file_sd_configs:
       - files:
           - prom_client_targets.json
