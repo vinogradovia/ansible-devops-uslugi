@@ -430,6 +430,8 @@
               "mode": "thresholds"
             },
             "mappings": [],
+            "max": 100,
+            "min": 0,
             "thresholds": {
               "mode": "absolute",
               "steps": [
@@ -439,14 +441,15 @@
                 },
                 {
                   "color": "yellow",
-                  "value": 400
+                  "value": 70
                 },
                 {
                   "color": "red",
-                  "value": 500
+                  "value": 90
                 }
               ]
-            }
+            },
+            "unit": "percent"
           },
           "overrides": []
         },
@@ -479,18 +482,9 @@
               "type": "prometheus",
               "uid": "${DS_VICTORIAMETRICS}"
             },
-            "expr": "process_open_fds{job=~\"$job\", instance=~\"$instance\"}",
-            "legendFormat": "open",
+            "expr": "process_open_fds{job=~\"$job\", instance=~\"$instance\"} / process_max_fds{job=~\"$job\", instance=~\"$instance\"} * 100",
+            "legendFormat": "usage",
             "refId": "A"
-          },
-          {
-            "datasource": {
-              "type": "prometheus",
-              "uid": "${DS_VICTORIAMETRICS}"
-            },
-            "expr": "process_max_fds{job=~\"$job\", instance=~\"$instance\"}",
-            "legendFormat": "max",
-            "refId": "B"
           }
         ],
         "title": "Open File Descriptors",
@@ -2462,8 +2456,8 @@
     },
     "timepicker": {},
     "timezone": "",
-    "title": "Node.js Application Performance",
+    "title": "test",
     "uid": "0623c745-0ac3-479b-9e4b-5e7b8facbaf4",
-    "version": 3,
+    "version": 1,
     "weekStart": ""
   }
