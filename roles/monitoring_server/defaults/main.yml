@@ -122,8 +122,8 @@ monitoring_server_grafana_dashboards_group_defaults_prom_client:
         uid: 0623c745-0ac3-479b-9e4b-5e7b8facbaf4
         src: "../../ADDONS/grafana_dashboards/nodejs_application.json"
 
-monitoring_server_grafana_dashboards_group_defaults_freeipa_exporter:
-  freeipa_exporter:
+monitoring_server_grafana_dashboards_group_defaults_freeipa:
+  freeipa:
     enable: false
     dashboards:
       - name: FreeIPA Exporter
