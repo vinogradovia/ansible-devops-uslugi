@@ -80,7 +80,7 @@
 - name: Check if zone file already exists
   ansible.builtin.stat:
     path: "{{ infra_dns_zone_dir }}/{{ infra_dns_zone_name }}"
-  register: zone_file_stat
+  register: infra_dns_zone_file_stat
   tags:
     - deploy
 
@@ -89,10 +89,10 @@
     awk '/@ IN SOA/ {getline; print $1}' {{ infra_dns_zone_dir }}/{{ infra_dns_zone_name }}
   args:
     executable: /bin/bash
-  register: current_serial_info
+  register: infra_dns_current_serial_info
   changed_when: false
   check_mode: false
-  when: zone_file_stat.stat.exists
+  when: infra_dns_zone_file_stat.stat.exists
   tags:
     - deploy
     - increment_serial
@@ -100,7 +100,7 @@
 - name: Set initial serial number for new zone
   ansible.builtin.set_fact:
     _infra_dns_serial: >-
-      {{ current_serial_info.stdout | default(ansible_date_time.date | replace('-','') ~ '01', true) }}
+      {{ infra_dns_current_serial_info.stdout | default(ansible_date_time.date | replace('-','') ~ '01', true) }}
   tags:
     - deploy
 
@@ -114,7 +114,7 @@
     validate: "named-checkzone -k fail {{ infra_dns_zone_name }} %s"
   vars:
     serial_number: "{{ _infra_dns_serial }}"
-  register: deploy_task
+  register: infra_dns_deploy_task
   tags:
     - deploy
   notify:
@@ -125,7 +125,7 @@
     path: "{{ infra_dns_zone_dir }}/{{ infra_dns_zone_name }}"
     regexp: '(^@ IN SOA .*\n).*[0-9]+'
     replace: '\1  {{ _infra_dns_serial | int + 1 }}'
-  when: deploy_task.changed
+  when: infra_dns_deploy_task.changed
   tags:
     - deploy
     - increment_serial

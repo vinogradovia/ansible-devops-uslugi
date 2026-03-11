@@ -17,6 +17,46 @@ all:
           monitoring_agent_nginxlog_exporter_parser: "json"
           monitoring_agent_mysqld_exporter_enabled: true
           monitoring_agent_mysqld_exporter_password: mmhpaw76
+          infra_dns_listen_on:
+            - 10.20.30.240
+          infra_dns_allow_query:
+            - 10.20.30.0/24
+            - 10.20.31.0/24
+          infra_dns_forwarders:
+            - 8.8.8.8
+            - 8.8.4.4
+          infra_dns_zone_name: in.moon.ru
+          infra_dns_soa_ns: "sl-dns-01.in.moon.ru"
+          infra_dns_zone_ns_records:
+            - "sl-dns-01.in.moon.ru."
+          infra_dns_zone_records:
+            - name: sl-dns-01
+              type: A
+              value: 10.20.30.240
+            - name: fd-mon-01
+              type: A
+              value: 10.20.30.15
+            - name: fd-logs-01
+              type: A
+              value: 10.20.30.16
+            - name: sl-proxy-01
+              type: A
+              value: 10.20.30.110
+            - name: fd-zabbix-server-01
+              type: A
+              value: 10.20.30.3
+            - name: fd-mysql-01
+              type: A
+              value: 10.20.30.229
+            - name: fd-backend-moon-01
+              type: A
+              value: 10.20.30.11
+            - name: sl-ldap-01
+              type: A
+              value: 10.20.30.13
+            - name: sl-react-01
+              type: A
+              value: 10.20.30.14
     monitoring_servers:
       hosts:
         test-host:
