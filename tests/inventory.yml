@@ -17,34 +17,6 @@ all:
           monitoring_agent_nginxlog_exporter_parser: "json"
           monitoring_agent_mysqld_exporter_enabled: true
           monitoring_agent_mysqld_exporter_password: mmhpaw76
-          infra_dns_zone_records:
-            - name: dns
-              type: A
-              value: 10.20.30.240
-            - name: fd-mon-01
-              type: A
-              value: 10.20.30.15
-            - name: fd-logs-01
-              type: A
-              value: 10.20.30.16
-            - name: sl-proxy-01
-              type: A
-              value: 10.20.30.110
-            - name: fd-zabbix-server-01
-              type: A
-              value: 10.20.30.3
-            - name: fd-mysql-01
-              type: A
-              value: 10.20.30.229
-            - name: fd-backend-moon-01
-              type: A
-              value: 10.20.30.11
-            - name: sl-ldap-01
-              type: A
-              value: 10.20.30.13
-            - name: sl-react-01
-              type: A
-              value: 10.20.30.14
     monitoring_servers:
       hosts:
         test-host:
