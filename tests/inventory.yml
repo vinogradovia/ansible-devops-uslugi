@@ -17,6 +17,10 @@ all:
           monitoring_agent_nginxlog_exporter_parser: "json"
           monitoring_agent_mysqld_exporter_enabled: true
           monitoring_agent_mysqld_exporter_password: mmhpaw76
+          infra_dns_zone_records:
+            - name: dns
+              type: A
+              value: 10.20.30.240
     monitoring_servers:
       hosts:
         test-host:

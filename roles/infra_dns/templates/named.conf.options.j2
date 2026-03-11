@@ -1,0 +1,22 @@
+// {{ ansible_managed }}
+
+options {
+    directory "/var/cache/bind";
+
+    listen-on { {{ infra_dns_listen_on | join('; ') }}; };
+    listen-on-v6 { {{ infra_dns_listen_on_v6 | join('; ') }}; };
+
+    allow-query { {{ infra_dns_allow_query | join('; ') }}; };
+    allow-transfer { {{ infra_dns_allow_transfer | join('; ') }}; };
+
+{% if infra_dns_forwarders | length > 0 %}
+    forwarders {
+{% for fwd in infra_dns_forwarders %}
+        {{ fwd }};
+{% endfor %}
+    };
+{% endif %}
+
+    recursion {{ 'yes' if infra_dns_recursion else 'no' }};
+    dnssec-validation {{ infra_dns_dnssec_validation }};
+};

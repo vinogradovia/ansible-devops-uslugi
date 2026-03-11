@@ -1,0 +1,43 @@
+---
+# defaults file for infra_dns
+
+infra_dns_packages:
+  - bind9
+  - bind9-utils
+
+infra_dns_zone_name: in.moon.ru
+infra_dns_zone_dir: /etc/bind/master
+
+infra_dns_listen_on:
+  - any
+
+infra_dns_listen_on_v6:
+  - none
+
+infra_dns_allow_query:
+  - any
+
+infra_dns_allow_transfer:
+  - none
+
+infra_dns_forwarders: []
+
+infra_dns_recursion: false
+
+infra_dns_dnssec_validation: auto
+
+infra_dns_zone_ttl: 600
+
+infra_dns_soa_ns: "dns.{{ infra_dns_zone_name }}"
+infra_dns_soa_contact: "hostmaster.{{ infra_dns_zone_name }}"
+infra_dns_soa_refresh: 3H
+infra_dns_soa_retry: 15M
+infra_dns_soa_expire: 2W
+infra_dns_soa_minimum: 10M
+
+infra_dns_zone_ns_records:
+  - "dns.{{ infra_dns_zone_name }}."
+
+infra_dns_zone_records: []
+
+infra_dns_zone_include_hosts: true

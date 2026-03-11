@@ -1,0 +1,6 @@
+- name: Deploy DNS server with in.moon.ru zone
+  hosts: monitoring_agents
+  gather_facts: true
+  become: true
+  roles:
+    - role: infra_dns
