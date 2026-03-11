@@ -9,20 +9,28 @@ infra_dns_zone_name: in.moon.ru
 infra_dns_zone_dir: /etc/bind/master
 
 infra_dns_listen_on:
-  - any
+  # - any
+  - 10.20.30.240
+  # - 127.0.0.1
 
 infra_dns_listen_on_v6:
   - none
 
 infra_dns_allow_query:
-  - any
+  - 10.20.30.0/24
+  - 10.20.31.0/24
 
 infra_dns_allow_transfer:
   - none
 
-infra_dns_forwarders: []
+infra_dns_forwarders:
+  - 8.8.8.8
+  - 8.8.4.4
 
-infra_dns_recursion: false
+infra_dns_recursion: true
+
+infra_dns_allow_recursion:
+  - "{{ infra_dns_allow_query }}"
 
 infra_dns_dnssec_validation: auto
 

@@ -9,14 +9,19 @@ options {
     allow-query { {{ infra_dns_allow_query | join('; ') }}; };
     allow-transfer { {{ infra_dns_allow_transfer | join('; ') }}; };
 
+    recursion {{ 'yes' if infra_dns_recursion else 'no' }};
+{% if infra_dns_recursion %}
+    allow-recursion { {{ infra_dns_allow_query | join('; ') }}; };
+{% endif %}
+
 {% if infra_dns_forwarders | length > 0 %}
     forwarders {
 {% for fwd in infra_dns_forwarders %}
         {{ fwd }};
 {% endfor %}
     };
+    forward only;
 {% endif %}
 
-    recursion {{ 'yes' if infra_dns_recursion else 'no' }};
     dnssec-validation {{ infra_dns_dnssec_validation }};
 };
