@@ -1,0 +1,7 @@
+// {{ ansible_managed }}
+
+zone "{{ infra_dns_zone_name }}" {
+    type master;
+    file "{{ infra_dns_zone_dir }}/{{ infra_dns_zone_name }}";
+    allow-transfer { {{ infra_dns_allow_transfer | join('; ') }}; };
+};

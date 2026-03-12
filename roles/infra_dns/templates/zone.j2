@@ -1,0 +1,26 @@
+; {{ ansible_managed }}
+;
+; Zone file for {{ infra_dns_zone_name }}
+; Run "ansible-playbook deploy_infra_dns.yml -D" to apply changes
+
+$ORIGIN {{ infra_dns_zone_name }}.
+$TTL {{ infra_dns_zone_ttl }}
+
+@ IN SOA {{ infra_dns_soa_ns }}. {{ infra_dns_soa_contact }}. (
+  {{ serial_number }}
+  {{ infra_dns_soa_refresh }}
+  {{ infra_dns_soa_retry }}
+  {{ infra_dns_soa_expire }}
+  {{ infra_dns_soa_minimum }} )
+
+{% for ns in infra_dns_zone_ns_records %}
+                                        IN  NS  {{ ns }}
+{% endfor %}
+
+{% for record in infra_dns_zone_records %}
+{{ "%-30s" | format(record.name) }} IN  {{ record.type }}  {{ record.value }}
+{% endfor %}
+{% if infra_dns_zone_include_hosts %}
+
+$INCLUDE {{ infra_dns_zone_dir }}/{{ infra_dns_zone_name }}.hosts
+{% endif %}
