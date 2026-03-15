@@ -130,6 +130,14 @@ monitoring_server_grafana_dashboards_group_defaults_freeipa:
         uid: freeipa-exporter-dashboard
         src: "../../ADDONS/grafana_dashboards/freeipa_exporter.json"
 
+monitoring_server_grafana_dashboards_group_defaults_redis:
+  redis:
+    enable: false
+    dashboards:
+      - name: Redis Exporter
+        uid: redis-exporter-dashboard
+        src: "../../ADDONS/grafana_dashboards/redis_exporter.json"
+
 # -- end grafana block ----
 
 monitoring_server_local_storage_s3_enabled: false
