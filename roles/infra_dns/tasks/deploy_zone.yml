@@ -1,0 +1,89 @@
+---
+- name: "Ensure include hosts file exists | {{ zone.name }}"
+  ansible.builtin.copy:
+    content: "; Ansible managed — additional host records for {{ zone.name }}\n"
+    dest: "{{ infra_dns_zone_dir }}/{{ zone.name }}.hosts"
+    owner: bind
+    group: bind
+    mode: "0640"
+    force: false
+  when: zone.include_hosts | default(infra_dns_zone_default_include_hosts)
+  tags:
+    - deploy
+
+- name: "Pre-validate zone file | {{ zone.name }}"
+  ansible.builtin.template:
+    src: zone.j2
+    dest: "/tmp/{{ zone.name }}_test"
+    owner: bind
+    group: bind
+    mode: "0640"
+    validate: "named-checkzone -k fail {{ zone.name }} %s"
+  vars:
+    infra_dns_serial_number: 1234567890
+  changed_when: false
+  tags:
+    - validate
+
+- name: "Remove temporary zone file | {{ zone.name }}"
+  ansible.builtin.file:
+    path: "/tmp/{{ zone.name }}_test"
+    state: absent
+  changed_when: false
+  tags:
+    - validate
+
+- name: "Check if zone file already exists | {{ zone.name }}"
+  ansible.builtin.stat:
+    path: "{{ infra_dns_zone_dir }}/{{ zone.name }}"
+  register: infra_dns_zone_file_stat
+  tags:
+    - deploy
+
+- name: "Find current serial number | {{ zone.name }}"
+  ansible.builtin.shell: |
+    awk '/@ IN SOA/ {getline; print $1}' {{ infra_dns_zone_dir }}/{{ zone.name }}
+  args:
+    executable: /bin/bash
+  register: infra_dns_current_serial
+  changed_when: false
+  check_mode: false
+  when: infra_dns_zone_file_stat.stat.exists
+  tags:
+    - deploy
+    - increment_serial
+
+- name: "Set serial number | {{ zone.name }}"
+  ansible.builtin.set_fact:
+    infra_dns_serial: >-
+      {{ infra_dns_current_serial.stdout | default(ansible_date_time.date | replace('-','') ~ '01', true) }}
+  tags:
+    - deploy
+
+- name: "Deploy zone file | {{ zone.name }}"
+  ansible.builtin.template:
+    src: zone.j2
+    dest: "{{ infra_dns_zone_dir }}/{{ zone.name }}"
+    owner: bind
+    group: bind
+    mode: "0640"
+    validate: "named-checkzone -k fail {{ zone.name }} %s"
+  vars:
+    infra_dns_serial_number: "{{ infra_dns_serial }}"
+  register: infra_dns_deploy_result
+  tags:
+    - deploy
+  notify:
+    - Reload bind9
+
+- name: "Increment serial number | {{ zone.name }}"  # noqa: no-handler
+  ansible.builtin.replace:
+    path: "{{ infra_dns_zone_dir }}/{{ zone.name }}"
+    regexp: '(^@ IN SOA .*\n).*[0-9]+'
+    replace: '\1  {{ infra_dns_serial | int + 1 }}'
+  when: infra_dns_deploy_result.changed
+  tags:
+    - deploy
+    - increment_serial
+  notify:
+    - Reload bind9
