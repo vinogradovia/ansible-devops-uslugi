@@ -5,7 +5,6 @@ infra_dns_packages:
   - bind9
   - bind9-utils
 
-infra_dns_zone_name: example.com
 infra_dns_zone_dir: /etc/bind/master
 
 infra_dns_listen_on:
@@ -26,23 +25,34 @@ infra_dns_forwarders:
 
 infra_dns_recursion: true
 
-infra_dns_allow_recursion:
-  - "{{ infra_dns_allow_query }}"
-
 infra_dns_dnssec_validation: auto
 
-infra_dns_zone_ttl: 600
+# Per-zone defaults (can be overridden in each zone)
+infra_dns_zone_default_ttl: 600
+infra_dns_zone_default_soa_refresh: 3H
+infra_dns_zone_default_soa_retry: 15M
+infra_dns_zone_default_soa_expire: 2W
+infra_dns_zone_default_soa_minimum: 10M
+infra_dns_zone_default_include_hosts: true
 
-infra_dns_soa_ns: "dns.{{ infra_dns_zone_name }}"
-infra_dns_soa_contact: "hostmaster.{{ infra_dns_zone_name }}"
-infra_dns_soa_refresh: 3H
-infra_dns_soa_retry: 15M
-infra_dns_soa_expire: 2W
-infra_dns_soa_minimum: 10M
+# List of zones to serve
+# infra_dns_zones:
+#   - name: example.com
+#     soa_ns: sl-dns-01.example.com
+#     soa_contact: hostmaster.example.com      # optional
+#     ttl: 600                                 # optional, uses infra_dns_zone_default_ttl
+#     ns_records:
+#       - sl-dns-01.example.com.
+#     records:
+#       - { name: sl-dns-01, type: A, value: 10.20.30.240 }
+#       - { name: web-01,    type: A, value: 10.20.30.50 }
+#     include_hosts: true                      # optional, uses infra_dns_zone_default_include_hosts
+#
+#   - name: another.example.com
+#     soa_ns: ns1.another.example.com
+#     ns_records:
+#       - ns1.another.example.com.
+#     records:
+#       - { name: ns1, type: A, value: 10.20.31.1 }
 
-infra_dns_zone_ns_records:
-  - "dns.{{ infra_dns_zone_name }}."
-
-infra_dns_zone_records: []
-
-infra_dns_zone_include_hosts: true
+infra_dns_zones: []

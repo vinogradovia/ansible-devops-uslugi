@@ -1,26 +1,26 @@
 ; {{ ansible_managed }}
 ;
-; Zone file for {{ infra_dns_zone_name }}
+; Zone file for {{ zone.name }}
 ; Run "ansible-playbook deploy_infra_dns.yml -D" to apply changes
 
-$ORIGIN {{ infra_dns_zone_name }}.
-$TTL {{ infra_dns_zone_ttl }}
+$ORIGIN {{ zone.name }}.
+$TTL {{ zone.ttl | default(infra_dns_zone_default_ttl) }}
 
-@ IN SOA {{ infra_dns_soa_ns }}. {{ infra_dns_soa_contact }}. (
-  {{ serial_number }}
-  {{ infra_dns_soa_refresh }}
-  {{ infra_dns_soa_retry }}
-  {{ infra_dns_soa_expire }}
-  {{ infra_dns_soa_minimum }} )
+@ IN SOA {{ zone.soa_ns }}. {{ zone.soa_contact | default('hostmaster.' ~ zone.name) }}. (
+  {{ infra_dns_serial_number }}
+  {{ zone.soa_refresh | default(infra_dns_zone_default_soa_refresh) }}
+  {{ zone.soa_retry | default(infra_dns_zone_default_soa_retry) }}
+  {{ zone.soa_expire | default(infra_dns_zone_default_soa_expire) }}
+  {{ zone.soa_minimum | default(infra_dns_zone_default_soa_minimum) }} )
 
-{% for ns in infra_dns_zone_ns_records %}
+{% for ns in zone.ns_records %}
                                         IN  NS  {{ ns }}
 {% endfor %}
 
-{% for record in infra_dns_zone_records %}
+{% for record in zone.records | default([]) %}
 {{ "%-30s" | format(record.name) }} IN  {{ record.type }}  {{ record.value }}
 {% endfor %}
-{% if infra_dns_zone_include_hosts %}
+{% if zone.include_hosts | default(infra_dns_zone_default_include_hosts) %}
 
-$INCLUDE {{ infra_dns_zone_dir }}/{{ infra_dns_zone_name }}.hosts
+$INCLUDE {{ infra_dns_zone_dir }}/{{ zone.name }}.hosts
 {% endif %}
