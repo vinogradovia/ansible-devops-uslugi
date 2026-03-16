@@ -1,0 +1,6 @@
+---
+# tasks file for fail2ban_ui
+
+- name: Include fail2ban-ui tasks
+  ansible.builtin.include_tasks:
+    file: fail2ban-ui.yml

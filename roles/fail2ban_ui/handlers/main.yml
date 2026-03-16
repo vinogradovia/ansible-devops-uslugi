@@ -1,0 +1,16 @@
+---
+# handlers file for fail2ban-ui
+
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart service fail2ban-ui.service
+  ansible.builtin.systemd:
+    name: "{{ fail2ban_ui_systemd_name }}.service"
+    state: restarted
+
+- name: Reload Nginx service
+  ansible.builtin.systemd:
+    name: "nginx.service"
+    state: reloaded

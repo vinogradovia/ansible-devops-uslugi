@@ -1,0 +1,61 @@
+---
+# defaults file for fail2ban_ui
+
+fail2ban_ui_enabled: true
+
+# path's
+fail2ban_ui_config_dir: /opt/fail2ban-ui
+fail2ban_ui_storage_dir: "{{ fail2ban_ui_config_dir }}/storage"
+fail2ban_ui_binary_install_path: "{{ fail2ban_ui_config_dir }}/fail2ban-ui"
+
+fail2ban_ui_version: v1.4.4
+
+# docker, systemd
+fail2ban_ui_orchestrator: systemd
+
+fail2ban_ui_systemd_name: "fail2ban-ui"
+fail2ban_ui_systemd_unit_dir: /etc/systemd/system
+fail2ban_ui_systemd_sysconfig_dir: /etc/sysconfig
+
+fail2ban_ui_callback_secret: false
+fail2ban_ui_callback_url: "http://127.0.0.1:3080"
+fail2ban_ui_port: "3080"
+fail2ban_ui_bind_address: 127.0.0.1
+fail2ban_ui_disable_external_ip_lookup: true
+fail2ban_ui_update_check: false
+fail2ban_ui_autodark: true
+
+fail2ban_ui_image_registry: docker.io
+fail2ban_ui_image_repository: swissmakers/fail2ban-ui
+fail2ban_ui_image_version: "{{ fail2ban_ui_version }}"
+fail2ban_ui_image: >-
+  {{ fail2ban_ui_image_registry }}/{{ fail2ban_ui_image_repository }}:{{ fail2ban_ui_image_version }}
+
+# fail2ban_ui_binary_download_url: TODO
+fail2ban_ui_git_repo: https://github.com/swissmakers/fail2ban-ui.git
+
+# reverse-proxy
+# false, nginx, traefik
+fail2ban_ui_reverse_proxy: false
+
+fail2ban_ui_reverse_proxy_nginx_config_path: /etc/nginx/conf.d
+fail2ban_ui_reverse_proxy_nginx_config_name: fail2ban-ui.local.conf
+fail2ban_ui_reverse_proxy_nginx_ssl_certs_path: /etc/nginx/ssl
+fail2ban_ui_reverse_proxy_nginx_ssl_certificate: "{{ fail2ban_ui_reverse_proxy_nginx_ssl_certs_path }}/{{ fail2ban_ui_reverse_proxy_server_name }}/{{ fail2ban_ui_reverse_proxy_ssl_cert_filename }}"
+fail2ban_ui_reverse_proxy_nginx_ssl_certificate_key: "{{ fail2ban_ui_reverse_proxy_nginx_ssl_certs_path }}/{{ fail2ban_ui_reverse_proxy_server_name }}/{{ fail2ban_ui_reverse_proxy_ssl_cert_key_filename }}"
+fail2ban_ui_reverse_proxy_nginx_ssl_certificate_csr: "{{ fail2ban_ui_reverse_proxy_nginx_ssl_certs_path }}/{{ fail2ban_ui_reverse_proxy_server_name }}/{{ fail2ban_ui_reverse_proxy_ssl_cert_csr_filename }}"
+
+fail2ban_ui_reverse_proxy_ssl_cert_filename: fullchain.pem
+fail2ban_ui_reverse_proxy_ssl_cert_key_filename: privkey.pem
+fail2ban_ui_reverse_proxy_ssl_cert_csr_filename: "{{ fail2ban_ui_reverse_proxy_server_name }}.csr"
+
+fail2ban_ui_reverse_proxy_server_name: fail2ban-ui.local
+fail2ban_ui_reverse_proxy_http_port: 80
+fail2ban_ui_reverse_proxy_https_port: 443
+
+fail2ban_ui_reverse_proxy_default_password: "PleAse_Change_ME!"
+
+fail2ban_ui_reverse_proxy_users_auth_file: "/etc/nginx//users/{{ fail2ban_ui_reverse_proxy_server_name }}-auth"
+fail2ban_ui_reverse_proxy_users_auth:
+  - {name: 'monitor', password: "{{ fail2ban_ui_reverse_proxy_default_password }}"}
+  - {name: 'olduser', password: 'null', state: 'absent'}

@@ -1,0 +1,148 @@
+---
+- name: Create fail2ban-ui config dir
+  ansible.builtin.file:
+    path: "{{ fail2ban_ui_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+# fail2ban-ui in docker
+- name: Block for monitoring_server_orchestrator docker
+  when: fail2ban_ui_orchestrator == "docker"
+  block:
+    - name: Render fail2ban-ui compose.yml
+      ansible.builtin.template:
+        src: compose-fail2ban-ui.yml.j2
+        dest: "{{ fail2ban_ui_config_dir }}/compose.yml"
+        owner: root
+        group: root
+        mode: '0644'
+        validate: docker compose -f %s config
+      tags: debug
+
+    - name: Create and start compose services
+      community.docker.docker_compose_v2:
+        project_src: "{{ fail2ban_ui_config_dir }}"
+        remove_orphans: true
+        wait: true
+      register: fail2ban_ui_start_result
+
+    - name: Show fail2ban_ui_start_result
+      ansible.builtin.debug:
+        var: fail2ban_ui_start_result.stderr_lines
+
+# fail2ban-ui in systemd
+- name: Block for monitoring_server_orchestrator systemd
+  when: fail2ban_ui_orchestrator == "systemd"
+  notify:
+    - Reload systemd daemon
+    - Restart service fail2ban-ui.service
+  block:
+    - name: Populate service facts
+      ansible.builtin.service_facts:
+
+    - name: Git checkout fail2ban repo
+      ansible.builtin.git:
+        repo: "{{ fail2ban_ui_git_repo }}"
+        dest: "{{ fail2ban_ui_config_dir }}"
+        version: "{{ fail2ban_ui_version }}"
+
+    - name: Install fail2ban-ui binary
+      ansible.builtin.copy:
+        src: "fail2ban-ui-{{ fail2ban_ui_version }}"
+        dest: "{{ fail2ban_ui_binary_install_path }}"
+        mode: "0755"
+        owner: root
+        group: root
+
+    - name: Render fail2ban-ui systemd service
+      ansible.builtin.template:
+        src: "systemd/fail2ban-ui/{{ fail2ban_ui_systemd_name }}.service.j2"
+        dest: "{{ fail2ban_ui_systemd_unit_dir }}/{{ fail2ban_ui_systemd_name }}.service"
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: State service fail2ban-ui
+      ansible.builtin.systemd:
+        name: "{{ fail2ban_ui_systemd_name }}"
+        enabled: "{{ fail2ban_ui_enabled }}"
+        state: "{{ 'started' if fail2ban_ui_enabled else 'stopped' }}"
+
+- name: Configure reverse_proxy nginx
+  when: fail2ban_ui_reverse_proxy == 'nginx'
+  notify:
+    - Reload Nginx service
+  block:
+    - name: Create nginx addons dir's
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+        owner: root
+        group: root
+      with_items:
+        - "{{ fail2ban_ui_reverse_proxy_users_auth_file | dirname }}"
+        - "{{ fail2ban_ui_reverse_proxy_nginx_ssl_certs_path }}"
+        - "{{ fail2ban_ui_reverse_proxy_nginx_ssl_certificate | dirname }}"
+        - "{{ fail2ban_ui_reverse_proxy_nginx_ssl_certificate_key | dirname }}"
+
+    - name: Get stat the nginx ssl_certificate
+      ansible.builtin.stat:
+        path: "{{ fail2ban_ui_reverse_proxy_nginx_ssl_certificate }}"
+      register: fail2ban_ui_reverse_proxy_nginx_ssl_certificate_status
+
+    - name: Get stat the nginx ssl_certificate_key
+      ansible.builtin.stat:
+        path: "{{ fail2ban_ui_reverse_proxy_nginx_ssl_certificate_key }}"
+      register: fail2ban_ui_reverse_proxy_nginx_ssl_certificate_key_status
+
+
+    - name: Generate a Self Signed OpenSSL certificate
+      when: not fail2ban_ui_reverse_proxy_nginx_ssl_certificate_status.stat.exists and not fail2ban_ui_reverse_proxy_nginx_ssl_certificate_key_status.stat.exists
+      block:
+        - name: Generate an OpenSSL private key with the default values (4096 bits, RSA)
+          community.crypto.openssl_privatekey:
+            path: "{{ fail2ban_ui_reverse_proxy_nginx_ssl_certificate_key }}"
+            size: 4096
+
+        - name: Generate an OpenSSL Certificate Signing Request
+          community.crypto.openssl_csr:
+            path: "{{ fail2ban_ui_reverse_proxy_nginx_ssl_certificate_csr }}"
+            privatekey_path: "{{ fail2ban_ui_reverse_proxy_nginx_ssl_certificate_key }}"
+            common_name: "{{ fail2ban_ui_reverse_proxy_server_name }}"
+
+        - name: Generate a Self Signed OpenSSL certificate
+          community.crypto.x509_certificate:
+            path: "{{ fail2ban_ui_reverse_proxy_nginx_ssl_certificate }}"
+            privatekey_path: "{{ fail2ban_ui_reverse_proxy_nginx_ssl_certificate_key }}"
+            csr_path: "{{ fail2ban_ui_reverse_proxy_nginx_ssl_certificate_csr }}"
+            provider: selfsigned
+
+
+    - name: Add a user to a password file dashboard-users
+      community.general.htpasswd:
+        path: "{{ fail2ban_ui_reverse_proxy_users_auth_file }}"
+        name: "{{ item.name }}"
+        password: "{{ item.password }}"
+        owner: root
+        group: www-data
+        mode: '0644'
+        state: "{{ item.state | default('present') }}"
+      with_items:
+        - "{{ fail2ban_ui_reverse_proxy_users_auth }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Render reverse_proxy config nginx
+      ansible.builtin.template:
+        src: "nginx/{{ fail2ban_ui_systemd_name }}-site.conf.j2"
+        dest: "{{ fail2ban_ui_reverse_proxy_nginx_config_path }}/{{ fail2ban_ui_reverse_proxy_nginx_config_name }}"
+        mode: "0644"
+        owner: root
+        group: root
+        # validate: bash -c 'nginx -t -c /dev/stdin <<< "events {worker_connections 1;} http { include %s; }"'
+        validate: bash -c 'echo "events { worker_connections 100; } http { include %s; }" > /tmp/nginx.conf; sudo nginx -T -c /tmp/nginx.conf; ec=$?; rm -f /tmp/nginx.conf; exit $ec'
+
+# openssl req -x509 -newkey rsa:4096 -keyout /etc/nginx/ssl/fail2ban.test.io/privkey.pem -out /etc/nginx/ssl/fail2ban.test.io/fullchain.pem -sha256 -days 3650 -nodes -subj "/CN=fail2ban.test.io"

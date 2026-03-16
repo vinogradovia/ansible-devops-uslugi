@@ -1,0 +1,60 @@
+server {
+    listen {{ fail2ban_ui_reverse_proxy_http_port }};
+    server_name {{ fail2ban_ui_reverse_proxy_server_name }};
+    return 301 https://$host:{{ fail2ban_ui_reverse_proxy_https_port }}$request_uri;
+}
+
+server {
+    listen {{ fail2ban_ui_reverse_proxy_https_port }} ssl http2;
+    server_name {{ fail2ban_ui_reverse_proxy_server_name }};
+
+    ssl_certificate     {{ fail2ban_ui_reverse_proxy_nginx_ssl_certificate }};
+    ssl_certificate_key {{ fail2ban_ui_reverse_proxy_nginx_ssl_certificate_key }};
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_session_timeout 1d;
+    ssl_session_cache   shared:SSL:10m;
+
+    # Optional strict transport security (don't forget to preload via -> https://hstspreload.org/)
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options DENY always;
+    add_header Referrer-Policy no-referrer always;
+
+    # Optional source allowlist
+    # allow 10.0.0.0/8;
+    # allow 192.168.0.0/16;
+    # deny all;
+
+    auth_basic           "Доступ ограничен: введите учётные данные";
+    auth_basic_user_file {{ fail2ban_ui_reverse_proxy_users_auth_file }};
+
+    location / {
+        proxy_pass http://127.0.0.1:{{ fail2ban_ui_port }};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host:$server_port;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # proxy_set_header Origin https://$host:$server_port;
+        # proxy_set_header X-Forwarded-Port $request_port;
+        proxy_read_timeout 60s;
+        proxy_send_timeout 60s;
+    }
+
+    # Proxy WebSocket endpoint
+    location /api/ws {
+        proxy_pass http://127.0.0.1:{{ fail2ban_ui_port }};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host:8443;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # proxy_set_header X-Forwarded-Port $server_port;
+        # proxy_set_header Origin http://$host:$server_port;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+}

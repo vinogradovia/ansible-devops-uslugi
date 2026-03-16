@@ -1,0 +1,28 @@
+[Unit]
+Description=Fail2Ban UI
+After=network.target
+Wants=fail2ban.service
+
+[Service]
+# User={{ fail2ban_ui_systemd_name }}
+User=root
+Group=root
+Type=simple
+
+Environment=CALLBACK_URL={{ fail2ban_ui_callback_url }}
+{% if fail2ban_ui_callback_secret %}
+Environment=CALLBACK_SECRET={{ fail2ban_ui_callback_secret }}
+{% endif %}
+Environment=PORT={{ fail2ban_ui_port }}
+Environment=BIND_ADDRESS={{ fail2ban_ui_bind_address }}
+Environment=DISABLE_EXTERNAL_IP_LOOKUP={{ fail2ban_ui_disable_external_ip_lookup }}
+Environment=UPDATE_CHECK={{ fail2ban_ui_update_check }}
+Environment=AUTODARK={{ fail2ban_ui_autodark }}
+
+WorkingDirectory={{ fail2ban_ui_config_dir }}
+ExecStart={{ fail2ban_ui_binary_install_path }}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

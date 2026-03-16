@@ -1,0 +1,126 @@
+services:
+  fail2ban-ui:
+    # Use pre-built image from Docker Hub (default)
+    image: swissmakers/fail2ban-ui:latest
+
+    # Alternative: Use Swissmakers registry (fallback)
+    # image: registry.swissmakers.ch/infra/fail2ban-ui:latest
+
+    # Or build from source (uncomment to use):
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+
+    container_name: fail2ban-ui
+    #privileged: true # needed if you want to use a container-local fail2ban instance (because fail2ban.sock is owned by root)
+    # a single all-in-one container is planned, currently you need to use the fail2ban container from linuxserver, see docker-compose-allinone.yml for an example
+    network_mode: host
+
+    environment:
+      # ============================================
+      # Basic Configuration
+      # ============================================
+      # Optional: Change this to use a different port for the web interface (default: 8080)
+      - PORT={{ fail2ban_ui_port}}
+      # Optional: Bind to a specific IP address (default: 0.0.0.0)
+      # This is useful when running with host networking to prevent exposing
+      # the web UI to unprotected networks. Set to a specific IP (e.g., 127.0.0.1
+      # or a specific interface IP) to restrict access.
+      - BIND_ADDRESS={{ fail2ban_ui_bind_address }}
+      # Optional: Enable automatic dark mode based on system preferences (default: false).
+      # When set to true, the web UI will automatically switch to dark mode based on the system's preferred color scheme.
+      - AUTODARK={{ fail2ban_ui_autodark }}
+
+      # ============================================
+      # Privacy Settings
+      # ============================================
+      # Optional: Disable external IP lookup for privacy (default: false).
+      # When set to true, the "Your ext. IP:" display will be hidden and no external IP lookup requests will be made.
+      - DISABLE_EXTERNAL_IP_LOOKUP={{ fail2ban_ui_disable_external_ip_lookup }}
+      # Optional: Disable version update check (default: enabled).
+      # When set to false, the footer will not request the latest release from GitHub (e.g. air-gapped or privacy-sensitive environments).
+      - UPDATE_CHECK={{ fail2ban_ui_update_check }}
+
+      # ============================================
+      # Callback Settings (Optional)
+      # ============================================
+      # Optional: External address where Fail2ban instances send ban/unban API calls back to Fail2ban-UI.
+      # Default: http://127.0.0.1:<PORT> (works when Fail2ban runs in the same network namespace).
+      # For container setups with bridge networking or remote Fail2ban servers, set this to an address
+      # reachable from those instances (e.g. the Docker/Podman gateway IP or the host LAN IP).
+      # When set, this env var always takes priority over the value in the UI settings.
+      - CALLBACK_URL={{ fail2ban_ui_callback_url }}
+      # Optional: Shared secret used to authenticate ban/unban callbacks from Fail2ban instances.
+      # If not set, a secure random secret is auto-generated on first start.
+      # When set, this env var always takes priority over the auto-generated or stored value.
+{% if fail2ban_ui_callback_secret %}
+      - CALLBACK_SECRET={{ fail2ban_ui_callback_secret }}
+{% endif %}
+      # ============================================
+      # OIDC Authentication (Optional)
+      # ============================================
+      # Enable OIDC authentication to protect the web UI
+      # - OIDC_ENABLED=true
+      # OIDC Provider: keycloak, authentik, or pocketid
+      # - OIDC_PROVIDER=keycloak
+      # OIDC Issuer URL (required when OIDC_ENABLED=true)
+      # Examples:
+      #   Keycloak: https://keycloak.example.com/realms/your-realm
+      #   Authentik: https://authentik.example.com/application/o/your-client-slug/
+      #   Pocket-ID: https://pocket-id.example.com
+      # - OIDC_ISSUER_URL=https://keycloak.example.com/realms/your-realm
+      # OIDC Client ID (required when OIDC_ENABLED=true)
+      # - OIDC_CLIENT_ID=fail2ban-ui
+      # OIDC Client Secret (required when OIDC_ENABLED=true)
+      # For Keycloak auto-configuration (development only), use:
+      # - OIDC_CLIENT_SECRET=auto-configured
+      # - OIDC_CLIENT_SECRET_FILE=/config/keycloak-client-secret
+      # Default for production:
+      # - OIDC_CLIENT_SECRET=your-client-secret
+      # OIDC Redirect URL (required when OIDC_ENABLED=true)
+      # This must match the redirect URI configured in your OIDC provider
+      # - OIDC_REDIRECT_URL=https://fail2ban-ui.example.com/auth/callback
+      # Optional: OIDC Scopes (default: openid,profile,email)
+      # Comma-separated list of scopes to request
+      # - OIDC_SCOPES=openid,profile,email,groups
+      # Optional: Session timeout in seconds (default: 3600 = 1 hour)
+      # - OIDC_SESSION_MAX_AGE=7200
+      # Optional: Session secret for cookie encryption
+      # If not provided, a random secret will be generated on startup.
+      # For production, it's recommended to set a fixed secret (32 bytes, base64-encoded)
+      # - OIDC_SESSION_SECRET=your-32-byte-base64-encoded-secret
+      # Optional: Skip TLS verification (dev only, default: false)
+      # Only use in development environments!
+      # - OIDC_SKIP_VERIFY=true
+      # Optional: Username claim (default: preferred_username)
+      # The claim to use as the username (e.g., email, preferred_username, sub)
+      # - OIDC_USERNAME_CLAIM=preferred_username
+      # Optional: Provider logout URL
+      # If not set, the logout URL will be auto-constructed based on the provider:
+      #   Keycloak: {issuer}/protocol/openid-connect/logout
+      #   Authentik: {issuer}/protocol/openid-connect/logout
+      #   Pocket-ID: {issuer}/api/oidc/end-session
+      # Examples:
+      #   Keycloak: https://keycloak.example.com/realms/your-realm/protocol/openid-connect/logout
+      #   Authentik: https://authentik.example.com/application/o/your-client-slug/protocol/openid-connect/logout
+      #   Pocket-ID: https://pocket-id.example.com/api/oidc/end-session
+      # - OIDC_LOGOUT_URL=https://keycloak.example.com/realms/your-realm/protocol/openid-connect/logout
+      # Optional: Skip login page and redirect directly to OIDC provider (default: false)
+      # When set to true, users are immediately redirected to the OIDC provider without showing the login page
+      # - OIDC_SKIP_LOGINPAGE=true
+
+    volumes:
+      # Required for fail2ban-ui: Stores SQLite database, application settings, and SSH keys of the fail2ban-ui container
+      - {{ fail2ban_ui_config_dir }}:/config:Z
+      # Required for fail2ban-ui: Used for testing, that logpath is working, before enabeling a jail. Without this read only access the fail2ban-ui will not be able to enable jails (logpath-test would fail)
+      - /var/log:/var/log:ro
+
+      # Required for local fail2ban instance: Fail2Ban configuration directory, needed for managing a local Fail2Ban instance (e.g. on host system) via fail2ban-ui
+      - /etc/fail2ban:/etc/fail2ban:Z
+      # Required for local fail2ban instance: Fail2Ban socket directory, needed for local Fail2Ban (e.g. on host system) for control via fail2ban-ui
+      - /var/run/fail2ban:/var/run/fail2ban
+
+      # Optional: Enables geographic IP analysis features via GeoIP databases (GeoIP must be installed and configured on the host system)
+      - /usr/share/GeoIP:/usr/share/GeoIP:ro
+
+    restart: unless-stopped
