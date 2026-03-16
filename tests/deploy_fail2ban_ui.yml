@@ -1,0 +1,6 @@
+---
+- name: Run test fail2ban_ui
+  hosts: fail2ban_ui
+  become: true
+  roles:
+    - fail2ban_ui
