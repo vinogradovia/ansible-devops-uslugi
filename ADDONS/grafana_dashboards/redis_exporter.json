@@ -12,6 +12,12 @@
   "__elements": {},
   "__requires": [
     {
+      "type": "panel",
+      "id": "gauge",
+      "name": "Gauge",
+      "version": ""
+    },
+    {
       "type": "grafana",
       "id": "grafana",
       "name": "Grafana",
@@ -41,7 +47,8 @@
       {
         "builtIn": 1,
         "datasource": {
-          "uid": "-- Grafana --"
+          "type": "datasource",
+          "uid": "grafana"
         },
         "enable": true,
         "hide": true,
@@ -51,10 +58,11 @@
       }
     ]
   },
-  "description": "Redis Dashboard for Prometheus Redis Exporter 1.x, it works with multiple Prometheus instances and name spaces in k8s",
+  "description": "Redis Dashboard for Prometheus Redis Exporter 1.x",
   "editable": true,
   "fiscalYearStartMonth": 0,
-  "graphTooltip": 0,
+  "graphTooltip": 1,
+  "id": null,
   "links": [],
   "panels": [
     {
@@ -99,7 +107,7 @@
       },
       "gridPos": {
         "h": 7,
-        "w": 2,
+        "w": 3,
         "x": 0,
         "y": 0
       },
@@ -139,7 +147,7 @@
           "step": 1800
         }
       ],
-      "title": "Uptime",
+      "title": "Max Uptime",
       "type": "stat"
     },
     {
@@ -185,7 +193,7 @@
       "gridPos": {
         "h": 7,
         "w": 2,
-        "x": 2,
+        "x": 3,
         "y": 0
       },
       "hideTimeOverride": true,
@@ -215,7 +223,7 @@
             "type": "prometheus",
             "uid": "${DS_VICTORIAMETRICS}"
           },
-          "expr": "redis_connected_clients{instance=~\"$instance\"}",
+          "expr": "sum(redis_connected_clients{instance=~\"$instance\"})",
           "format": "time_series",
           "intervalFactor": 2,
           "legendFormat": "",
@@ -236,8 +244,7 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "fixedColor": "rgb(31, 120, 193)",
-            "mode": "fixed"
+            "mode": "thresholds"
           },
           "decimals": 0,
           "mappings": [
@@ -276,19 +283,17 @@
       },
       "gridPos": {
         "h": 7,
-        "w": 4,
-        "x": 4,
+        "w": 3,
+        "x": 5,
         "y": 0
       },
       "hideTimeOverride": true,
       "id": 11,
       "maxDataPoints": 100,
       "options": {
-        "colorMode": "none",
-        "graphMode": "area",
-        "justifyMode": "auto",
+        "minVizHeight": 75,
+        "minVizWidth": 75,
         "orientation": "horizontal",
-        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -296,9 +301,9 @@
           "fields": "",
           "values": false
         },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "wideLayout": true
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "sizing": "auto"
       },
       "pluginVersion": "12.3.3",
       "targets": [
@@ -307,7 +312,7 @@
             "type": "prometheus",
             "uid": "${DS_VICTORIAMETRICS}"
           },
-          "expr": "100 * (redis_memory_used_bytes{instance=~\"$instance\"}  / redis_memory_max_bytes{instance=~\"$instance\"} )",
+          "expr": "sum(100 * (redis_memory_used_bytes{instance=~\"$instance\"}  / redis_memory_max_bytes{instance=~\"$instance\"}))",
           "format": "time_series",
           "intervalFactor": 2,
           "legendFormat": "",
@@ -318,7 +323,7 @@
       ],
       "timeFrom": "1m",
       "title": "Memory Usage",
-      "type": "stat"
+      "type": "gauge"
     },
     {
       "datasource": {
@@ -339,7 +344,7 @@
             "barAlignment": 0,
             "barWidthFactor": 0.6,
             "drawStyle": "line",
-            "fillOpacity": 10,
+            "fillOpacity": 80,
             "gradientMode": "none",
             "hideFrom": {
               "legend": false,
@@ -348,7 +353,7 @@
             },
             "insertNulls": false,
             "lineInterpolation": "linear",
-            "lineWidth": 2,
+            "lineWidth": 1,
             "pointSize": 5,
             "scaleDistribution": {
               "type": "linear"
@@ -358,12 +363,13 @@
             "spanNulls": true,
             "stacking": {
               "group": "A",
-              "mode": "none"
+              "mode": "normal"
             },
             "thresholdsStyle": {
               "mode": "off"
             }
           },
+          "links": [],
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -388,9 +394,8 @@
         "x": 8,
         "y": 0
       },
-      "id": 2,
+      "id": 18,
       "options": {
-        "dataLinks": [],
         "legend": {
           "calcs": [],
           "displayMode": "list",
@@ -400,7 +405,7 @@
         "tooltip": {
           "hideZeros": false,
           "mode": "multi",
-          "sort": "none"
+          "sort": "desc"
         }
       },
       "pluginVersion": "12.3.3",
@@ -410,18 +415,17 @@
             "type": "prometheus",
             "uid": "${DS_VICTORIAMETRICS}"
           },
-          "expr": "rate(redis_commands_processed_total{instance=~\"$instance\"}[1m])",
+          "expr": "sum(rate(redis_commands_total{instance=~\"$instance\"} [1m])) by (cmd)",
           "format": "time_series",
           "interval": "",
           "intervalFactor": 2,
-          "legendFormat": "",
-          "metric": "A",
+          "legendFormat": "{{ cmd }}",
+          "metric": "redis_command_calls_total",
           "refId": "A",
-          "step": 240,
-          "target": ""
+          "step": 240
         }
       ],
-      "title": "Commands Executed / sec",
+      "title": "Total Commands / sec",
       "type": "timeseries"
     },
     {
@@ -468,6 +472,7 @@
               "mode": "off"
             }
           },
+          "links": [],
           "mappings": [],
           "min": 0,
           "thresholds": {
@@ -495,7 +500,6 @@
       },
       "id": 1,
       "options": {
-        "dataLinks": [],
         "legend": {
           "calcs": [],
           "displayMode": "list",
@@ -520,7 +524,7 @@
           "hide": false,
           "interval": "",
           "intervalFactor": 2,
-          "legendFormat": "hits",
+          "legendFormat": "hits, {{ instance }}",
           "metric": "",
           "refId": "A",
           "step": 240,
@@ -536,7 +540,7 @@
           "hide": false,
           "interval": "",
           "intervalFactor": 2,
-          "legendFormat": "misses",
+          "legendFormat": "misses, {{ instance }}",
           "metric": "",
           "refId": "B",
           "step": 240,
@@ -590,6 +594,7 @@
               "mode": "off"
             }
           },
+          "links": [],
           "mappings": [],
           "min": 0,
           "thresholds": {
@@ -633,7 +638,6 @@
       },
       "id": 7,
       "options": {
-        "dataLinks": [],
         "legend": {
           "calcs": [],
           "displayMode": "list",
@@ -653,10 +657,10 @@
             "type": "prometheus",
             "uid": "${DS_VICTORIAMETRICS}"
           },
-          "expr": "redis_memory_used_bytes{instance=~\"$instance\"} ",
+          "expr": "redis_memory_used_bytes{instance=~\"$instance\"}",
           "format": "time_series",
           "intervalFactor": 2,
-          "legendFormat": "used",
+          "legendFormat": "used, {{ instance }}",
           "metric": "",
           "refId": "A",
           "step": 240,
@@ -667,11 +671,11 @@
             "type": "prometheus",
             "uid": "${DS_VICTORIAMETRICS}"
           },
-          "expr": "redis_memory_max_bytes{instance=~\"$instance\"} ",
+          "expr": "redis_memory_max_bytes{instance=~\"$instance\"}",
           "format": "time_series",
           "hide": false,
           "intervalFactor": 2,
-          "legendFormat": "max",
+          "legendFormat": "max, {{ instance }}",
           "refId": "B",
           "step": 240
         }
@@ -723,6 +727,7 @@
               "mode": "off"
             }
           },
+          "links": [],
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -749,7 +754,6 @@
       },
       "id": 10,
       "options": {
-        "dataLinks": [],
         "legend": {
           "calcs": [],
           "displayMode": "list",
@@ -769,7 +773,7 @@
             "type": "prometheus",
             "uid": "${DS_VICTORIAMETRICS}"
           },
-          "expr": "rate(redis_net_input_bytes_total{instance=~\"$instance\"}[5m])",
+          "expr": "sum(rate(redis_net_input_bytes_total{instance=~\"$instance\"}[5m]))",
           "format": "time_series",
           "intervalFactor": 2,
           "legendFormat": "{{ input }}",
@@ -781,7 +785,7 @@
             "type": "prometheus",
             "uid": "${DS_VICTORIAMETRICS}"
           },
-          "expr": "rate(redis_net_output_bytes_total{instance=~\"$instance\"}[5m])",
+          "expr": "sum(rate(redis_net_output_bytes_total{instance=~\"$instance\"}[5m]))",
           "format": "time_series",
           "interval": "",
           "intervalFactor": 2,
@@ -837,6 +841,7 @@
               "mode": "off"
             }
           },
+          "links": [],
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -853,7 +858,28 @@
           },
           "unit": "none"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byValue",
+              "options": {
+                "op": "gte",
+                "reducer": "allIsZero",
+                "value": 0
+              }
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": true,
+                  "tooltip": true,
+                  "viz": false
+                }
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 7,
@@ -863,13 +889,12 @@
       },
       "id": 5,
       "options": {
-        "dataLinks": [],
         "legend": {
           "calcs": [
             "lastNotNull"
           ],
-          "displayMode": "table",
-          "placement": "right",
+          "displayMode": "list",
+          "placement": "bottom",
           "showLegend": true
         },
         "tooltip": {
@@ -885,11 +910,11 @@
             "type": "prometheus",
             "uid": "${DS_VICTORIAMETRICS}"
           },
-          "expr": "sum (redis_db_keys{instance=~\"$instance\"}) by (db)",
+          "expr": "sum (redis_db_keys{instance=~\"$instance\"}) by (db, instance)",
           "format": "time_series",
           "interval": "",
           "intervalFactor": 2,
-          "legendFormat": "{{ db }} ",
+          "legendFormat": "{{ db }}, {{ instance }}",
           "refId": "A",
           "step": 240,
           "target": ""
@@ -942,6 +967,7 @@
               "mode": "off"
             }
           },
+          "links": [],
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -968,7 +994,6 @@
       },
       "id": 13,
       "options": {
-        "dataLinks": [],
         "legend": {
           "calcs": [],
           "displayMode": "list",
@@ -988,11 +1013,11 @@
             "type": "prometheus",
             "uid": "${DS_VICTORIAMETRICS}"
           },
-          "expr": "sum (redis_db_keys{instance=~\"$instance\"}) - sum (redis_db_keys_expiring{instance=~\"$instance\"}) ",
+          "expr": "sum (redis_db_keys{instance=~\"$instance\"}) by (instance) - sum (redis_db_keys_expiring{instance=~\"$instance\"}) by (instance)",
           "format": "time_series",
           "interval": "",
           "intervalFactor": 2,
-          "legendFormat": "not expiring",
+          "legendFormat": "not expiring, {{ instance }}",
           "refId": "A",
           "step": 240,
           "target": ""
@@ -1002,11 +1027,11 @@
             "type": "prometheus",
             "uid": "${DS_VICTORIAMETRICS}"
           },
-          "expr": "sum (redis_db_keys_expiring{instance=~\"$instance\"}) ",
+          "expr": "sum (redis_db_keys_expiring{instance=~\"$instance\"}) by (instance)",
           "format": "time_series",
           "interval": "",
           "intervalFactor": 2,
-          "legendFormat": "expiring",
+          "legendFormat": "expiring, {{ instance }}",
           "metric": "",
           "refId": "B",
           "step": 240
@@ -1059,6 +1084,7 @@
               "mode": "off"
             }
           },
+          "links": [],
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -1120,18 +1146,6 @@
                 }
               }
             ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "reclaims"
-            },
-            "properties": [
-              {
-                "id": "custom.axisPlacement",
-                "value": "right"
-              }
-            ]
           }
         ]
       },
@@ -1143,7 +1157,6 @@
       },
       "id": 8,
       "options": {
-        "dataLinks": [],
         "legend": {
           "calcs": [],
           "displayMode": "list",
@@ -1168,7 +1181,7 @@
           "hide": false,
           "interval": "",
           "intervalFactor": 2,
-          "legendFormat": "expired",
+          "legendFormat": "expired, {{ instance }}",
           "metric": "",
           "refId": "A",
           "step": 240,
@@ -1183,115 +1196,12 @@
           "format": "time_series",
           "interval": "",
           "intervalFactor": 2,
-          "legendFormat": "evicted",
+          "legendFormat": "evicted, {{ instance }}",
           "refId": "B",
           "step": 240
         }
       ],
-      "title": "Expired / Evicted",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_VICTORIAMETRICS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 80,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "showValues": false,
-            "spanNulls": true,
-            "stacking": {
-              "group": "A",
-              "mode": "normal"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 7,
-        "w": 12,
-        "x": 12,
-        "y": 21
-      },
-      "id": 14,
-      "options": {
-        "dataLinks": [],
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "hideZeros": false,
-          "mode": "multi",
-          "sort": "none"
-        }
-      },
-      "pluginVersion": "12.3.3",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_VICTORIAMETRICS}"
-          },
-          "expr": "topk(5, irate(redis_commands_total{instance=~\"$instance\"} [1m]))",
-          "format": "time_series",
-          "interval": "",
-          "intervalFactor": 2,
-          "legendFormat": "{{ cmd }}",
-          "metric": "redis_command_calls_total",
-          "refId": "A",
-          "step": 240
-        }
-      ],
-      "title": "Command Calls / sec",
+      "title": "Expired/Evicted Keys",
       "type": "timeseries"
     },
     {
@@ -1338,6 +1248,7 @@
               "mode": "off"
             }
           },
+          "links": [],
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -1359,12 +1270,11 @@
       "gridPos": {
         "h": 7,
         "w": 12,
-        "x": 0,
-        "y": 28
+        "x": 12,
+        "y": 21
       },
       "id": 16,
       "options": {
-        "dataLinks": [],
         "legend": {
           "calcs": [],
           "displayMode": "list",
@@ -1384,18 +1294,257 @@
             "type": "prometheus",
             "uid": "${DS_VICTORIAMETRICS}"
           },
-          "expr": "redis_connected_clients{instance=\"$instance\"}",
+          "expr": "sum(redis_connected_clients{instance=~\"$instance\"})",
           "format": "time_series",
           "intervalFactor": 1,
+          "legendFormat": "connected",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_VICTORIAMETRICS}"
+          },
+          "expr": "sum(redis_blocked_clients{instance=~\"$instance\"})",
+          "format": "time_series",
+          "intervalFactor": 1,
+          "legendFormat": "blocked",
+          "refId": "B"
         }
       ],
-      "title": "Redis connected clients",
+      "title": "Connected/Blocked Clients",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_VICTORIAMETRICS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "links": [],
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byValue",
+              "options": {
+                "op": "gte",
+                "reducer": "allIsZero",
+                "value": 0
+              }
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": true,
+                  "tooltip": true,
+                  "viz": false
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 28
+      },
+      "id": 20,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_VICTORIAMETRICS}"
+          },
+          "expr": "sum(irate(redis_commands_duration_seconds_total{instance =~ \"$instance\"}[1m])) by (cmd)\n  /\nsum(irate(redis_commands_total{instance =~ \"$instance\"}[1m])) by (cmd)\n",
+          "format": "time_series",
+          "interval": "",
+          "intervalFactor": 2,
+          "legendFormat": "{{ cmd }}",
+          "metric": "redis_command_calls_total",
+          "refId": "A",
+          "step": 240
+        }
+      ],
+      "title": "Average Time Spent by Command / sec",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_VICTORIAMETRICS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "links": [],
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 28
+      },
+      "id": 14,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_VICTORIAMETRICS}"
+          },
+          "expr": "sum(irate(redis_commands_duration_seconds_total{instance=~\"$instance\"}[1m])) by (cmd) != 0",
+          "format": "time_series",
+          "interval": "",
+          "intervalFactor": 2,
+          "legendFormat": "{{ cmd }}",
+          "metric": "redis_command_calls_total",
+          "refId": "A",
+          "step": 240
+        }
+      ],
+      "title": "Total Time Spent by Command / sec",
       "type": "timeseries"
     }
   ],
   "preload": false,
-  "refresh": "30s",
+  "refresh": "",
   "schemaVersion": 42,
   "tags": [
     "prometheus",
@@ -1405,14 +1554,19 @@
     "list": [
       {
         "current": {},
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_VICTORIAMETRICS}"
+        },
+        "definition": "label_values(redis_up, namespace)",
         "includeAll": false,
-        "label": "Prometheus",
-        "name": "DS_PROMETHEUS",
+        "name": "namespace",
         "options": [],
-        "query": "prometheus",
-        "refresh": 1,
+        "query": "label_values(redis_up, namespace)",
+        "refresh": 2,
         "regex": "",
-        "type": "datasource"
+        "sort": 1,
+        "type": "query"
       },
       {
         "current": {},
@@ -1420,11 +1574,12 @@
           "type": "prometheus",
           "uid": "${DS_VICTORIAMETRICS}"
         },
-        "definition": "label_values(redis_up{kubernetes_namespace=\"$namespace\", statefulset_kubernetes_io_pod_name=\"$pod_name\"}, instance)",
+        "definition": "label_values(redis_up{namespace=~\"$namespace\"}, instance)",
         "includeAll": false,
+        "multi": true,
         "name": "instance",
         "options": [],
-        "query": "label_values(redis_up{kubernetes_namespace=\"$namespace\", statefulset_kubernetes_io_pod_name=\"$pod_name\"}, instance)",
+        "query": "label_values(redis_up{namespace=~\"$namespace\"}, instance)",
         "refresh": 2,
         "regex": "",
         "sort": 1,
@@ -1439,8 +1594,7 @@
   "timepicker": {},
   "timezone": "browser",
   "title": "Redis Dashboard for Prometheus Redis Exporter 1.x",
-  "uid": "xDLNRKUWz",
-  "version": 2,
-  "weekStart": "",
-  "id": null
+  "uid": "redis-exporter-dashboard",
+  "version": 1,
+  "weekStart": ""
 }
