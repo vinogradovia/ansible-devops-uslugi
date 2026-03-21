@@ -1,0 +1,110 @@
+groups:
+
+- name: NginxExporter
+  # nginx_up: nginx-prometheus-exporter (stub_status).
+  # nginx_http_response_count_total, nginx_http_response_time_seconds:
+  #   prometheus-nginxlog-exporter (martin-helmich/prometheus-nginxlog-exporter).
+
+  rules:
+    # 1m delay allows a restart without triggering an alert.
+    - alert: NginxDown
+      expr: 'nginx_up{job="nginx"} == 0'
+      for: 1m
+      labels:
+        severity: critical
+      annotations:
+        summary: Nginx service down (instance {{ $labels.instance }})
+        description: "Nginx instance is down on {{ $labels.instance }}\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+
+    - alert: NginxHigh5xxRate
+      expr: >
+        sum(rate(nginx_http_response_count_total{job="nginx", status=~"5.."}[5m])) by (instance, vhost)
+        /
+        sum(rate(nginx_http_response_count_total{job="nginx"}[5m])) by (instance, vhost)
+        * 100 > 5
+      for: 2m
+      labels:
+        severity: critical
+      annotations:
+        summary: Nginx high 5xx error rate ({{ $labels.vhost }})
+        description: "More than 5% of requests are returning 5xx errors on {{ $labels.instance }} (vhost: {{ $labels.vhost }})\n  VALUE = {{ $value | printf \"%.1f\" }}%\n  LABELS = {{ $labels }}"
+
+    - alert: NginxHigh4xxRate
+      expr: >
+        sum(rate(nginx_http_response_count_total{job="nginx", status=~"4.."}[5m])) by (instance, vhost)
+        /
+        sum(rate(nginx_http_response_count_total{job="nginx"}[5m])) by (instance, vhost)
+        * 100 > 10
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: Nginx high 4xx error rate ({{ $labels.vhost }})
+        description: "More than 10% of requests are returning 4xx errors on {{ $labels.instance }} (vhost: {{ $labels.vhost }})\n  VALUE = {{ $value | printf \"%.1f\" }}%\n  LABELS = {{ $labels }}"
+
+    - alert: NginxRequestsSpike
+      expr: >
+        sum(rate(nginx_http_response_count_total{job="nginx"}[5m])) by (instance, vhost)
+        > 2 *
+        sum(rate(nginx_http_response_count_total{job="nginx"}[5m] offset 1h)) by (instance, vhost)
+        and sum(rate(nginx_http_response_count_total{job="nginx"}[5m])) by (instance, vhost) > 10
+      for: 2m
+      labels:
+        severity: warning
+      annotations:
+        summary: Nginx requests spike detected ({{ $labels.vhost }})
+        description: "Nginx RPS on {{ $labels.instance }} (vhost: {{ $labels.vhost }}) is more than 2x higher than 1 hour ago\n  VALUE = {{ $value | printf \"%.1f\" }} req/s\n  LABELS = {{ $labels }}"
+
+    - alert: NginxHighResponseTime
+      expr: >
+        sum(rate(nginx_http_response_time_seconds_sum{job="nginx"}[5m])) by (instance, vhost)
+        /
+        sum(rate(nginx_http_response_time_seconds_count{job="nginx"}[5m])) by (instance, vhost)
+        > 1
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: Nginx high average response time ({{ $labels.vhost }})
+        description: "Average response time on {{ $labels.instance }} (vhost: {{ $labels.vhost }}) exceeds 1 second\n  VALUE = {{ $value | printf \"%.2f\" }}s\n  LABELS = {{ $labels }}"
+
+    - alert: NginxResponseTimeSpike
+      expr: >
+        (
+          sum(rate(nginx_http_response_time_seconds_sum{job="nginx"}[5m])) by (instance, vhost)
+          / sum(rate(nginx_http_response_time_seconds_count{job="nginx"}[5m])) by (instance, vhost)
+        ) > 2 * (
+          sum(rate(nginx_http_response_time_seconds_sum{job="nginx"}[5m] offset 1h)) by (instance, vhost)
+          / sum(rate(nginx_http_response_time_seconds_count{job="nginx"}[5m] offset 1h)) by (instance, vhost)
+        )
+        and sum(rate(nginx_http_response_count_total{job="nginx"}[5m])) by (instance, vhost) > 5
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: Nginx response time spike ({{ $labels.vhost }})
+        description: "Average response time on {{ $labels.instance }} (vhost: {{ $labels.vhost }}) is more than 2x higher than 1 hour ago\n  VALUE = {{ $value | printf \"%.2f\" }}s\n  LABELS = {{ $labels }}"
+
+    - alert: NginxDiskSpaceLow
+      expr: >
+        node_filesystem_avail_bytes{mountpoint="/", fstype!~"tmpfs|fuse.lxcfs|squashfs|vfat"}
+        / node_filesystem_size_bytes{mountpoint="/", fstype!~"tmpfs|fuse.lxcfs|squashfs|vfat"}
+        * 100 < 15
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: Nginx host disk space low (instance {{ $labels.instance }})
+        description: "Disk space on {{ $labels.instance }} ({{ $labels.mountpoint }}) is below 15%. Nginx logs may fill the disk.\n  VALUE = {{ $value | printf \"%.1f\" }}%\n  LABELS = {{ $labels }}"
+
+    - alert: NginxDiskSpaceCritical
+      expr: >
+        node_filesystem_avail_bytes{mountpoint="/", fstype!~"tmpfs|fuse.lxcfs|squashfs|vfat"}
+        / node_filesystem_size_bytes{mountpoint="/", fstype!~"tmpfs|fuse.lxcfs|squashfs|vfat"}
+        * 100 < 5
+      for: 2m
+      labels:
+        severity: critical
+      annotations:
+        summary: Nginx host disk space critical (instance {{ $labels.instance }})
+        description: "Disk space on {{ $labels.instance }} ({{ $labels.mountpoint }}) is below 5%. Nginx may stop logging or serving requests.\n  VALUE = {{ $value | printf \"%.1f\" }}%\n  LABELS = {{ $labels }}"
