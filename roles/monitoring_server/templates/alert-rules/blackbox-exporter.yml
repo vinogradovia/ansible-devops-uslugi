@@ -1,0 +1,34 @@
+groups:
+
+- name: 'BlackBoxExporter'
+
+
+  rules:
+    - alert: HostDown
+      expr: probe_success == 0
+      for: 3m
+      labels:
+        severity: critical
+        service: blackbox
+      annotations:
+        summary: "Хост {{ $labels.instance }} недоступен"
+        description: |
+          Хост {{ $labels.instance }} не отвечает на проверку Blackbox Exporter.
+          Модуль проверки: {{ $labels.module }}
+          Протокол: {{ $labels.probe }}
+          Время проверки: {{ $value }}
+    - alert: SSLCertificateExpiringSoon
+      expr: |
+        (probe_ssl_earliest_cert_expiry{job=~"$job", instance=~"$instance"} - time()) / 3600 / 24 < 30
+      for: 5m
+      labels:
+        severity: warning
+        component: ssl
+      annotations:
+        summary: "SSL сертификат истекает через {{ $value | humanizeDuration }}"
+        description: |
+          🔐 **Сертификат:** {{ $labels.instance }}
+          📅 **Истекает через:** {{ $value | humanize }} дней
+          ⏰ **Дата истечения:** {{ with printf "probe_ssl_earliest_cert_expiry{instance='%s'}" $labels.instance | query }}{{ . | first | value | humanizeTimestamp }}{{ end }}
+          
+          Необходимо обновить сертификат в ближайшее время.

@@ -1,0 +1,68 @@
+groups:
+
+- name: NodeJSExporter
+
+
+  rules:
+    # 1m delay allows a restart without triggering an alert.
+    - alert: ReactHostDown
+      expr: 'changes(process_start_time_seconds{job=~"$job", instance=~"$instance"}[5m]) == 0'
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: React (instance {{ $labels.instance }}) down
+        description: "React instance is down on {{ $labels.instance }}\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+    - alert: Event Loop Lag (p99)
+      expr: 'nodejs_eventloop_lag_p99_seconds > 0.050'
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: Event loop delay (instance {{ $labels.instance }})
+        description: "React instance is down on {{ $labels.instance }}\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+    - alert: Event Loop Lag (p99)
+      expr: 'nodejs_eventloop_lag_p99_seconds > 0.100'
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: Event loop delay (instance {{ $labels.instance }}) 
+        description: "Event loop delay {{ $labels.instance }}\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+    - alert: NodeJSHeapHighAndStable
+      expr: nodejs_heap_size_used_bytes{job=~"$job", instance=~"$instance"} > (nodejs_heap_size_limit * 0.8)
+      for: 15m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Node.js heap usage is critically high and sustained"
+        description: "Heap usage is {{ $value | humanize }} ( >80% of limit ) for more than 15 minutes. Possible memory leak."
+    - alert: NodeJSHighGCTime
+      expr: |
+        rate(nodejs_gc_duration_seconds_sum{job=~"$job", instance=~"$instance"}[$__rate_interval]) > 0.1
+      for: 5m
+      labels:
+        severity: warning
+        component: nodejs
+      annotations:
+        summary: "Node.js GC consuming >100ms/sec"
+        description: |
+          Garbage collector is consuming {{ $value | humanizeDuration }}/sec of CPU time.
+          This may cause event loop blocking and increased latency.
+          Job: {{ $labels.job }}
+    - alert: CriticalFileDescriptorUsage
+      expr: |
+        (
+          process_open_fds{job=~"$job", instance=~"$instance"}
+          /
+          process_max_fds{job=~"$job", instance=~"$instance"}
+        ) * 100 > 95
+      for: 2m
+      labels:
+        severity: critical
+      annotations:
+        summary: "CRITICAL: File descriptor exhaustion imminent"
+        description: |
+          Process using {{ $value | humanize }}% of available file descriptors.
+          Only {{ with printf \"process_max_fds{job='%s', instance='%s'} - process_open_fds{job='%s', instance='%s'}\" $labels.job $labels.instance $labels.job $labels.instance | query }}{{ . | first | value }}{{ end }} FDs remaining.
+          Risk of "EMFILE" or "too many open files" errors.
