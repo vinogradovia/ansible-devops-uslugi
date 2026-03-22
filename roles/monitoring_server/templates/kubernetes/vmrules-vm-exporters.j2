@@ -1,0 +1,24 @@
+{% for monitoring_server_victoria_metrics_exporter_item in monitoring_server_victoria_metrics_exporters %}
+{% if 'alert_rules_src' in monitoring_server_victoria_metrics_exporter_item %}
+{% for alert_rules_src in  monitoring_server_victoria_metrics_exporter_item.alert_rules_src %}
+{% if
+  (monitoring_server_victoria_metrics_exporter_item.alert_rules_default_enabled == true
+    and  monitoring_server_victoria_metrics_alerts_rules__state == 'present'
+  )
+  or
+  (monitoring_server_victoria_metrics_exporter_item.alert_rules_default_enabled == false
+     and monitoring_server_victoria_metrics_alerts_rules__state == 'absent'
+  )
+%}
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: vm-exporters-[[ monitoring_server_victoria_metrics_exporter_item.name ]]-[[ alert_rules_src | replace(".yml", "") | basename ]]
+  namespace: [[ monitoring_server_kubernetes_namespace ]]
+spec:
+  {% macro someop() %}{% include alert_rules_src %}{% endmacro %}[[ someop()|indent ]]
+{% endif %}
+{% endfor %}
+{% endif %}
+{% endfor %}

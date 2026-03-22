@@ -1,9 +1,9 @@
 groups:
 
-- name: 'BlackBoxExporter'
-
+- name: BlackboxExporter
 
   rules:
+
     - alert: HostDown
       expr: probe_success == 0
       for: 3m
@@ -17,6 +17,7 @@ groups:
           Модуль проверки: {{ $labels.module }}
           Протокол: {{ $labels.probe }}
           Время проверки: {{ $value }}
+
     - alert: SSLCertificateExpiringSoon
       expr: |
         (probe_ssl_earliest_cert_expiry{job=~"$job", instance=~"$instance"} - time()) / 3600 / 24 < 30
@@ -30,5 +31,5 @@ groups:
           🔐 **Сертификат:** {{ $labels.instance }}
           📅 **Истекает через:** {{ $value | humanize }} дней
           ⏰ **Дата истечения:** {{ with printf "probe_ssl_earliest_cert_expiry{instance='%s'}" $labels.instance | query }}{{ . | first | value | humanizeTimestamp }}{{ end }}
-          
+
           Необходимо обновить сертификат в ближайшее время.

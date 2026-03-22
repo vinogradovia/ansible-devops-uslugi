@@ -1,0 +1,55 @@
+---
+# - name: Block for monitoring_server_orchestrator docker
+#   when: monitoring_server_orchestrator == 'docker'
+#   block: TODO
+
+- name: Block for monitoring_server_orchestrator k3s
+  when: monitoring_server_orchestrator == 'k3s'
+  delegate_to: localhost
+  delegate_facts: true
+  become: false
+  run_once: true
+  tags:
+    - monitoring_server_victoria_metrics_exporter
+    - monitoring_server_victoria_metrics_exporter_alerts
+  block:
+
+    - name: Create tmpfile VMRule vm-exporter for action {{ monitoring_server_victoria_metrics_alerts_rules__state }}
+      ansible.builtin.tempfile:
+        # path:
+        prefix: "ansible-vmrule-vm-exporter-{{ monitoring_server_victoria_metrics_alerts_rules__state }}-"
+      register: monitoring_server_tempfile_vmrule_vm_exporters_state
+      check_mode: false
+      changed_when: false
+
+    - name: Render VMRule vm-exporter for action {{ monitoring_server_victoria_metrics_alerts_rules__state }}
+      changed_when: false
+      ansible.builtin.template:
+        src: "kubernetes/vmrules-vm-exporters.j2"
+        dest: "{{ monitoring_server_tempfile_vmrule_vm_exporters_state.path }}"
+        mode: '0644'
+        variable_start_string: "[["
+        variable_end_string: "]]"
+
+    - name: Deploy VMRule vm-exporter for action {{ monitoring_server_victoria_metrics_alerts_rules__state }}
+      kubernetes.core.k8s:
+        state: "{{ monitoring_server_victoria_metrics_alerts_rules__state }}"
+        kubeconfig: "{{ monitoring_server_orchestrator_context.dest }}"
+        src: "{{ monitoring_server_tempfile_vmrule_vm_exporters_state.path }}"
+        # template: тут не работал include внутри шаблона
+      register: monitoring_server_tempfile_vmrule_vm_exporters_state_result
+
+    # - name: Show changes for VMRule vm-exporter for action
+    #   when: monitoring_server_tempfile_vmrule_vm_exporters_state_result.changed
+    #   ansible.builtin.debug:
+    #     msg: "{{ monitoring_server_tempfile_vmrule_vm_exporters_state_result.result }}" # .results | selectattr('changed', 'equalto', true) }}
+
+    - name: Delete tmpfile VMRule vm-exporter for action {{ monitoring_server_victoria_metrics_alerts_rules__state }}
+      ansible.builtin.file:
+        # owner: root
+        # group: root
+        # mode: '0644'
+        state: absent
+        dest: "{{ monitoring_server_tempfile_vmrule_vm_exporters_state.path }}"
+      check_mode: false
+      changed_when: false

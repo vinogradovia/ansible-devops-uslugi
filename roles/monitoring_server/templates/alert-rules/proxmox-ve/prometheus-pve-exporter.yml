@@ -1,7 +1,6 @@
 groups:
 
-- name: 'ProxmoxAlerts'
-
+- name: PrometheusPveExporter
 
   rules:
     - alert: PVEGuestUnexpectedStatus
@@ -25,7 +24,7 @@ groups:
       expr: |
         (
           (pve_disk_size_bytes{instance=~"$instance", id=~"storage/.+"}
-          - 
+          -
           pve_disk_usage_bytes{instance=~"$instance", id=~"storage/.+"})
           /
           pve_disk_size_bytes{instance=~"$instance", id=~"storage/.+"}
@@ -42,13 +41,13 @@ groups:
           📊 **Свободно:** {{ with printf "(pve_disk_size_bytes{id='%s', instance='%s'} - pve_disk_usage_bytes{id='%s', instance='%s'}) / 1024 / 1024 / 1024" $labels.id $labels.instance $labels.id $labels.instance | query }}{{ . | first | value | humanize }}{{ end }} GB
           📈 **Процент свободного:** {{ $value | humanize }}%
           💿 **Всего:** {{ with printf "pve_disk_size_bytes{id='%s', instance='%s'} / 1024 / 1024 / 1024" $labels.id $labels.instance | query }}{{ . | first | value | humanize }}{{ end }} GB
-          
+
           Необходимо очистить место или расширить хранилище.
     - alert: PVEGuestLowMemoryUsage
       expr: |
         (
-          pve_memory_usage_bytes{instance=~"$instance"} 
-          / 
+          pve_memory_usage_bytes{instance=~"$instance"}
+          /
           pve_memory_size_bytes{instance=~"$instance"}
           * on(id, instance) group_left(name, type) pve_guest_info
         ) < 0.10

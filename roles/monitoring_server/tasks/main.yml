@@ -22,56 +22,25 @@
   tags:
     - helmwave
     - k3s
+    - monitoring_server_victoria_metrics_exporter_alerts
 
 - name: Provisioning victoria-metrics exporters scrape_config/targets
   ansible.builtin.include_tasks: victoria-metrics-provisioning-exporter-targets.yaml
   loop_control:
     loop_var: monitoring_server_victoria_metrics_exporters_target_item
-  with_items:
-    - src: victoria-metrics-scrape-node-exporter-targets.json.j2
-      dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/node_exporter_targets.json"
-      state: "{{ monitoring_server_victoria_metrics_scrape_node_exporter }}"
-      name: node-exporter
-    - src: victoria-metrics-scrape-docker-exporter-targets.json.j2
-      dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/docker_exporter_targets.json"
-      state: "{{ monitoring_server_victoria_metrics_scrape_docker_exporter }}"
-      name: docker-exporter
-    - src: victoria-metrics-scrape-cadvisor-targets.json.j2
-      dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/cadvisor_targets.json"
-      state: "{{ monitoring_server_victoria_metrics_scrape_cadvisor }}"
-      name: cadvisor
-    - src: victoria-metrics-scrape-ipa-exporter-targets.json.j2
-      dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/ipa_exporter_targets.json"
-      state: "{{ monitoring_server_victoria_metrics_scrape_ipa_exporter }}"
-      name: ipa-exporter
-    - src: victoria-metrics-scrape-redis-exporter-targets.json.j2
-      dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/redis_exporter_targets.json"
-      state: "{{ monitoring_server_victoria_metrics_scrape_redis_exporter }}"
-      name: redis-exporter
-    - src: victoria-metrics-scrape-nginx-exporter-targets.json.j2
-      dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/nginx_exporter_targets.json"
-      state: "{{ monitoring_server_victoria_metrics_scrape_nginx_exporter }}"
-      name: nginx-exporter
-    - src: victoria-metrics-scrape-php-fpm-exporter-targets.json.j2
-      dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/php_fpm_exporter_targets.json"
-      state: "{{ monitoring_server_victoria_metrics_scrape_php_fpm_exporter }}"
-      name: php-fpm-exporter
-    - src: victoria-metrics-scrape-nginxlog-exporter-targets.json.j2
-      dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/nginxlog_exporter_targets.json"
-      state: "{{ monitoring_server_victoria_metrics_scrape_nginxlog_exporter }}"
-      name: nginxlog-exporter
-    - src: victoria-metrics-scrape-mysqld-exporter-targets.json.j2
-      dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/mysqld_exporter_targets.json"
-      state: "{{ monitoring_server_victoria_metrics_scrape_mysqld_exporter }}"
-      name: mysqld-exporter
-    - src: victoria-metrics-scrape-pve-exporter-targets.json.j2
-      dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/pve_exporter_targets.json"
-      state: "{{ monitoring_server_victoria_metrics_scrape_pve_exporter }}"
-      name: pve-exporter
-    - src: victoria-metrics-scrape-prom-client-targets.json.j2
-      dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/prom_client_targets.json"
-      state: "{{ monitoring_server_victoria_metrics_scrape_prom_client }}"
-      name: prom-client
+  with_items: "{{ monitoring_server_victoria_metrics_exporters }}"
+
+- name: Provisioning victoria-metrics alerts
+  ansible.builtin.include_tasks: victoria-metrics-provisioning-alerts.yaml
+  loop_control:
+    loop_var: monitoring_server_victoria_metrics_alerts_rules__state
+  loop:
+    - present
+    - absent
+  # with_items: "{{ monitoring_server_victoria_metrics_exporters }}"
+  tags:
+    - monitoring_server_victoria_metrics_exporter
+    - monitoring_server_victoria_metrics_exporter_alerts
 
 - name: GrafanaDashboards
   when: monitoring_server_grafana_dashboard_provisioning
