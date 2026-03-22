@@ -1,6 +1,8 @@
 ---
 # defaults file for infra_dns
 
+infra_dns_enabled: false
+
 infra_dns_packages:
   - bind9
   - bind9-utils
