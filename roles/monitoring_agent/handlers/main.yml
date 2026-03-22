@@ -67,3 +67,9 @@
     name: "{{ monitoring_agent_pve_exporter_systemd_name }}"
     enabled: "{{ monitoring_agent_pve_exporter_enabled }}"
     state: restarted
+
+- name: Reset failed state for service pve_exporter
+  ansible.builtin.command:
+    cmd: systemctl reset-failed {{ monitoring_agent_pve_exporter_systemd_name }}
+  failed_when: false
+  changed_when: false
