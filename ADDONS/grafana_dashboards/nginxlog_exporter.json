@@ -134,7 +134,7 @@
             },
             "editorMode": "code",
             "exemplar": true,
-            "expr": "sum(rate(nginxlog_http_response_count_total{status=~\"^2..\",instance=\"$host\",vhost=~\"$vhost\"}[1m])) / sum(rate(nginxlog_http_response_count_total{instance=\"$host\",vhost=~\"$vhost\"}[1m])) * 100",
+            "expr": "sum(rate(nginx_http_response_count_total{status=~\"^2..\",instance=\"$host\",vhost=~\"$vhost\"}[1m])) / sum(rate(nginx_http_response_count_total{instance=\"$host\",vhost=~\"$vhost\"}[1m])) * 100",
             "hide": false,
             "interval": "",
             "legendFormat": "2** status codes",
@@ -705,14 +705,14 @@
             "type": "prometheus",
             "uid": "${DS_VICTORIAMETRICS}"
           },
-          "definition": "label_values(nginxlog_http_response_count_total,instance)",
+          "definition": "label_values(nginx_http_response_count_total,instance)",
           "includeAll": false,
           "label": "Host:",
           "name": "host",
           "options": [],
           "query": {
             "qryType": 1,
-            "query": "label_values(nginxlog_http_response_count_total,instance)",
+            "query": "label_values(nginx_http_response_count_total,instance)",
             "refId": "PrometheusVariableQueryEditor-VariableQuery"
           },
           "refresh": 1,
