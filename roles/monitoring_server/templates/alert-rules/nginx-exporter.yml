@@ -1,12 +1,11 @@
 groups:
 
 - name: NginxExporter
-  # nginx_up: nginx-prometheus-exporter (stub_status).
-  # nginx_http_response_count_total, nginx_http_response_time_seconds:
-  #   prometheus-nginxlog-exporter (martin-helmich/prometheus-nginxlog-exporter).
-
   rules:
-    # 1m delay allows a restart without triggering an alert.
+
+    # =========================================================
+    #  NGINX UP
+    # =========================================================
     - alert: NginxDown
       expr: 'nginx_up{job="nginx"} == 0'
       for: 1m
@@ -14,77 +13,278 @@ groups:
         severity: critical
       annotations:
         summary: Nginx service down (instance {{ $labels.instance }})
-        description: "Nginx instance is down on {{ $labels.instance }}\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+        description: >
+          Nginx instance is down on {{ $labels.instance }}
+          VALUE = {{ $value }}  LABELS = {{ $labels }}
 
-    - alert: NginxHigh5xxRate
+    # =========================================================
+    #  5xx ALERTS  — per-vhost thresholds
+    # =========================================================
+
+    # react-api.moon.ru: baseline ~0%, инцидент 15-19.03 достигал 5-13%.
+    # Порог 1% + for 1m — поймает начало инцидента раньше.
+    - alert: NginxHigh5xxRate_ReactAPI
       expr: >
-        sum(rate(nginx_http_response_count_total{job="nginx", status=~"5.."}[5m])) by (instance, vhost)
-        /
-        sum(rate(nginx_http_response_count_total{job="nginx"}[5m])) by (instance, vhost)
-        * 100 > 5
+        (
+          sum(rate(nginx_http_response_count_total{job="nginx", status=~"5..", vhost="react-api.moon.ru"}[5m])) by (instance, vhost)
+          /
+          sum(rate(nginx_http_response_count_total{job="nginx", vhost="react-api.moon.ru"}[5m])) by (instance, vhost)
+          * 100 > 1
+        )
+        and sum(rate(nginx_http_response_count_total{job="nginx", vhost="react-api.moon.ru"}[5m])) by (instance, vhost) > 0.5
+      for: 1m
+      labels:
+        severity: critical
+      annotations:
+        summary: "react-api.moon.ru: 5xx rate above 1%"
+        description: >
+          5xx rate on {{ $labels.instance }} ({{ $labels.vhost }}) = {{ $value | printf "%.1f" }}%.
+          Baseline is ~0%, threshold set at 1%.
+
+    # moon.ru: baseline ~0%, очень редкие микро-всплески.
+    # Порог 2% достаточно, for 2m чтобы не дёргать на единичные ошибки.
+    - alert: NginxHigh5xxRate_MoonRu
+      expr: >
+        (
+          sum(rate(nginx_http_response_count_total{job="nginx", status=~"5..", vhost="moon.ru"}[5m])) by (instance, vhost)
+          /
+          sum(rate(nginx_http_response_count_total{job="nginx", vhost="moon.ru"}[5m])) by (instance, vhost)
+          * 100 > 2
+        )
+        and sum(rate(nginx_http_response_count_total{job="nginx", vhost="moon.ru"}[5m])) by (instance, vhost) > 1
       for: 2m
       labels:
         severity: critical
       annotations:
-        summary: Nginx high 5xx error rate ({{ $labels.vhost }})
-        description: "More than 5% of requests are returning 5xx errors on {{ $labels.instance }} (vhost: {{ $labels.vhost }})\n  VALUE = {{ $value | printf \"%.1f\" }}%\n  LABELS = {{ $labels }}"
+        summary: "moon.ru: 5xx rate above 2%"
+        description: >
+          5xx rate on {{ $labels.instance }} ({{ $labels.vhost }}) = {{ $value | printf "%.1f" }}%.
+          Baseline is ~0%, threshold set at 2%.
 
-    - alert: NginxHigh4xxRate
+    # ekb.moon.ru: baseline ~0%, но был разовый всплеск до 17.5% (25.02).
+    # Порог 2%, for 2m.
+    - alert: NginxHigh5xxRate_EkbMoonRu
       expr: >
-        sum(rate(nginx_http_response_count_total{job="nginx", status=~"4.."}[5m])) by (instance, vhost)
-        /
-        sum(rate(nginx_http_response_count_total{job="nginx"}[5m])) by (instance, vhost)
-        * 100 > 10
-      for: 5m
+        (
+          sum(rate(nginx_http_response_count_total{job="nginx", status=~"5..", vhost="ekb.moon.ru"}[5m])) by (instance, vhost)
+          /
+          sum(rate(nginx_http_response_count_total{job="nginx", vhost="ekb.moon.ru"}[5m])) by (instance, vhost)
+          * 100 > 2
+        )
+        and sum(rate(nginx_http_response_count_total{job="nginx", vhost="ekb.moon.ru"}[5m])) by (instance, vhost) > 0.3
+      for: 2m
       labels:
-        severity: warning
+        severity: critical
       annotations:
-        summary: Nginx high 4xx error rate ({{ $labels.vhost }})
-        description: "More than 10% of requests are returning 4xx errors on {{ $labels.instance }} (vhost: {{ $labels.vhost }})\n  VALUE = {{ $value | printf \"%.1f\" }}%\n  LABELS = {{ $labels }}"
+        summary: "ekb.moon.ru: 5xx rate above 2%"
+        description: >
+          5xx rate on {{ $labels.instance }} ({{ $labels.vhost }}) = {{ $value | printf "%.1f" }}%.
 
-    - alert: NginxRequestsSpike
+    # trade-union.ru: минимальный трафик, порог 3% + минимум RPS.
+    - alert: NginxHigh5xxRate_TradeUnion
       expr: >
-        sum(rate(nginx_http_response_count_total{job="nginx"}[5m])) by (instance, vhost)
-        > 2 *
-        sum(rate(nginx_http_response_count_total{job="nginx"}[5m] offset 1h)) by (instance, vhost)
-        and sum(rate(nginx_http_response_count_total{job="nginx"}[5m])) by (instance, vhost) > 10
+        (
+          sum(rate(nginx_http_response_count_total{job="nginx", status=~"5..", vhost="trade-union.ru"}[5m])) by (instance, vhost)
+          /
+          sum(rate(nginx_http_response_count_total{job="nginx", vhost="trade-union.ru"}[5m])) by (instance, vhost)
+          * 100 > 3
+        )
+        and sum(rate(nginx_http_response_count_total{job="nginx", vhost="trade-union.ru"}[5m])) by (instance, vhost) > 0.3
       for: 2m
       labels:
         severity: warning
       annotations:
-        summary: Nginx requests spike detected ({{ $labels.vhost }})
-        description: "Nginx RPS on {{ $labels.instance }} (vhost: {{ $labels.vhost }}) is more than 2x higher than 1 hour ago\n  VALUE = {{ $value | printf \"%.1f\" }} req/s\n  LABELS = {{ $labels }}"
+        summary: "trade-union.ru: 5xx rate above 3%"
+        description: >
+          5xx rate on {{ $labels.instance }} ({{ $labels.vhost }}) = {{ $value | printf "%.1f" }}%.
 
-    - alert: NginxHighResponseTime
+    # =========================================================
+    #  4xx ALERTS
+    # =========================================================
+
+    # react-api.moon.ru: baseline 15-25% (это норма).
+    # Порог 40% — сработает только при аномальном росте.
+    - alert: NginxHigh4xxRate_ReactAPI
       expr: >
-        sum(rate(nginx_http_response_time_seconds_sum{job="nginx"}[5m])) by (instance, vhost)
+        sum(rate(nginx_http_response_count_total{job="nginx", status=~"4..", vhost="react-api.moon.ru"}[5m])) by (instance, vhost)
         /
-        sum(rate(nginx_http_response_time_seconds_count{job="nginx"}[5m])) by (instance, vhost)
-        > 1
+        sum(rate(nginx_http_response_count_total{job="nginx", vhost="react-api.moon.ru"}[5m])) by (instance, vhost)
+        * 100 > 40
       for: 5m
       labels:
         severity: warning
       annotations:
-        summary: Nginx high average response time ({{ $labels.vhost }})
-        description: "Average response time on {{ $labels.instance }} (vhost: {{ $labels.vhost }}) exceeds 1 second\n  VALUE = {{ $value | printf \"%.2f\" }}s\n  LABELS = {{ $labels }}"
+        summary: "react-api.moon.ru: 4xx rate above 40%"
+        description: >
+          4xx rate = {{ $value | printf "%.1f" }}%. Normal baseline is 15-25%.
 
+    # moon.ru: baseline 5-15%.
+    # Порог 25%.
+    - alert: NginxHigh4xxRate_MoonRu
+      expr: >
+        sum(rate(nginx_http_response_count_total{job="nginx", status=~"4..", vhost="moon.ru"}[5m])) by (instance, vhost)
+        /
+        sum(rate(nginx_http_response_count_total{job="nginx", vhost="moon.ru"}[5m])) by (instance, vhost)
+        * 100 > 25
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "moon.ru: 4xx rate above 25%"
+        description: >
+          4xx rate = {{ $value | printf "%.1f" }}%. Normal baseline is 5-15%.
+
+    # ekb.moon.ru и trade-union.ru: baseline низкий.
+    # Общее правило, порог 15%.
+    - alert: NginxHigh4xxRate_Other
+      expr: >
+        sum(rate(nginx_http_response_count_total{job="nginx", status=~"4..", vhost=~"ekb.moon.ru|trade-union.ru"}[5m])) by (instance, vhost)
+        /
+        sum(rate(nginx_http_response_count_total{job="nginx", vhost=~"ekb.moon.ru|trade-union.ru"}[5m])) by (instance, vhost)
+        * 100 > 15
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "{{ $labels.vhost }}: 4xx rate above 15%"
+        description: >
+          4xx rate on {{ $labels.vhost }} = {{ $value | printf "%.1f" }}%.
+
+    # =========================================================
+    #  RPS SPIKE — единые правила, разный минимум RPS
+    # =========================================================
+
+    # Спайк: текущий RPS > 2x по сравнению с часом назад.
+    # Минимальный RPS порог предотвращает ложные срабатывания
+    # на малонагруженных vhost.
+    - alert: NginxRequestsSpike
+      expr: >
+        (
+          sum(rate(nginx_http_response_count_total{job="nginx"}[5m])) by (instance, vhost)
+          > 2 *
+          sum(rate(nginx_http_response_count_total{job="nginx"}[5m] offset 1h)) by (instance, vhost)
+        )
+        and
+        sum(rate(nginx_http_response_count_total{job="nginx"}[5m])) by (instance, vhost) > 10
+      for: 2m
+      labels:
+        severity: warning
+      annotations:
+        summary: "{{ $labels.vhost }}: RPS spike (>2x vs 1h ago)"
+        description: >
+          RPS on {{ $labels.instance }} ({{ $labels.vhost }}) = {{ $value | printf "%.1f" }} req/s,
+          more than 2x compared to 1 hour ago.
+
+    # =========================================================
+    #  RESPONSE TIME
+    # =========================================================
+
+    # react-api.moon.ru: baseline < 0.5s, инцидент показал всплески до 4s.
+    # Порог 0.5s для раннего обнаружения.
+    - alert: NginxHighResponseTime_ReactAPI
+      expr: >
+        (
+          sum(rate(nginx_http_response_time_seconds_sum{job="nginx", vhost="react-api.moon.ru"}[5m])) by (instance, vhost)
+          /
+          sum(rate(nginx_http_response_time_seconds_count{job="nginx", vhost="react-api.moon.ru"}[5m])) by (instance, vhost)
+          > 0.5
+        )
+        and sum(rate(nginx_http_response_count_total{job="nginx", vhost="react-api.moon.ru"}[5m])) by (instance, vhost) > 0.5
+      for: 3m
+      labels:
+        severity: warning
+      annotations:
+        summary: "react-api.moon.ru: avg response time > 0.5s"
+        description: >
+          Average response time = {{ $value | printf "%.2f" }}s. Baseline is < 0.5s.
+
+    - alert: NginxHighResponseTimeCritical_ReactAPI
+      expr: >
+        (
+          sum(rate(nginx_http_response_time_seconds_sum{job="nginx", vhost="react-api.moon.ru"}[5m])) by (instance, vhost)
+          /
+          sum(rate(nginx_http_response_time_seconds_count{job="nginx", vhost="react-api.moon.ru"}[5m])) by (instance, vhost)
+          > 2
+        )
+        and sum(rate(nginx_http_response_count_total{job="nginx", vhost="react-api.moon.ru"}[5m])) by (instance, vhost) > 0.5
+      for: 1m
+      labels:
+        severity: critical
+      annotations:
+        summary: "react-api.moon.ru: avg response time > 2s (CRITICAL)"
+        description: >
+          Average response time = {{ $value | printf "%.2f" }}s.
+
+    # ekb.moon.ru: обычно ~0, но были всплески до 5-7s.
+    - alert: NginxHighResponseTime_EkbMoonRu
+      expr: >
+        (
+          sum(rate(nginx_http_response_time_seconds_sum{job="nginx", vhost="ekb.moon.ru"}[5m])) by (instance, vhost)
+          /
+          sum(rate(nginx_http_response_time_seconds_count{job="nginx", vhost="ekb.moon.ru"}[5m])) by (instance, vhost)
+          > 1
+        )
+        and sum(rate(nginx_http_response_count_total{job="nginx", vhost="ekb.moon.ru"}[5m])) by (instance, vhost) > 0.3
+      for: 3m
+      labels:
+        severity: warning
+      annotations:
+        summary: "ekb.moon.ru: avg response time > 1s"
+        description: >
+          Average response time = {{ $value | printf "%.2f" }}s.
+
+    # moon.ru и trade-union.ru: response time ~0, порог 1s.
+    - alert: NginxHighResponseTime_Other
+      expr: >
+        (
+          sum(rate(nginx_http_response_time_seconds_sum{job="nginx", vhost=~"moon.ru|trade-union.ru"}[5m])) by (instance, vhost)
+          /
+          sum(rate(nginx_http_response_time_seconds_count{job="nginx", vhost=~"moon.ru|trade-union.ru"}[5m])) by (instance, vhost)
+          > 1
+        )
+        and sum(rate(nginx_http_response_count_total{job="nginx", vhost=~"moon.ru|trade-union.ru"}[5m])) by (instance, vhost) > 1
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "{{ $labels.vhost }}: avg response time > 1s"
+        description: >
+          Average response time = {{ $value | printf "%.2f" }}s.
+
+    # =========================================================
+    #  RESPONSE TIME SPIKE (relative to 1h ago)
+    #  Требует одновременно:
+    #    1) рост > 3x по сравнению с часом назад
+    #    2) абсолютное значение > 0.3s (отсекает шум от 0.01→0.05)
+    #    3) минимум 5 RPS (отсекает низкий трафик)
+    # =========================================================
     - alert: NginxResponseTimeSpike
       expr: >
         (
           sum(rate(nginx_http_response_time_seconds_sum{job="nginx"}[5m])) by (instance, vhost)
           / sum(rate(nginx_http_response_time_seconds_count{job="nginx"}[5m])) by (instance, vhost)
-        ) > 2 * (
+        ) > 3 * (
           sum(rate(nginx_http_response_time_seconds_sum{job="nginx"}[5m] offset 1h)) by (instance, vhost)
           / sum(rate(nginx_http_response_time_seconds_count{job="nginx"}[5m] offset 1h)) by (instance, vhost)
         )
+        and
+        (
+          sum(rate(nginx_http_response_time_seconds_sum{job="nginx"}[5m])) by (instance, vhost)
+          / sum(rate(nginx_http_response_time_seconds_count{job="nginx"}[5m])) by (instance, vhost)
+        ) > 0.3
         and sum(rate(nginx_http_response_count_total{job="nginx"}[5m])) by (instance, vhost) > 5
       for: 5m
       labels:
         severity: warning
       annotations:
-        summary: Nginx response time spike ({{ $labels.vhost }})
-        description: "Average response time on {{ $labels.instance }} (vhost: {{ $labels.vhost }}) is more than 2x higher than 1 hour ago\n  VALUE = {{ $value | printf \"%.2f\" }}s\n  LABELS = {{ $labels }}"
+        summary: "{{ $labels.vhost }}: response time spike (>3x vs 1h ago, above 0.3s)"
+        description: >
+          Average response time on {{ $labels.instance }} ({{ $labels.vhost }}) = {{ $value | printf "%.2f" }}s,
+          more than 3x compared to 1 hour ago. Minimum absolute threshold: 0.3s.
 
+    # =========================================================
+    #  DISK SPACE
+    # =========================================================
     - alert: NginxDiskSpaceLow
       expr: >
         node_filesystem_avail_bytes{mountpoint="/", fstype!~"tmpfs|fuse.lxcfs|squashfs|vfat"}
@@ -94,8 +294,10 @@ groups:
       labels:
         severity: warning
       annotations:
-        summary: Nginx host disk space low (instance {{ $labels.instance }})
-        description: "Disk space on {{ $labels.instance }} ({{ $labels.mountpoint }}) is below 15%. Nginx logs may fill the disk.\n  VALUE = {{ $value | printf \"%.1f\" }}%\n  LABELS = {{ $labels }}"
+        summary: Disk space low (instance {{ $labels.instance }})
+        description: >
+          Disk space on {{ $labels.instance }} ({{ $labels.mountpoint }}) is below 15%.
+          VALUE = {{ $value | printf "%.1f" }}%
 
     - alert: NginxDiskSpaceCritical
       expr: >
@@ -106,5 +308,7 @@ groups:
       labels:
         severity: critical
       annotations:
-        summary: Nginx host disk space critical (instance {{ $labels.instance }})
-        description: "Disk space on {{ $labels.instance }} ({{ $labels.mountpoint }}) is below 5%. Nginx may stop logging or serving requests.\n  VALUE = {{ $value | printf \"%.1f\" }}%\n  LABELS = {{ $labels }}"
+        summary: Disk space critical (instance {{ $labels.instance }})
+        description: >
+          Disk space on {{ $labels.instance }} ({{ $labels.mountpoint }}) is below 5%.
+          VALUE = {{ $value | printf "%.1f" }}%
