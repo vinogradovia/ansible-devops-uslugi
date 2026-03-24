@@ -154,26 +154,26 @@ groups:
     #  RPS SPIKE — единые правила, разный минимум RPS
     # =========================================================
 
-    # Спайк: текущий RPS > 2x по сравнению с часом назад.
-    # Минимальный RPS порог предотвращает ложные срабатывания
-    # на малонагруженных vhost.
+   # Порог 3.5x выбран на основе данных: нормальные колебания
+    # moon.ru до 2.5-3x (30→80-120), react-api до 2-3x (10→40-80).
+    # Минимум 50 RPS отсекает малонагруженные vhost и ночной трафик.
     - alert: NginxRequestsSpike
       expr: >
         (
           sum(rate(nginx_http_response_count_total{job="nginx"}[5m])) by (instance, vhost)
-          > 2 *
+          > 3.5 *
           sum(rate(nginx_http_response_count_total{job="nginx"}[5m] offset 1h)) by (instance, vhost)
         )
         and
-        sum(rate(nginx_http_response_count_total{job="nginx"}[5m])) by (instance, vhost) > 10
-      for: 2m
+        sum(rate(nginx_http_response_count_total{job="nginx"}[5m])) by (instance, vhost) > 50
+      for: 3m
       labels:
         severity: warning
       annotations:
-        summary: "{{ $labels.vhost }}: RPS spike (>2x vs 1h ago)"
+        summary: "{{ $labels.vhost }}: RPS spike (>3.5x vs 1h ago)"
         description: >
           RPS on {{ $labels.instance }} ({{ $labels.vhost }}) = {{ $value | printf "%.1f" }} req/s,
-          more than 2x compared to 1 hour ago.
+          more than 3.5x compared to 1 hour ago.
 
     # =========================================================
     #  RESPONSE TIME
