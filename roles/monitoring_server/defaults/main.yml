@@ -64,7 +64,7 @@ monitoring_server_victoria_metrics_alerts_rules_mysqld_exporter_default: "{{ mon
 # prom_client
 monitoring_server_victoria_metrics_scrape_prom_client: false
 monitoring_server_victoria_metrics_scrape_prom_client_port_default: 9464
-monitoring_server_victoria_metrics_alerts_rules_prom_client_default: "{{ monitoring_server_victoria_metrics_scrape_prom_client:  }}"
+monitoring_server_victoria_metrics_alerts_rules_prom_client_default: "{{ monitoring_server_victoria_metrics_scrape_prom_client }}"
 
 # pve_exporter
 monitoring_server_victoria_metrics_scrape_pve_exporter: true
