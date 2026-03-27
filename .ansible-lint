@@ -5,3 +5,5 @@ profile: production
 
 exclude_paths:
   - helm/
+  - trial/
+  - extentions/
