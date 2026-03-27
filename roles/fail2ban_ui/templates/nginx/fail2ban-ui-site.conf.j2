@@ -5,8 +5,9 @@ server {
 }
 
 server {
-    listen {{ fail2ban_ui_reverse_proxy_https_port }} ssl http2;
+    listen {{ fail2ban_ui_reverse_proxy_https_port }} ssl;
     server_name {{ fail2ban_ui_reverse_proxy_server_name }};
+    http2 on;
 
     ssl_certificate     {{ fail2ban_ui_reverse_proxy_nginx_ssl_certificate }};
     ssl_certificate_key {{ fail2ban_ui_reverse_proxy_nginx_ssl_certificate_key }};
