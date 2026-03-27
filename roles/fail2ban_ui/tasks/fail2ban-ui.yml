@@ -120,20 +120,54 @@
             csr_path: "{{ fail2ban_ui_reverse_proxy_nginx_ssl_certificate_csr }}"
             provider: selfsigned
 
+    - name: Block for Add a user to a password file dashboard-users
+      delegate_to: localhost
+      delegate_facts: true
+      become: false
+      block:
+        - name: Create tmpfile htpasswd
+          ansible.builtin.tempfile:
+            # path:
+            prefix: ansible-vm-filesd-
+          register: fail2ban_ui_reverse_proxy_users_auth_file_tempfile_htpasswd
+          check_mode: false
+          changed_when: false
 
-    - name: Add a user to a password file dashboard-users
-      community.general.htpasswd:
-        path: "{{ fail2ban_ui_reverse_proxy_users_auth_file }}"
-        name: "{{ item.name }}"
-        password: "{{ item.password }}"
+        - name: Add a user to a password file dashboard-users
+          community.general.htpasswd:
+            path: "{{ fail2ban_ui_reverse_proxy_users_auth_file_tempfile_htpasswd.path }}"
+            name: "{{ item.name }}"
+            password: "{{ item.password }}"
+            # owner: root
+            # group: www-data
+            mode: '0644'
+            state: "{{ item.state | default('present') }}"
+          with_items:
+            - "{{ fail2ban_ui_reverse_proxy_users_auth }}"
+          loop_control:
+            label: "{{ item.name }}"
+          changed_when: false
+
+    - name: upload  password file dashboard-users
+      ansible.builtin.copy:
+        src: "{{ fail2ban_ui_reverse_proxy_users_auth_file_tempfile_htpasswd.path }}"
+        dest: "{{ fail2ban_ui_reverse_proxy_users_auth_file }}"
         owner: root
-        group: www-data
+        group: root
         mode: '0644'
-        state: "{{ item.state | default('present') }}"
-      with_items:
-        - "{{ fail2ban_ui_reverse_proxy_users_auth }}"
-      loop_control:
-        label: "{{ item.name }}"
+
+    - name: Delete tmpfile htpasswd
+      delegate_to: localhost
+      delegate_facts: true
+      become: false
+      ansible.builtin.file:
+        # owner: root
+        # group: root
+        # mode: '0644'
+        state: absent
+        dest: "{{ fail2ban_ui_reverse_proxy_users_auth_file_tempfile_htpasswd.path }}"
+      check_mode: false
+      changed_when: false
 
     - name: Render reverse_proxy config nginx
       ansible.builtin.template:
