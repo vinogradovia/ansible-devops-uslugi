@@ -1,2 +1,119 @@
 ---
 # vars file for monitoring-server
+monitoring_server_victoria_metrics_exporters:
+
+  - name: node-exporter
+    src: victoria-metrics-scrape-node-exporter-targets.json.j2
+    dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/node_exporter_targets.json"
+    state: "{{ monitoring_server_victoria_metrics_scrape_node_exporter }}"
+    alert_rules_default_enabled: "{{ monitoring_server_victoria_metrics_alerts_rules_node_exporter_default }}"
+    # alert_rules_dest: "{{ monitoring_server_victoria_metrics_config_dir }}/TODO"
+    alert_rules_src:
+      - "alert-rules/node-exporter.yml"
+
+  - name: docker-exporter
+    src: victoria-metrics-scrape-docker-exporter-targets.json.j2
+    dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/docker_exporter_targets.json"
+    # alert_rules_dest: "{{ monitoring_server_victoria_metrics_config_dir }}/TODO"
+    state: "{{ monitoring_server_victoria_metrics_scrape_docker_exporter }}"
+    alert_rules_default_enabled: "{{ monitoring_server_victoria_metrics_alerts_rules_docker_exporter_default }}"
+
+  - name: cadvisor
+    src: victoria-metrics-scrape-cadvisor-targets.json.j2
+    dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/cadvisor_targets.json"
+    state: "{{ monitoring_server_victoria_metrics_scrape_cadvisor }}"
+    alert_rules_default_enabled: "{{ monitoring_server_victoria_metrics_alerts_rules_cadvisor_default }}"
+    # alert_rules_dest: "{{ monitoring_server_victoria_metrics_config_dir }}/TODO"
+    alert_rules_src:
+      - "alert-rules/docker-containers/google-cadvisor.yml"
+
+  - name: ipa-exporter
+    src: victoria-metrics-scrape-ipa-exporter-targets.json.j2
+    dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/ipa_exporter_targets.json"
+    state: "{{ monitoring_server_victoria_metrics_scrape_ipa_exporter }}"
+    alert_rules_default_enabled: "{{ monitoring_server_victoria_metrics_alerts_rules_ipa_exporter_default }}"
+    # alert_rules_dest: "{{ monitoring_server_victoria_metrics_config_dir }}/TODO"
+    alert_rules_src:
+      - "alert-rules/freeipa-exporter.yml"
+
+  - name: redis-exporter
+    src: victoria-metrics-scrape-redis-exporter-targets.json.j2
+    dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/redis_exporter_targets.json"
+    state: "{{ monitoring_server_victoria_metrics_scrape_redis_exporter }}"
+    alert_rules_default_enabled: "{{ monitoring_server_victoria_metrics_alerts_rules_redis_exporter_default }}"
+    # alert_rules_dest: "{{ monitoring_server_victoria_metrics_config_dir }}/TODO"
+    alert_rules_src:
+      - "alert-rules/redis/redis-exporter.yml"
+
+  - name: nginx-exporter
+    src: victoria-metrics-scrape-nginx-exporter-targets.json.j2
+    dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/nginx_exporter_targets.json"
+    state: "{{ monitoring_server_victoria_metrics_scrape_nginx_exporter }}"
+    alert_rules_default_enabled: "{{ monitoring_server_victoria_metrics_alerts_rules_nginx_exporter_default }}"
+    # alert_rules_dest: "{{ monitoring_server_victoria_metrics_config_dir }}/TODO"
+    alert_rules_src:
+      - "alert-rules/nginx-exporter.yml"
+
+  - name: php-fpm-exporter
+    src: victoria-metrics-scrape-php-fpm-exporter-targets.json.j2
+    dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/php_fpm_exporter_targets.json"
+    state: "{{ monitoring_server_victoria_metrics_scrape_php_fpm_exporter }}"
+    alert_rules_default_enabled: "{{ monitoring_server_victoria_metrics_alerts_rules_php_fpm_exporter_default }}"
+    # alert_rules_dest: "{{ monitoring_server_victoria_metrics_config_dir }}/TODO"
+    # alert_rules_src:
+    #   - "alert-rules/"
+
+  - name: nginxlog-exporter
+    src: victoria-metrics-scrape-nginxlog-exporter-targets.json.j2
+    dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/nginxlog_exporter_targets.json"
+    state: "{{ monitoring_server_victoria_metrics_scrape_nginxlog_exporter }}"
+    alert_rules_default_enabled: "{{ monitoring_server_victoria_metrics_alerts_rules_nginxlog_exporter_default }}"
+    # alert_rules_dest: "{{ monitoring_server_victoria_metrics_config_dir }}/TODO"
+    # alert_rules_src:
+    #   - "alert-rules/"
+
+  - name: mysqld-exporter
+    src: victoria-metrics-scrape-mysqld-exporter-targets.json.j2
+    dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/mysqld_exporter_targets.json"
+    # alert_rules_dest: "{{ monitoring_server_victoria_metrics_config_dir }}/TODO"
+    state: "{{ monitoring_server_victoria_metrics_scrape_mysqld_exporter }}"
+    alert_rules_default_enabled: "{{ monitoring_server_victoria_metrics_alerts_rules_mysqld_exporter_default }}"
+    alert_rules_src:
+      - "alert-rules/mysql/mysqld-exporter.yml"
+
+
+  - name: pve-exporter
+    src: victoria-metrics-scrape-pve-exporter-targets.json.j2
+    dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/pve_exporter_targets.json"
+    state: "{{ monitoring_server_victoria_metrics_scrape_pve_exporter }}"
+    alert_rules_default_enabled: "{{ monitoring_server_victoria_metrics_alerts_rules_pve_exporter_default }}"
+    # alert_rules_dest: "{{ monitoring_server_victoria_metrics_config_dir }}/TODO"
+    alert_rules_src:
+      - "alert-rules/proxmox-ve/prometheus-pve-exporter.yml"
+
+  - name: prom-client
+    src: victoria-metrics-scrape-prom-client-targets.json.j2
+    dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/prom_client_targets.json"
+    state: "{{ monitoring_server_victoria_metrics_scrape_prom_client }}"
+    alert_rules_default_enabled: "{{ monitoring_server_victoria_metrics_alerts_rules_prom_client_default }}"
+    # alert_rules_dest: "{{ monitoring_server_victoria_metrics_config_dir }}/TODO"
+    # alert_rules_src:
+    #   - "alert-rules/"
+
+  - name: blackbox
+    # src:
+    # dest:
+    state: "{{ monitoring_server_victoria_metrics_scrape_blackbox }}"
+    alert_rules_default_enabled: "{{ monitoring_server_victoria_metrics_alerts_rules_blackbox_default }}"
+    # alert_rules_dest: "{{ monitoring_server_victoria_metrics_config_dir }}/TODO"
+    alert_rules_src:
+      - "alert-rules/blackbox/blackbox-exporter.yml"
+
+  - name: nodejs-exporter
+    # src:
+    # dest:
+    state: "{{ monitoring_server_victoria_metrics_scrape_nodejs_exporter }}"
+    alert_rules_default_enabled: "{{ monitoring_server_victoria_metrics_alerts_rules_nodejs_exporter_default }}"
+    # alert_rules_dest: "{{ monitoring_server_victoria_metrics_config_dir }}/TODO"
+    alert_rules_src:
+      - "alert-rules/nodejs-exporter.yml"

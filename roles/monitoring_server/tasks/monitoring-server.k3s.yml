@@ -13,6 +13,16 @@
     src: /etc/rancher/k3s/k3s.yaml
     dest: "{{ monitoring_server_helmwave_tmp }}"
   register: monitoring_server_orchestrator_context
+  tags:
+    - helmwave
+    - monitoring_server_victoria_metrics_exporter_alerts
+
+- name: Show monitoring_server_orchestrator_context.dest
+  ansible.builtin.debug:
+    var: monitoring_server_orchestrator_context.dest
+  tags:
+    - helmwave
+    - monitoring_server_victoria_metrics_exporter_alerts
 
 - name: Upgrade k3s context
   when: "'dest' in monitoring_server_orchestrator_context"
@@ -28,6 +38,9 @@
     regexp: '    server: https://127.0.0.1:6443'
     line: '    server: https://{{ ansible_facts["default_ipv4"]["address"] }}:6443'
     # line: '    server: https://10.20.230.15:6443'
+  tags:
+    - helmwave
+    - monitoring_server_victoria_metrics_exporter_alerts
 
 - name: Render k3s/local-path-provisioner.yml
   ansible.builtin.template:

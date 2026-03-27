@@ -4,7 +4,7 @@
 - name: Block monitoring_agent_pve_exporter_enabled
   when: monitoring_agent_pve_exporter_enabled
   block:
-    - name: Create Promtail config dirs
+    - name: Create pve_exporter config dirs
       ansible.builtin.file:
         path: "{{ item }}"
         state: directory

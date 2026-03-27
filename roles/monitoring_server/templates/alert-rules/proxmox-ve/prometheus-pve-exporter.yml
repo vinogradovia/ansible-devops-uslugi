@@ -1,0 +1,68 @@
+groups:
+
+- name: PrometheusPveExporter
+
+  rules:
+    - alert: PVEGuestUnexpectedStatus
+      expr: |
+        sum by (id, name, type, instance, status) (
+          pve_guest_info{instance=~"$instance", status!="running", status!="stopped"}
+        ) > 0
+      for: 2m
+      labels:
+        severity: warning
+        component: pve
+      annotations:
+        summary: "⚠️ VM/LXC {{ $labels.name }} в нештатном статусе: {{ $labels.status }}"
+        description: |
+          🖥️ **Гость:** {{ $labels.name }}
+          📍 **ID:** {{ $labels.id }}
+          🔧 **Тип:** {{ $labels.type }}
+          ⚙️ **Текущий статус:** {{ $labels.status }}
+          🖥️ **Хост:** {{ $labels.instance }}
+    - alert: PVEStorageLowSpace
+      expr: |
+        (
+          (pve_disk_size_bytes{instance=~"$instance", id=~"storage/.+"}
+          -
+          pve_disk_usage_bytes{instance=~"$instance", id=~"storage/.+"})
+          /
+          pve_disk_size_bytes{instance=~"$instance", id=~"storage/.+"}
+        ) * 100 < 10
+      for: 5m
+      labels:
+        severity: warning
+        component: pve_storage
+      annotations:
+        summary: "⚠️ На хранилище {{ $labels.id }} осталось менее 10% свободного места"
+        description: |
+          💾 **Хранилище:** {{ $labels.id }}
+          🖥️ **Хост:** {{ $labels.instance }}
+          📊 **Свободно:** {{ with printf "(pve_disk_size_bytes{id='%s', instance='%s'} - pve_disk_usage_bytes{id='%s', instance='%s'}) / 1024 / 1024 / 1024" $labels.id $labels.instance $labels.id $labels.instance | query }}{{ . | first | value | humanize }}{{ end }} GB
+          📈 **Процент свободного:** {{ $value | humanize }}%
+          💿 **Всего:** {{ with printf "pve_disk_size_bytes{id='%s', instance='%s'} / 1024 / 1024 / 1024" $labels.id $labels.instance | query }}{{ . | first | value | humanize }}{{ end }} GB
+
+          Необходимо очистить место или расширить хранилище.
+    - alert: PVEGuestLowMemoryUsage
+      expr: |
+        (
+          pve_memory_usage_bytes{instance=~"$instance"}
+          /
+          pve_memory_size_bytes{instance=~"$instance"}
+          * on(id, instance) group_left(name, type) pve_guest_info
+        ) < 0.10
+        and on(id, instance) pve_up == 1
+      for: 15m
+      labels:
+        severity: warning
+        component: pve_guest
+      annotations:
+        summary: "Низкое использование памяти на {{ $labels.name }} ({{ $labels.type }})"
+        description: |
+          🖥️ **Гость:** {{ $labels.name }}
+          📍 **ID:** {{ $labels.id }}
+          🔧 **Тип:** {{ $labels.type }}
+          🖥️ **Хост:** {{ $labels.instance }}
+          📊 **Использование памяти:** {{ $value | humanizePercentage }}
+          💾 **Выделено памяти:** {{ with printf "pve_memory_size_bytes{id='%s', instance='%s'} / 1024 / 1024 / 1024" $labels.id $labels.instance | query }}{{ . | first | value | humanize }}{{ end }} GB
+          📈 **Фактически используется:** {{ with printf "pve_memory_usage_bytes{id='%s', instance='%s'} / 1024 / 1024 / 1024" $labels.id $labels.instance | query }}{{ . | first | value | humanize }}{{ end }} GB

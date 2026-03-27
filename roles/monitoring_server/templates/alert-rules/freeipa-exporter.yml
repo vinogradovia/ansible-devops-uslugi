@@ -1,0 +1,32 @@
+groups:
+
+- name: FreeIpaExporter
+
+
+  rules:
+    # 1m delay allows a restart without triggering an alert.
+    - alert: FreeIpaDown
+      expr: 'ipa_up{host=~"$host"} < 1'
+      for: 1m
+      labels:
+        severity: critical
+      annotations:
+        summary: FreeIpa sevice down (instance {{ $labels.instance }})
+        description: "FreeIpa instance is down on {{ $labels.instance }}\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+
+    - alert: Ldap-conflicts-detected
+      expr: 'ipa_up{host=~"$host"} > 0'
+      for: 1m
+      labels:
+        severity: critical
+      annotations:
+        summary: FreeIpa LDAP comflict Detected (instance {{ $labels.instance }})
+        description: "FreeIpa LDAP replication conflict detected {{ $labels.instance }}\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+    - alert: LostIpaHost
+      expr: '((ipa_hosts{host=~"sl-ldap-01"} offset 15m) - (ipa_hosts{host=~"sl-ldap-01"})) != 0'
+      for: 1m
+      labels:
+        severity: critical
+      annotations:
+        summary: IPA host lost connection with IPA  (instance {{ $labels.instance }})
+        description: "IPA host lost connection with IPA {{ $labels.instance }}\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"

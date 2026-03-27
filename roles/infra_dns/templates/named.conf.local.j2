@@ -1,7 +1,10 @@
 // {{ ansible_managed }}
 
-zone "{{ infra_dns_zone_name }}" {
+{% for zone in infra_dns_zones %}
+zone "{{ zone.name }}" {
     type master;
-    file "{{ infra_dns_zone_dir }}/{{ infra_dns_zone_name }}";
+    file "{{ infra_dns_zone_dir }}/{{ zone.name }}";
     allow-transfer { {{ infra_dns_allow_transfer | join('; ') }}; };
 };
+
+{% endfor %}

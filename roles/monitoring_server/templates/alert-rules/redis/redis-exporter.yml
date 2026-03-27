@@ -1,0 +1,101 @@
+groups:
+
+- name: RedisExporter
+
+  rules:
+    # 1m delay allows a restart without triggering an alert.
+    - alert: RedisDown
+      expr: 'redis_up == 0'
+      for: 1m
+      labels:
+        severity: critical
+      annotations:
+        summary: Redis service down (instance {{ $labels.instance }})
+        description: "Redis instance is down on {{ $labels.instance }}\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+
+    - alert: RedisRestarted
+      expr: 'redis_uptime_in_seconds < 60'
+      for: 0m
+      labels:
+        severity: info
+      annotations:
+        summary: Redis restarted (instance {{ $labels.instance }})
+        description: "Redis has just been restarted, less than one minute ago on {{ $labels.instance }}\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+
+    - alert: RedisHighMemoryUsage
+      expr: >
+        redis_memory_used_bytes / redis_memory_max_bytes * 100 > 80
+        and redis_memory_max_bytes > 0
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: Redis high memory usage (> 80%) (instance {{ $labels.instance }})
+        description: "Redis is using more than 80% of its configured maxmemory on {{ $labels.instance }}\n  VALUE = {{ $value | printf \"%.1f\" }}%\n  LABELS = {{ $labels }}"
+
+    - alert: RedisMemoryUsageCritical
+      expr: >
+        redis_memory_used_bytes / redis_memory_max_bytes * 100 > 95
+        and redis_memory_max_bytes > 0
+      for: 2m
+      labels:
+        severity: critical
+      annotations:
+        summary: Redis memory usage critical (> 95%) (instance {{ $labels.instance }})
+        description: "Redis is using more than 95% of its configured maxmemory on {{ $labels.instance }}. Eviction or OOM may occur.\n  VALUE = {{ $value | printf \"%.1f\" }}%\n  LABELS = {{ $labels }}"
+
+    - alert: RedisTooManyConnections
+      expr: 'redis_connected_clients > 1000'
+      for: 2m
+      labels:
+        severity: warning
+      annotations:
+        summary: Redis too many connections (instance {{ $labels.instance }})
+        description: "Redis has more than 1000 connected clients on {{ $labels.instance }}\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+
+    - alert: RedisHighBlockedClients
+      expr: 'redis_blocked_clients > 10'
+      for: 2m
+      labels:
+        severity: warning
+      annotations:
+        summary: Redis high number of blocked clients (instance {{ $labels.instance }})
+        description: "Redis has {{ $value }} blocked clients on {{ $labels.instance }}, which may indicate slow operations or deadlocks\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+
+    - alert: RedisRejectedConnections
+      expr: 'increase(redis_rejected_connections_total[1m]) > 0'
+      for: 0m
+      labels:
+        severity: critical
+      annotations:
+        summary: Redis rejected connections (instance {{ $labels.instance }})
+        description: "Redis is rejecting connections on {{ $labels.instance }}. maxclients limit may have been reached.\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+
+    - alert: RedisHighEvictedKeys
+      expr: 'increase(redis_evicted_keys_total[5m]) > 0'
+      for: 0m
+      labels:
+        severity: warning
+      annotations:
+        summary: Redis evicting keys (instance {{ $labels.instance }})
+        description: "Redis is evicting keys on {{ $labels.instance }}, which indicates memory pressure\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+
+    - alert: RedisLowHitRate
+      expr: >
+        redis_keyspace_hits_total / (redis_keyspace_hits_total + redis_keyspace_misses_total) * 100 < 80
+        and (redis_keyspace_hits_total + redis_keyspace_misses_total) > 0
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: Redis low keyspace hit rate (instance {{ $labels.instance }})
+        description: "Redis keyspace hit rate is below 80% on {{ $labels.instance }}, cache may be undersized\n  VALUE = {{ $value | printf \"%.1f\" }}%\n  LABELS = {{ $labels }}"
+
+    - alert: RedisRdbSaveFailed
+      expr: 'redis_rdb_last_bgsave_status != 1'
+      for: 0m
+      labels:
+        severity: critical
+      annotations:
+        summary: Redis RDB save failed (instance {{ $labels.instance }})
+        description: "Redis failed to perform an RDB background save on {{ $labels.instance }}\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"

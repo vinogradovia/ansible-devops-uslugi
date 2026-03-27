@@ -15,30 +15,69 @@ monitoring_server_docker_proxy_network_name: proxy
 
 monitoring_server_victoria_metrics_enabled: false
 monitoring_server_victoria_metrics_config_dir: "{{ monitoring_server_config_dir }}/victoria-metrics"
+
+# node_exporter
 monitoring_server_victoria_metrics_scrape_node_exporter: true
 monitoring_server_victoria_metrics_scrape_node_exporter_port_default: 9100
+monitoring_server_victoria_metrics_alerts_rules_node_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_node_exporter }}"
+
+# docker_exporter
 monitoring_server_victoria_metrics_scrape_docker_exporter: true
 monitoring_server_victoria_metrics_scrape_docker_exporter_port_default: 9323
+monitoring_server_victoria_metrics_alerts_rules_docker_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_docker_exporter }}"
+
+# cadvisor
 monitoring_server_victoria_metrics_scrape_cadvisor: true
 monitoring_server_victoria_metrics_scrape_cadvisor_port_default: 9326
+monitoring_server_victoria_metrics_alerts_rules_cadvisor_default: "{{ monitoring_server_victoria_metrics_scrape_cadvisor }}"
+
+# ipa_exporter
 monitoring_server_victoria_metrics_scrape_ipa_exporter: true
 monitoring_server_victoria_metrics_scrape_ipa_exporter_port_default: 9189
+monitoring_server_victoria_metrics_alerts_rules_ipa_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_ipa_exporter }}"
+
+# redis_exporter
 monitoring_server_victoria_metrics_scrape_redis_exporter: true
 monitoring_server_victoria_metrics_scrape_redis_exporter_port_default: 9121
+monitoring_server_victoria_metrics_alerts_rules_redis_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_redis_exporter }}"
+
+# nginx_exporter
 monitoring_server_victoria_metrics_scrape_nginx_exporter: true
 monitoring_server_victoria_metrics_scrape_nginx_exporter_port_default: 9113
+monitoring_server_victoria_metrics_alerts_rules_nginx_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_nginx_exporter }}"
+
+# php_fpm_exporter
 monitoring_server_victoria_metrics_scrape_php_fpm_exporter: true
 monitoring_server_victoria_metrics_scrape_php_fpm_exporter_port_default: 9253
+monitoring_server_victoria_metrics_alerts_rules_php_fpm_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_php_fpm_exporter }}"
+
+# nginxlog_exporter
 monitoring_server_victoria_metrics_scrape_nginxlog_exporter: true
 monitoring_server_victoria_metrics_scrape_nginxlog_exporter_port_default: 4040
+monitoring_server_victoria_metrics_alerts_rules_nginxlog_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_nginxlog_exporter }}"
+
+# mysqld_exporter
 monitoring_server_victoria_metrics_scrape_mysqld_exporter: true
 monitoring_server_victoria_metrics_scrape_mysqld_exporter_port_default: 9104
+monitoring_server_victoria_metrics_alerts_rules_mysqld_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_mysqld_exporter }}"
+
+# prom_client
 monitoring_server_victoria_metrics_scrape_prom_client: false
 monitoring_server_victoria_metrics_scrape_prom_client_port_default: 9464
+monitoring_server_victoria_metrics_alerts_rules_prom_client_default: "{{ monitoring_server_victoria_metrics_scrape_prom_client }}"
 
 # pve_exporter
 monitoring_server_victoria_metrics_scrape_pve_exporter: true
 monitoring_server_victoria_metrics_scrape_pve_exporter_port_default: 9221
+monitoring_server_victoria_metrics_alerts_rules_pve_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_pve_exporter }}"
+
+# blackbox
+monitoring_server_victoria_metrics_scrape_blackbox: false
+monitoring_server_victoria_metrics_alerts_rules_blackbox_default: true
+
+# nodejs_exporter
+monitoring_server_victoria_metrics_scrape_nodejs_exporter: false
+monitoring_server_victoria_metrics_alerts_rules_nodejs_exporter_default: true
 
 # -- start grafana block ----
 monitoring_server_grafana_enabled: false
@@ -129,6 +168,14 @@ monitoring_server_grafana_dashboards_group_defaults_freeipa:
       - name: FreeIPA Exporter
         uid: freeipa-exporter-dashboard
         src: "../../ADDONS/grafana_dashboards/freeipa_exporter.json"
+
+monitoring_server_grafana_dashboards_group_defaults_redis:
+  redis:
+    enable: false
+    dashboards:
+      - name: Redis Exporter
+        uid: redis-exporter-dashboard
+        src: "../../ADDONS/grafana_dashboards/redis_exporter.json"
 
 # -- end grafana block ----
 
