@@ -12,7 +12,6 @@ all:
     fail2ban_ui:
       hosts:
         test-host:
-          ansible_host: 192.168.89.21
           fail2ban_ui_orchestrator: systemd
           fail2ban_ui_bind_address: 0.0.0.0
           fail2ban_ui_callback_url: https://fail2ban.example.com:8443
