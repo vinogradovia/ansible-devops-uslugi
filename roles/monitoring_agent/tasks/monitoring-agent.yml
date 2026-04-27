@@ -197,6 +197,11 @@
       ansible.builtin.include_tasks:
         file: systemd-mysqld-exporter.yml
 
+    - name: Include systemd-fail2ban-exporter tasks
+      when: monitoring_agent_fail2ban_exporter_enabled
+      ansible.builtin.include_tasks:
+        file: systemd-fail2ban-exporter.yml
+
 # New Style of Exporters Definotions
 # pve_exporter
 - name: Include pve-exporter tasks

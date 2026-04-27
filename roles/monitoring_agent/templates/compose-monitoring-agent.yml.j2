@@ -116,6 +116,18 @@ services:
     volumes:
       - {{ monitoring_agent_config_dir }}/.mysqld_exporter_my.cnf:/.my.cnf
 {% endif %}
+{% if monitoring_agent_fail2ban_exporter_enabled %}
+  fail2ban_exporter:
+    image: {{ monitoring_agent_fail2ban_exporter_image }}
+    container_name: fail2ban_exporter
+    restart: "unless-stopped"
+    network_mode: host
+    command:
+      - "--web.listen-address=:{{ monitoring_agent_fail2ban_exporter_port }}"
+      - "--collector.f2b.socket={{ monitoring_agent_fail2ban_exporter_socket }}"
+    volumes:
+      - {{ monitoring_agent_fail2ban_exporter_socket }}:{{ monitoring_agent_fail2ban_exporter_socket }}:ro
+{% endif %}
 networks:
   monitoring_agent:
     driver: bridge

@@ -138,6 +138,19 @@ monitoring_agent_mysqld_exporter_systemd_name: mysqld_exporter
 monitoring_agent_mysqld_exporter_binary_download_url: https://github.com/prometheus/mysqld_exporter/releases/download/v0.18.0/mysqld_exporter-0.18.0.linux-amd64.tar.gz
 monitoring_agent_mysqld_exporter_binary_install_path: /usr/sbin/mysqld_exporter
 
+monitoring_agent_fail2ban_exporter_enabled: false
+monitoring_agent_fail2ban_exporter_image_registry: registry.gitlab.com
+monitoring_agent_fail2ban_exporter_image_repository: hctrdev/fail2ban-prometheus-exporter
+monitoring_agent_fail2ban_exporter_image_version: "v0.10.3"
+monitoring_agent_fail2ban_exporter_image: >-
+  {{ monitoring_agent_fail2ban_exporter_image_registry }}/{{ monitoring_agent_fail2ban_exporter_image_repository }}:{{ monitoring_agent_fail2ban_exporter_image_version }}
+monitoring_agent_fail2ban_exporter_port: '9191'
+monitoring_agent_fail2ban_exporter_socket: /var/run/fail2ban/fail2ban.sock
+monitoring_agent_fail2ban_exporter_socket_group: fail2ban
+monitoring_agent_fail2ban_exporter_systemd_name: fail2ban_exporter
+monitoring_agent_fail2ban_exporter_binary_download_url: https://gitlab.com/hctrdev/fail2ban-prometheus-exporter/-/releases/v0.10.3/downloads/fail2ban_exporter_0.10.3_linux_amd64.tar.gz
+monitoring_agent_fail2ban_exporter_binary_install_path: /usr/sbin/fail2ban_exporter
+
 # pve_exporter
 monitoring_agent_pve_exporter_enabled: false
 monitoring_agent_pve_exporter_config_dir: "{{ monitoring_agent_config_dir }}/{{ monitoring_agent_pve_exporter_systemd_name }}"

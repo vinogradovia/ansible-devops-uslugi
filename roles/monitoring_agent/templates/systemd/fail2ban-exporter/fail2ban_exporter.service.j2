@@ -1,0 +1,15 @@
+[Unit]
+Description=Fail2Ban Prometheus Exporter
+After=network-online.target fail2ban.service
+Wants=network-online.target
+
+[Service]
+User={{ monitoring_agent_fail2ban_exporter_systemd_name }}
+ExecStart={{ monitoring_agent_fail2ban_exporter_binary_install_path }} \
+  --web.listen-address=:{{ monitoring_agent_fail2ban_exporter_port }} \
+  --collector.f2b.socket={{ monitoring_agent_fail2ban_exporter_socket }}
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
