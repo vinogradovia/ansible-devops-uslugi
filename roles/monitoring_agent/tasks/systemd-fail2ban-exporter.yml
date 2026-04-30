@@ -56,10 +56,7 @@
         remote_src: true
         src: "{{ monitoring_agent_fail2ban_exporter_binary_download_url_result.dest }}"
         include:
-          - "*/fail2ban_exporter"
-        extra_opts:
-          - "--strip-component=1"
-          - "--wildcards"
+          - "fail2ban_exporter"
         dest: "{{ monitoring_agent_fail2ban_exporter_binary_install_path | dirname }}"
 
 - name: Configure service fail2ban-exporter
