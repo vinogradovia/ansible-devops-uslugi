@@ -148,7 +148,7 @@ monitoring_agent_fail2ban_exporter_port: '9191'
 monitoring_agent_fail2ban_exporter_socket: /var/run/fail2ban/fail2ban.sock
 monitoring_agent_fail2ban_exporter_socket_group: fail2ban
 monitoring_agent_fail2ban_exporter_systemd_name: fail2ban_exporter
-monitoring_agent_fail2ban_exporter_binary_download_url: https://gitlab.com/hctrdev/fail2ban-prometheus-exporter/-/releases/v0.10.3/downloads/fail2ban_exporter_0.10.3_linux_amd64.tar.gz
+monitoring_agent_fail2ban_exporter_binary_download_url: https://gitlab.com//-/project/24199687/uploads/18c602420dfd42bdf718a70823afa657/fail2ban_exporter_0.10.3_linux_amd64.tar.gz
 monitoring_agent_fail2ban_exporter_binary_install_path: /usr/sbin/fail2ban_exporter
 
 # pve_exporter
