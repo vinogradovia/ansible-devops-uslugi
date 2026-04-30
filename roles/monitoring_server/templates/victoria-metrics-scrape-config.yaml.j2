@@ -53,3 +53,9 @@ scrape_configs:
       - files:
           - prom_client_targets.json
 {% endif %}
+{% if monitoring_server_victoria_metrics_scrape_fail2ban_exporter %}
+  - job_name: fail2ban-exporter
+    file_sd_configs:
+      - files:
+          - fail2ban_exporter_targets.json
+{% endif %}
