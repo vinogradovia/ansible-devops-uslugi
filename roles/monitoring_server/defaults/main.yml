@@ -182,6 +182,14 @@ monitoring_server_grafana_dashboards_group_defaults_redis:
         uid: redis-exporter-dashboard
         src: "../../ADDONS/grafana_dashboards/redis_exporter.json"
 
+monitoring_server_grafana_dashboards_group_defaults_fail2ban:
+  fail2ban:
+    enable: false
+    dashboards:
+      - name: Fail2Ban exporter Dashboard
+        uid: fail2ban-exporter-dashboard
+        src: "../../ADDONS/grafana_dashboards/fail2ban_exporter.json"
+
 # -- end grafana block ----
 
 monitoring_server_local_storage_s3_enabled: false
