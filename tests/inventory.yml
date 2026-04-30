@@ -54,15 +54,16 @@ all:
     monitoring_agents:
       hosts:
         test-host:
-          monitoring_agent_orchestrator: docker
-          # monitoring_agent_ipa_exporter_enabled: true
+          monitoring_agent_orchestrator: systemd
+          # # monitoring_agent_ipa_exporter_enabled: true
 
-          # monitoring_agent_redis_exporter_enabled: true
-          # monitoring_agent_nginx_exporter_enabled: true
-          # monitoring_agent_nginxlog_exporter_enabled: true
-          # monitoring_agent_nginxlog_exporter_parser: "json"
-          monitoring_agent_mysqld_exporter_enabled: true
-          monitoring_agent_mysqld_exporter_password: mmhpaw76
+          # # monitoring_agent_redis_exporter_enabled: true
+          # # monitoring_agent_nginx_exporter_enabled: true
+          # # monitoring_agent_nginxlog_exporter_enabled: true
+          # # monitoring_agent_nginxlog_exporter_parser: "json"
+          # monitoring_agent_mysqld_exporter_enabled: true
+          # monitoring_agent_mysqld_exporter_password: mmhpaw76
+          monitoring_agent_fail2ban_exporter_enabled: true
 
     monitoring_servers:
       hosts:
