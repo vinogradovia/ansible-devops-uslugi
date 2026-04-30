@@ -62,11 +62,6 @@
     enabled: "{{ monitoring_agent_mysqld_exporter_enabled }}"
     state: restarted
 
-- name: Restart service fail2ban
-  ansible.builtin.systemd:
-    name: fail2ban
-    state: restarted
-
 - name: Restart service fail2ban-exporter
   ansible.builtin.systemd:
     name: "{{ monitoring_agent_fail2ban_exporter_systemd_name }}"
