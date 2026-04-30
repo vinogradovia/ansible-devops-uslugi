@@ -42,19 +42,19 @@
         state: "{{ 'present' if monitoring_agent_fail2ban_exporter_enabled else 'absent' }}"
 
     - name: Download fail2ban-exporter
-      ansible.builtin.get_url:
+      ansible.builtin.uri:
         url: "{{ monitoring_agent_fail2ban_exporter_binary_download_url }}"
-        dest: "{{ monitoring_agent_dist_dir }}"
-        tmp_dest: "{{ monitoring_agent_dist_dir }}"
+        dest: "{{ monitoring_agent_dist_dir }}/{{ monitoring_agent_fail2ban_exporter_binary_download_url | basename }}"
+        follow_redirects: all
+        status_code: [200, 304]
+        mode: '0644'
         owner: root
         group: root
-        mode: '0644'
-      register: monitoring_agent_fail2ban_exporter_binary_download_url_result
 
     - name: Unarchive fail2ban-exporter
       ansible.builtin.unarchive:
         remote_src: true
-        src: "{{ monitoring_agent_fail2ban_exporter_binary_download_url_result.dest }}"
+        src: "{{ monitoring_agent_dist_dir }}/{{ monitoring_agent_fail2ban_exporter_binary_download_url | basename }}"
         include:
           - "fail2ban_exporter"
         dest: "{{ monitoring_agent_fail2ban_exporter_binary_install_path | dirname }}"
