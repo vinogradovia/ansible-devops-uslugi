@@ -27,6 +27,9 @@
         group: root
         mode: '0644'
 
+- name: Flush handlers to apply fail2ban override before starting exporter
+  ansible.builtin.meta: flush_handlers
+
 - name: Install fail2ban-exporter
   notify:
     - Reload systemd daemon
