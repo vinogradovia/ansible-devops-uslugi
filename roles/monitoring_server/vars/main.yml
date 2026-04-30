@@ -100,6 +100,12 @@ monitoring_server_victoria_metrics_exporters:
     # alert_rules_src:
     #   - "alert-rules/"
 
+  - name: fail2ban-exporter
+    src: victoria-metrics-scrape-fail2ban-exporter-targets.json.j2
+    dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/fail2ban_exporter_targets.json"
+    state: "{{ monitoring_server_victoria_metrics_scrape_fail2ban_exporter }}"
+    alert_rules_default_enabled: "{{ monitoring_server_victoria_metrics_alerts_rules_fail2ban_exporter_default }}"
+
   - name: blackbox
     # src:
     # dest:
