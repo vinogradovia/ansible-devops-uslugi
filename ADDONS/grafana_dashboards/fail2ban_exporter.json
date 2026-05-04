@@ -1,8 +1,8 @@
 {
   "__inputs": [
     {
-      "name": "DS_PROMETHEUS",
-      "label": "Prometheus",
+      "name": "DS_VICTORIAMETRICS",
+      "label": "VictoriaMetrics",
       "description": "",
       "type": "datasource",
       "pluginId": "prometheus",
@@ -20,10 +20,28 @@
   "__elements": {},
   "__requires": [
     {
+      "type": "panel",
+      "id": "bargauge",
+      "name": "Bar gauge",
+      "version": ""
+    },
+    {
       "type": "grafana",
       "id": "grafana",
       "name": "Grafana",
-      "version": "9.5.0"
+      "version": "12.3.3"
+    },
+    {
+      "type": "panel",
+      "id": "logs",
+      "name": "Logs",
+      "version": ""
+    },
+    {
+      "type": "datasource",
+      "id": "loki",
+      "name": "Loki",
+      "version": "12.3.3"
     },
     {
       "type": "datasource",
@@ -47,12 +65,6 @@
       "type": "panel",
       "id": "timeseries",
       "name": "Time series",
-      "version": ""
-    },
-    {
-      "type": "panel",
-      "id": "bargauge",
-      "name": "Bar gauge",
       "version": ""
     }
   ],
@@ -82,9 +94,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 2,
-  "id": null,
   "links": [],
-  "liveNow": false,
   "panels": [
     {
       "collapsed": false,
@@ -95,13 +105,14 @@
         "y": 0
       },
       "id": 100,
+      "panels": [],
       "title": "Overview",
       "type": "row"
     },
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_VICTORIAMETRICS}"
       },
       "description": "Fail2Ban exporter status (1 = up)",
       "fieldConfig": {
@@ -129,7 +140,7 @@
             "steps": [
               {
                 "color": "red",
-                "value": null
+                "value": 0
               },
               {
                 "color": "green",
@@ -152,6 +163,7 @@
         "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -159,14 +171,16 @@
           "fields": "",
           "values": false
         },
-        "textMode": "auto"
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
-      "pluginVersion": "9.5.0",
+      "pluginVersion": "12.3.3",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_VICTORIAMETRICS}"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -182,7 +196,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_VICTORIAMETRICS}"
       },
       "description": "Total number of configured jails",
       "fieldConfig": {
@@ -196,7 +210,7 @@
             "steps": [
               {
                 "color": "blue",
-                "value": null
+                "value": 0
               }
             ]
           }
@@ -215,6 +229,7 @@
         "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -222,14 +237,16 @@
           "fields": "",
           "values": false
         },
-        "textMode": "auto"
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
-      "pluginVersion": "9.5.0",
+      "pluginVersion": "12.3.3",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_VICTORIAMETRICS}"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -245,7 +262,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_VICTORIAMETRICS}"
       },
       "description": "Total IPs currently banned across all jails",
       "fieldConfig": {
@@ -259,7 +276,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               },
               {
                 "color": "yellow",
@@ -290,6 +307,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -297,14 +315,16 @@
           "fields": "",
           "values": false
         },
-        "textMode": "auto"
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
-      "pluginVersion": "9.5.0",
+      "pluginVersion": "12.3.3",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_VICTORIAMETRICS}"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -321,7 +341,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_VICTORIAMETRICS}"
       },
       "description": "Total bans since fail2ban startup across all jails",
       "fieldConfig": {
@@ -335,7 +355,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               },
               {
                 "color": "yellow",
@@ -366,6 +386,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -373,14 +394,16 @@
           "fields": "",
           "values": false
         },
-        "textMode": "auto"
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
-      "pluginVersion": "9.5.0",
+      "pluginVersion": "12.3.3",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_VICTORIAMETRICS}"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -397,7 +420,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_VICTORIAMETRICS}"
       },
       "description": "Current failures across all jails",
       "fieldConfig": {
@@ -411,7 +434,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               },
               {
                 "color": "yellow",
@@ -442,6 +465,7 @@
         "graphMode": "area",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -449,14 +473,16 @@
           "fields": "",
           "values": false
         },
-        "textMode": "auto"
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
-      "pluginVersion": "9.5.0",
+      "pluginVersion": "12.3.3",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_VICTORIAMETRICS}"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -473,7 +499,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_VICTORIAMETRICS}"
       },
       "description": "Exporter and fail2ban versions",
       "fieldConfig": {
@@ -487,7 +513,7 @@
             "steps": [
               {
                 "color": "purple",
-                "value": null
+                "value": 0
               }
             ]
           }
@@ -506,6 +532,7 @@
         "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
+        "percentChangeColorMode": "standard",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -513,14 +540,16 @@
           "fields": "/.*/",
           "values": false
         },
-        "textMode": "name"
+        "showPercentChange": false,
+        "textMode": "name",
+        "wideLayout": true
       },
-      "pluginVersion": "9.5.0",
+      "pluginVersion": "12.3.3",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_VICTORIAMETRICS}"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -542,13 +571,14 @@
         "y": 5
       },
       "id": 101,
+      "panels": [],
       "title": "Jail Configuration",
       "type": "row"
     },
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_VICTORIAMETRICS}"
       },
       "description": "Configuration per jail: max retries, ban time, find time",
       "fieldConfig": {
@@ -558,11 +588,13 @@
           },
           "custom": {
             "align": "auto",
-            "displayMode": "auto",
-            "inspect": false,
             "cellOptions": {
               "type": "auto"
-            }
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
           },
           "mappings": [],
           "thresholds": {
@@ -570,7 +602,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               }
             ]
           }
@@ -587,8 +619,10 @@
                 "value": "s"
               },
               {
-                "id": "custom.displayMode",
-                "value": "color-text"
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
               },
               {
                 "id": "color",
@@ -617,8 +651,11 @@
             },
             "properties": [
               {
-                "id": "custom.displayMode",
-                "value": "color-background"
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "gradient",
+                  "type": "color-background"
+                }
               },
               {
                 "id": "color",
@@ -639,13 +676,7 @@
       },
       "id": 10,
       "options": {
-        "footer": {
-          "fields": "",
-          "reducer": [
-            "sum"
-          ],
-          "show": false
-        },
+        "cellHeight": "sm",
         "showHeader": true,
         "sortBy": [
           {
@@ -654,12 +685,12 @@
           }
         ]
       },
-      "pluginVersion": "9.5.0",
+      "pluginVersion": "12.3.3",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_VICTORIAMETRICS}"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -672,7 +703,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_VICTORIAMETRICS}"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -686,7 +717,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_VICTORIAMETRICS}"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -742,18 +773,18 @@
           "options": {
             "excludeByName": {},
             "indexByName": {
-              "instance": 0,
-              "jail": 1,
               "Value #A (lastNotNull)": 2,
               "Value #B (lastNotNull)": 3,
-              "Value #C (lastNotNull)": 4
+              "Value #C (lastNotNull)": 4,
+              "instance": 0,
+              "jail": 1
             },
             "renameByName": {
               "Value #A (lastNotNull)": "Max Retries",
               "Value #B (lastNotNull)": "Ban Time",
               "Value #C (lastNotNull)": "Find Time",
-              "jail": "Jail",
-              "instance": "Instance"
+              "instance": "Instance",
+              "jail": "Jail"
             }
           }
         }
@@ -770,20 +801,21 @@
         "y": 13
       },
       "id": 102,
+      "panels": [],
       "title": "Currently Banned per Jail",
       "type": "row"
     },
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_VICTORIAMETRICS}"
       },
       "description": "Currently banned IPs per jail — bar gauge",
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "continuous-RdYlGr",
-            "fixedColor": "red"
+            "fixedColor": "red",
+            "mode": "continuous-RdYlGr"
           },
           "mappings": [],
           "min": 0,
@@ -792,7 +824,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               },
               {
                 "color": "yellow",
@@ -816,8 +848,16 @@
       "id": 20,
       "options": {
         "displayMode": "gradient",
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "maxVizHeight": 300,
         "minVizHeight": 10,
         "minVizWidth": 0,
+        "namePlacement": "auto",
         "orientation": "horizontal",
         "reduceOptions": {
           "calcs": [
@@ -827,14 +867,15 @@
           "values": false
         },
         "showUnfilled": true,
+        "sizing": "auto",
         "valueMode": "color"
       },
-      "pluginVersion": "9.5.0",
+      "pluginVersion": "12.3.3",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_VICTORIAMETRICS}"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -850,7 +891,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_VICTORIAMETRICS}"
       },
       "description": "Current failures per jail — bar gauge",
       "fieldConfig": {
@@ -865,7 +906,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               },
               {
                 "color": "yellow",
@@ -889,8 +930,16 @@
       "id": 21,
       "options": {
         "displayMode": "gradient",
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "maxVizHeight": 300,
         "minVizHeight": 10,
         "minVizWidth": 0,
+        "namePlacement": "auto",
         "orientation": "horizontal",
         "reduceOptions": {
           "calcs": [
@@ -900,14 +949,15 @@
           "values": false
         },
         "showUnfilled": true,
+        "sizing": "auto",
         "valueMode": "color"
       },
-      "pluginVersion": "9.5.0",
+      "pluginVersion": "12.3.3",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_VICTORIAMETRICS}"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -929,13 +979,14 @@
         "y": 21
       },
       "id": 103,
+      "panels": [],
       "title": "Bans over Time",
       "type": "row"
     },
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_VICTORIAMETRICS}"
       },
       "description": "Total number of failures since fail2ban startup, per jail over time",
       "fieldConfig": {
@@ -944,11 +995,13 @@
             "mode": "palette-classic"
           },
           "custom": {
+            "axisBorderShow": false,
             "axisCenteredZero": false,
             "axisColorMode": "text",
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 15,
             "gradientMode": "scheme",
@@ -957,6 +1010,7 @@
               "tooltip": false,
               "viz": false
             },
+            "insertNulls": false,
             "lineInterpolation": "smooth",
             "lineWidth": 2,
             "pointSize": 5,
@@ -964,6 +1018,7 @@
               "type": "linear"
             },
             "showPoints": "never",
+            "showValues": false,
             "spanNulls": true,
             "stacking": {
               "group": "A",
@@ -980,7 +1035,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               }
             ]
           },
@@ -1006,16 +1061,17 @@
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "multi",
           "sort": "desc"
         }
       },
-      "pluginVersion": "9.5.0",
+      "pluginVersion": "12.3.3",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_VICTORIAMETRICS}"
           },
           "editorMode": "code",
           "exemplar": true,
@@ -1033,7 +1089,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_VICTORIAMETRICS}"
       },
       "description": "Total number of bans since fail2ban startup, per jail over time",
       "fieldConfig": {
@@ -1042,11 +1098,13 @@
             "mode": "palette-classic"
           },
           "custom": {
+            "axisBorderShow": false,
             "axisCenteredZero": false,
             "axisColorMode": "text",
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 15,
             "gradientMode": "scheme",
@@ -1055,6 +1113,7 @@
               "tooltip": false,
               "viz": false
             },
+            "insertNulls": false,
             "lineInterpolation": "smooth",
             "lineWidth": 2,
             "pointSize": 5,
@@ -1062,6 +1121,7 @@
               "type": "linear"
             },
             "showPoints": "never",
+            "showValues": false,
             "spanNulls": true,
             "stacking": {
               "group": "A",
@@ -1078,7 +1138,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               }
             ]
           },
@@ -1104,16 +1164,17 @@
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "multi",
           "sort": "desc"
         }
       },
-      "pluginVersion": "9.5.0",
+      "pluginVersion": "12.3.3",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_VICTORIAMETRICS}"
           },
           "editorMode": "code",
           "exemplar": true,
@@ -1131,7 +1192,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_VICTORIAMETRICS}"
       },
       "description": "Current failures per jail over time",
       "fieldConfig": {
@@ -1140,11 +1201,13 @@
             "mode": "palette-classic"
           },
           "custom": {
+            "axisBorderShow": false,
             "axisCenteredZero": false,
             "axisColorMode": "text",
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 15,
             "gradientMode": "scheme",
@@ -1153,6 +1216,7 @@
               "tooltip": false,
               "viz": false
             },
+            "insertNulls": false,
             "lineInterpolation": "smooth",
             "lineWidth": 2,
             "pointSize": 5,
@@ -1160,6 +1224,7 @@
               "type": "linear"
             },
             "showPoints": "never",
+            "showValues": false,
             "spanNulls": true,
             "stacking": {
               "group": "A",
@@ -1176,7 +1241,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               }
             ]
           },
@@ -1202,16 +1267,17 @@
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "multi",
           "sort": "desc"
         }
       },
-      "pluginVersion": "9.5.0",
+      "pluginVersion": "12.3.3",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_VICTORIAMETRICS}"
           },
           "editorMode": "code",
           "exemplar": true,
@@ -1229,7 +1295,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_VICTORIAMETRICS}"
       },
       "description": "Currently banned IPs per jail over time",
       "fieldConfig": {
@@ -1238,11 +1304,13 @@
             "mode": "palette-classic"
           },
           "custom": {
+            "axisBorderShow": false,
             "axisCenteredZero": false,
             "axisColorMode": "text",
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 15,
             "gradientMode": "scheme",
@@ -1251,6 +1319,7 @@
               "tooltip": false,
               "viz": false
             },
+            "insertNulls": false,
             "lineInterpolation": "smooth",
             "lineWidth": 2,
             "pointSize": 5,
@@ -1258,6 +1327,7 @@
               "type": "linear"
             },
             "showPoints": "never",
+            "showValues": false,
             "spanNulls": true,
             "stacking": {
               "group": "A",
@@ -1274,7 +1344,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               }
             ]
           },
@@ -1300,16 +1370,17 @@
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "multi",
           "sort": "desc"
         }
       },
-      "pluginVersion": "9.5.0",
+      "pluginVersion": "12.3.3",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_VICTORIAMETRICS}"
           },
           "editorMode": "code",
           "exemplar": true,
@@ -1333,13 +1404,14 @@
         "y": 40
       },
       "id": 104,
+      "panels": [],
       "title": "Ban Rate (increase per interval)",
       "type": "row"
     },
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_VICTORIAMETRICS}"
       },
       "description": "Rate of new bans per second (5m interval), per jail",
       "fieldConfig": {
@@ -1348,11 +1420,13 @@
             "mode": "palette-classic"
           },
           "custom": {
+            "axisBorderShow": false,
             "axisCenteredZero": false,
             "axisColorMode": "text",
             "axisLabel": "bans/sec",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "bars",
             "fillOpacity": 80,
             "gradientMode": "hue",
@@ -1361,6 +1435,7 @@
               "tooltip": false,
               "viz": false
             },
+            "insertNulls": false,
             "lineInterpolation": "linear",
             "lineWidth": 1,
             "pointSize": 5,
@@ -1368,6 +1443,7 @@
               "type": "linear"
             },
             "showPoints": "never",
+            "showValues": false,
             "spanNulls": true,
             "stacking": {
               "group": "A",
@@ -1384,7 +1460,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               }
             ]
           },
@@ -1409,16 +1485,17 @@
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "multi",
           "sort": "desc"
         }
       },
-      "pluginVersion": "9.5.0",
+      "pluginVersion": "12.3.3",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_VICTORIAMETRICS}"
           },
           "editorMode": "code",
           "exemplar": true,
@@ -1436,7 +1513,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_VICTORIAMETRICS}"
       },
       "description": "Rate of new failures per second (5m interval), per jail",
       "fieldConfig": {
@@ -1445,11 +1522,13 @@
             "mode": "palette-classic"
           },
           "custom": {
+            "axisBorderShow": false,
             "axisCenteredZero": false,
             "axisColorMode": "text",
             "axisLabel": "failures/sec",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "bars",
             "fillOpacity": 80,
             "gradientMode": "hue",
@@ -1458,6 +1537,7 @@
               "tooltip": false,
               "viz": false
             },
+            "insertNulls": false,
             "lineInterpolation": "linear",
             "lineWidth": 1,
             "pointSize": 5,
@@ -1465,6 +1545,7 @@
               "type": "linear"
             },
             "showPoints": "never",
+            "showValues": false,
             "spanNulls": true,
             "stacking": {
               "group": "A",
@@ -1481,7 +1562,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               }
             ]
           },
@@ -1506,16 +1587,17 @@
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "multi",
           "sort": "desc"
         }
       },
-      "pluginVersion": "9.5.0",
+      "pluginVersion": "12.3.3",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_VICTORIAMETRICS}"
           },
           "editorMode": "code",
           "exemplar": true,
@@ -1539,13 +1621,14 @@
         "y": 49
       },
       "id": 105,
+      "panels": [],
       "title": "Exporter Health",
       "type": "row"
     },
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_VICTORIAMETRICS}"
       },
       "description": "Exporter up/down status over time (1 = up, 0 = down)",
       "fieldConfig": {
@@ -1554,11 +1637,13 @@
             "mode": "palette-classic"
           },
           "custom": {
+            "axisBorderShow": false,
             "axisCenteredZero": false,
             "axisColorMode": "text",
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 30,
             "gradientMode": "opacity",
@@ -1567,6 +1652,7 @@
               "tooltip": false,
               "viz": false
             },
+            "insertNulls": false,
             "lineInterpolation": "stepAfter",
             "lineWidth": 2,
             "pointSize": 5,
@@ -1574,6 +1660,7 @@
               "type": "linear"
             },
             "showPoints": "never",
+            "showValues": false,
             "spanNulls": false,
             "stacking": {
               "group": "A",
@@ -1605,7 +1692,7 @@
             "steps": [
               {
                 "color": "red",
-                "value": null
+                "value": 0
               },
               {
                 "color": "green",
@@ -1634,16 +1721,17 @@
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "single",
           "sort": "none"
         }
       },
-      "pluginVersion": "9.5.0",
+      "pluginVersion": "12.3.3",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_VICTORIAMETRICS}"
           },
           "editorMode": "code",
           "exemplar": true,
@@ -1661,7 +1749,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "${DS_VICTORIAMETRICS}"
       },
       "description": "Exporter errors by type (socket_conn, socket_req)",
       "fieldConfig": {
@@ -1670,11 +1758,13 @@
             "mode": "palette-classic"
           },
           "custom": {
+            "axisBorderShow": false,
             "axisCenteredZero": false,
             "axisColorMode": "text",
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
+            "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 15,
             "gradientMode": "scheme",
@@ -1683,6 +1773,7 @@
               "tooltip": false,
               "viz": false
             },
+            "insertNulls": false,
             "lineInterpolation": "smooth",
             "lineWidth": 2,
             "pointSize": 5,
@@ -1690,6 +1781,7 @@
               "type": "linear"
             },
             "showPoints": "never",
+            "showValues": false,
             "spanNulls": true,
             "stacking": {
               "group": "A",
@@ -1706,7 +1798,7 @@
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               }
             ]
           },
@@ -1731,16 +1823,17 @@
           "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "multi",
           "sort": "desc"
         }
       },
-      "pluginVersion": "9.5.0",
+      "pluginVersion": "12.3.3",
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "${DS_VICTORIAMETRICS}"
           },
           "editorMode": "code",
           "exemplar": true,
@@ -1761,9 +1854,10 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 57
+        "y": 56
       },
       "id": 200,
+      "panels": [],
       "title": "Ban Events by IP (Loki)",
       "type": "row"
     },
@@ -1782,14 +1876,18 @@
             "cellOptions": {
               "type": "auto"
             },
+            "footer": {
+              "reducers": []
+            },
             "inspect": false
           },
+          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               },
               {
                 "color": "yellow",
@@ -1808,19 +1906,11 @@
         "h": 10,
         "w": 12,
         "x": 0,
-        "y": 58
+        "y": 57
       },
       "id": 201,
       "options": {
         "cellHeight": "sm",
-        "footer": {
-          "countRows": false,
-          "fields": "",
-          "reducer": [
-            "sum"
-          ],
-          "show": false
-        },
         "showHeader": true,
         "sortBy": [
           {
@@ -1829,16 +1919,19 @@
           }
         ]
       },
+      "pluginVersion": "12.3.3",
       "targets": [
         {
           "datasource": {
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "sum by (ip) (count_over_time({type=\"fail2ban\", action=\"Ban\", hostname=~\"$hostname\"} | regexp \"Ban (?P<ip>[0-9a-fA-F.:]+)\" [$__range]))",
+          "direction": "backward",
+          "editorMode": "code",
+          "expr": "sum by (ip) (count_over_time({action=\"Ban\", job=\"fail2ban-fd-proxy-01\"} | regexp \"Ban (?P<ip>[0-9a-fA-F.:]+)\" [$__range]))",
+          "legendFormat": "{{ip}}",
           "queryType": "instant",
-          "refId": "A",
-          "legendFormat": "{{ip}}"
+          "refId": "A"
         }
       ],
       "title": "Top Banned IPs",
@@ -1855,9 +1948,52 @@
             "mode": "palette-classic"
           },
           "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
             "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
             "lineWidth": 2,
-            "showPoints": "auto"
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
           }
         },
         "overrides": []
@@ -1866,30 +2002,35 @@
         "h": 10,
         "w": 12,
         "x": 12,
-        "y": 58
+        "y": 57
       },
       "id": 202,
       "options": {
         "legend": {
           "calcs": [],
           "displayMode": "list",
-          "placement": "bottom"
+          "placement": "bottom",
+          "showLegend": true
         },
         "tooltip": {
+          "hideZeros": false,
           "mode": "multi",
           "sort": "desc"
         }
       },
+      "pluginVersion": "12.3.3",
       "targets": [
         {
           "datasource": {
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "sum by (jail) (count_over_time({type=\"fail2ban\", action=\"Ban\", hostname=~\"$hostname\"}[$__interval]))",
+          "direction": "backward",
+          "editorMode": "code",
+          "expr": "sum by (jail) (count_over_time({ action=\"Ban\", job=\"fail2ban-fd-proxy-01\"}[$__interval]))",
+          "legendFormat": "{{jail}}",
           "queryType": "range",
-          "refId": "A",
-          "legendFormat": "{{jail}}"
+          "refId": "A"
         }
       ],
       "title": "Ban Events over Time by Jail",
@@ -1905,12 +2046,13 @@
           "color": {
             "mode": "palette-classic"
           },
+          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
                 "color": "green",
-                "value": null
+                "value": 0
               },
               {
                 "color": "red",
@@ -1925,13 +2067,21 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 68
+        "y": 67
       },
       "id": 203,
       "options": {
         "displayMode": "lcd",
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "maxVizHeight": 300,
         "minVizHeight": 10,
         "minVizWidth": 0,
+        "namePlacement": "auto",
         "orientation": "horizontal",
         "reduceOptions": {
           "calcs": [
@@ -1940,18 +2090,23 @@
           "fields": "",
           "values": false
         },
-        "showUnfilled": true
+        "showUnfilled": true,
+        "sizing": "auto",
+        "valueMode": "color"
       },
+      "pluginVersion": "12.3.3",
       "targets": [
         {
           "datasource": {
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "sum by (jail) (count_over_time({type=\"fail2ban\", action=\"Ban\", hostname=~\"$hostname\"}[$__range]))",
+          "direction": "backward",
+          "editorMode": "code",
+          "expr": "sum by (jail) (count_over_time({ action=\"Ban\", job=\"fail2ban-fd-proxy-01\"}[$__range]))",
+          "legendFormat": "{{jail}}",
           "queryType": "instant",
-          "refId": "A",
-          "legendFormat": "{{jail}}"
+          "refId": "A"
         }
       ],
       "title": "Total Bans by Jail",
@@ -1966,26 +2121,31 @@
         "h": 8,
         "w": 16,
         "x": 8,
-        "y": 68
+        "y": 67
       },
       "id": 204,
       "options": {
         "dedupStrategy": "none",
+        "enableInfiniteScrolling": false,
         "enableLogDetails": true,
         "prettifyLogMessage": false,
         "showCommonLabels": false,
+        "showControls": false,
         "showLabels": true,
         "showTime": true,
         "sortOrder": "Descending",
         "wrapLogMessage": true
       },
+      "pluginVersion": "12.3.3",
       "targets": [
         {
           "datasource": {
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "{type=\"fail2ban\", action=\"Ban\", hostname=~\"$hostname\"}",
+          "direction": "backward",
+          "editorMode": "code",
+          "expr": "{ action=\"Ban\", job=\"fail2ban-fd-proxy-01\"}",
           "queryType": "range",
           "refId": "A"
         }
@@ -1994,9 +2154,9 @@
       "type": "logs"
     }
   ],
+  "preload": false,
   "refresh": "30s",
-  "schemaVersion": 37,
-  "style": "dark",
+  "schemaVersion": 42,
   "tags": [
     "fail2ban",
     "security",
@@ -2005,33 +2165,24 @@
   "templating": {
     "list": [
       {
-        "current": {
-          "selected": false,
-          "text": "Prometheus",
-          "value": "Prometheus"
-        },
-        "hide": 0,
+        "current": {},
         "includeAll": false,
         "label": "Data Source",
-        "multi": false,
         "name": "DS_PROMETHEUS",
         "options": [],
         "query": "prometheus",
-        "queryValue": "",
         "refresh": 1,
         "regex": "",
-        "skipUrlSync": false,
         "type": "datasource"
       },
       {
         "current": {},
         "datasource": {
           "type": "prometheus",
-          "uid": "${DS_PROMETHEUS}"
+          "uid": "${DS_VICTORIAMETRICS}"
         },
         "definition": "f2b_up",
         "description": "Select which exporter instance(s) to display",
-        "hide": 0,
         "includeAll": true,
         "label": "Instance",
         "multi": true,
@@ -2043,21 +2194,18 @@
         },
         "refresh": 1,
         "regex": "/.*instance=\"([^\"]+)\"/",
-        "skipUrlSync": false,
         "sort": 1,
         "type": "query"
       },
       {
         "current": {},
-        "hide": 0,
         "includeAll": false,
-        "multi": false,
+        "label": "Loki",
         "name": "DS_LOKI",
         "options": [],
         "query": "loki",
         "refresh": 1,
-        "type": "datasource",
-        "label": "Loki"
+        "type": "datasource"
       },
       {
         "current": {},
@@ -2066,8 +2214,8 @@
           "uid": "${DS_LOKI}"
         },
         "definition": "label_values({type=\"fail2ban\"}, hostname)",
-        "hide": 0,
         "includeAll": true,
+        "label": "Hostname",
         "multi": true,
         "name": "hostname",
         "options": [],
@@ -2080,8 +2228,7 @@
         "refresh": 2,
         "regex": "",
         "sort": 1,
-        "type": "query",
-        "label": "Hostname"
+        "type": "query"
       }
     ]
   },
@@ -2093,6 +2240,7 @@
   "timezone": "",
   "title": "Fail2Ban exporter Dashboard",
   "uid": "f2b-hctrdev-adapted",
-  "version": 1,
-  "weekStart": ""
+  "version": 2,
+  "weekStart": "",
+  "id": null
 }
