@@ -1,0 +1,254 @@
+logging {
+  level  = "info"
+  format = "logfmt"
+}
+
+remotecfg {
+}
+
+// ===== ОТПРАВКА МЕТРИК В VICTORIAMETRICS =====
+prometheus.remote_write "victoria" {
+  endpoint {
+    url            = "{{ monitoring_agent_alloy_victoria_metrics_url }}"
+    remote_timeout = "30s"
+
+    queue_config {
+      capacity             = 5000
+      max_shards           = 10
+      max_samples_per_send = 500
+    }
+  }
+
+  external_labels = {
+    env      = "{{ monitoring_agent_alloy_external_labels.env }}",
+    cluster  = "{{ monitoring_agent_alloy_external_labels.cluster }}",
+    dc       = "{{ monitoring_agent_alloy_external_labels.dc }}",
+    hostname = coalesce(sys.env("HOSTNAME"), "{{ inventory_hostname_short }}"),
+  }
+}
+
+// ===== ОТПРАВКА ЛОГОВ В LOKI =====
+loki.write "loki" {
+  endpoint {
+    url = "{{ monitoring_agent_alloy_loki_url }}"
+{% if monitoring_agent_alloy_loki_tenant_id %}
+    headers = {
+      "X-Scope-OrgID" = "{{ monitoring_agent_alloy_loki_tenant_id }}",
+    }
+{% endif %}
+    remote_timeout = "10s"
+  }
+}
+
+// ===== МЕТРИКИ САМОГО ALLOY =====
+prometheus.scrape "alloy_self" {
+  targets = [{
+    __address__ = "127.0.0.1:12345",
+    job         = "alloy",
+    instance    = coalesce(sys.env("HOSTNAME"), "{{ inventory_hostname_short }}"),
+  }]
+
+  scrape_interval = "30s"
+  forward_to      = [prometheus.remote_write.victoria.receiver]
+}
+
+{% if monitoring_agent_nginxlog_exporter_enabled %}
+// ===== МЕТРИКИ NGINX-LOG-EXPORTER =====
+prometheus.scrape "nginx_metrics" {
+  targets = [{
+    __address__ = "localhost:{{ monitoring_agent_nginxlog_exporter_port }}",
+    job         = "nginx",
+    instance    = coalesce(sys.env("HOSTNAME"), "{{ inventory_hostname_short }}"),
+  }]
+
+  scrape_interval = "30s"
+  scrape_timeout  = "10s"
+  forward_to      = [prometheus.remote_write.victoria.receiver]
+}
+{% endif %}
+
+{% if monitoring_agent_alloy_nginx_json_log_paths %}
+// ===== ЧТЕНИЕ JSON ЛОГОВ NGINX =====
+local.file_match "nginx_json_logs" {
+  path_targets = [
+{% for path in monitoring_agent_alloy_nginx_json_log_paths %}
+    {__path__ = "{{ path }}"},
+{% endfor %}
+  ]
+}
+
+loki.source.file "nginx_json" {
+  targets       = local.file_match.nginx_json_logs.targets
+  forward_to    = [loki.process.nginx_json.receiver]
+  tail_from_end = false
+
+  file_watch {
+    min_poll_frequency = "2s"
+    max_poll_frequency = "5s"
+  }
+}
+
+loki.process "nginx_json" {
+  forward_to = [loki.write.loki.receiver]
+
+  stage.json {
+    expressions = {
+      remote_addr           = "",
+      time_local            = "",
+      request               = "",
+      status                = "",
+      body_bytes_sent       = "",
+      http_referer          = "",
+      http_user_agent       = "",
+      request_time          = "",
+      upstream_cache_status = "",
+      request_method        = "",
+      server_protocol       = "",
+      scheme                = "",
+      host                  = "",
+    }
+  }
+
+  stage.regex {
+    expression = "^(?P<method>[A-Z]+) .*"
+    source     = "request"
+  }
+
+  stage.regex {
+    expression = ".*/(?P<filename>[^/]+)\\.log$"
+    source     = "__path__"
+  }
+
+{% raw %}
+  stage.template {
+    source   = "severity"
+    template = "" +
+      "{{ if eq .status \"200\" }}INFO" +
+      "{{ else if eq .status \"201\" }}INFO" +
+      "{{ else if eq .status \"204\" }}INFO" +
+      "{{ else if eq .status \"301\" }}WARN" +
+      "{{ else if eq .status \"302\" }}WARN" +
+      "{{ else if eq .status \"400\" }}ERROR" +
+      "{{ else if eq .status \"401\" }}ERROR" +
+      "{{ else if eq .status \"403\" }}ERROR" +
+      "{{ else if eq .status \"404\" }}WARN" +
+      "{{ else if eq .status \"500\" }}ERROR" +
+      "{{ else if eq .status \"502\" }}ERROR" +
+      "{{ else if eq .status \"503\" }}ERROR" +
+      "{{ else if eq .status \"504\" }}ERROR" +
+      "{{ else }}UNKNOWN" +
+      "{{ end }}"
+  }
+
+  stage.template {
+    source   = "hostname_value"
+    template = sys.env("HOSTNAME")
+  }
+
+  stage.template {
+    source   = "job_name"
+    template = "nginx-{{ .hostname_value }}"
+  }
+
+  stage.template {
+    source   = "service_name"
+    template = "{{ .job_name }}-{{ .filename }}"
+  }
+{% endraw %}
+
+  stage.labels {
+    values = {
+      status                = "status",
+      upstream_cache_status = "upstream_cache_status",
+      method                = "method",
+      host                  = "host",
+      scheme                = "scheme",
+      filename              = "filename",
+      severity              = "severity",
+      service_name          = "service_name",
+      job                   = "job_name",
+      type                  = "json_access",
+      cluster               = "{{ monitoring_agent_alloy_external_labels.cluster }}",
+      env                   = "{{ monitoring_agent_alloy_external_labels.env }}",
+      hostname              = sys.env("HOSTNAME"),
+    }
+  }
+
+  stage.timestamp {
+    source = "time_local"
+    format = "02/Jan/2006:15:04:05 -0700"
+  }
+}
+{% endif %}
+
+{% if monitoring_agent_alloy_fail2ban_log_enabled %}
+// ===== ЧТЕНИЕ ЛОГОВ FAIL2BAN =====
+local.file_match "fail2ban_logs" {
+  path_targets = [
+    {__path__ = "{{ monitoring_agent_alloy_fail2ban_log_path }}"},
+  ]
+}
+
+loki.source.file "fail2ban" {
+  targets       = local.file_match.fail2ban_logs.targets
+  forward_to    = [loki.process.fail2ban.receiver]
+  tail_from_end = false
+
+  file_watch {
+    min_poll_frequency = "2s"
+    max_poll_frequency = "5s"
+  }
+}
+
+loki.process "fail2ban" {
+  forward_to = [loki.write.loki.receiver]
+
+  stage.regex {
+    expression = `^(?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d{3} (?P<component>fail2ban\.\S+)\s+\[\d+\]: (?P<level>\S+)\s+\[(?P<jail>[^\]]+)\] (?P<action>\w+)(?:\s+(?P<ip>[\d.a-fA-F:]+))?`
+  }
+
+{% raw %}
+  stage.template {
+    source   = "severity"
+    template = "" +
+      "{{ if eq .level \"ERROR\" }}ERROR" +
+      "{{ else if eq .level \"WARNING\" }}WARN" +
+      "{{ else if eq .level \"NOTICE\" }}INFO" +
+      "{{ else if eq .level \"INFO\" }}INFO" +
+      "{{ else if eq .level \"DEBUG\" }}DEBUG" +
+      "{{ else }}UNKNOWN" +
+      "{{ end }}"
+  }
+
+  stage.template {
+    source   = "hostname_value"
+    template = sys.env("HOSTNAME")
+  }
+
+  stage.template {
+    source   = "job_name"
+    template = "fail2ban-{{ .hostname_value }}"
+  }
+{% endraw %}
+
+  stage.labels {
+    values = {
+      job      = "job_name",
+      type     = "fail2ban",
+      jail     = "jail",
+      action   = "action",
+      level    = "level",
+      severity = "severity",
+      hostname = sys.env("HOSTNAME"),
+      cluster  = "{{ monitoring_agent_alloy_external_labels.cluster }}",
+      env      = "{{ monitoring_agent_alloy_external_labels.env }}",
+    }
+  }
+
+  stage.timestamp {
+    source   = "timestamp"
+    format   = "2006-01-02 15:04:05"
+    location = "{{ monitoring_agent_alloy_fail2ban_log_timezone }}"
+  }
+}
+{% endif %}

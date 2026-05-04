@@ -59,6 +59,10 @@
                 inputName: DS_PROMETHEUS
               - datasourceName: VictoriaMetrics
                 inputName: DS_VICTORIAMETRICS
+{% if monitoring_server_grafana_loki_enabled %}
+              - datasourceName: Loki
+                inputName: DS_LOKI
+{% endif %}
             instanceSelector:
               matchLabels:
                 dashboards: "grafana"

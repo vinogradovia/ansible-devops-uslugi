@@ -170,3 +170,22 @@ monitoring_agent_pve_exporter_systemd_name: pve_exporter
 monitoring_agent_pve_exporter_systemd_fullname: "{{ monitoring_agent_pve_exporter_systemd_name }}.service"
 
 monitoring_agent_prom_client_enabled: false
+
+# grafana-alloy
+monitoring_agent_alloy_enabled: false
+monitoring_agent_alloy_config_path: /etc/alloy/config.alloy
+
+monitoring_agent_alloy_victoria_metrics_url: http://localhost:8428/api/v1/write
+monitoring_agent_alloy_loki_url: http://localhost:3100/loki/api/v1/push
+monitoring_agent_alloy_loki_tenant_id: "1"
+
+monitoring_agent_alloy_external_labels:
+  env: production
+  cluster: cluster
+  dc: dc1
+
+monitoring_agent_alloy_nginx_json_log_paths: []
+
+monitoring_agent_alloy_fail2ban_log_enabled: false
+monitoring_agent_alloy_fail2ban_log_path: /var/log/fail2ban.log
+monitoring_agent_alloy_fail2ban_log_timezone: "UTC"
