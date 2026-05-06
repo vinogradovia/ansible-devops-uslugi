@@ -12,6 +12,11 @@ monitoring_server_kubernetes_namespace: monitoring
 
 monitoring_server_docker_proxy_network_external: true
 monitoring_server_docker_proxy_network_name: proxy
+monitoring_server_docker_logging_defaults:
+  driver: "json-file"
+  options:
+    max-size: "50m"
+    max-file: "5"
 
 monitoring_server_victoria_metrics_enabled: false
 monitoring_server_victoria_metrics_config_dir: "{{ monitoring_server_config_dir }}/victoria-metrics"
