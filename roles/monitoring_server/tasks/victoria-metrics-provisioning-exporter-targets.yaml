@@ -3,7 +3,9 @@
   when: monitoring_server_orchestrator == 'docker'
   block:
     - name: Provisioning victoria-metrics node_exporter_targets remove
-      when: not monitoring_server_victoria_metrics_exporters_target_item.state
+      when:
+        - not (monitoring_server_victoria_metrics_exporters_target_item.state | bool)
+        - "'dest' in monitoring_server_victoria_metrics_exporters_target_item"
       ansible.builtin.file:
         owner: root
         group: root
