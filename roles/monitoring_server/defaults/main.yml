@@ -1,0 +1,216 @@
+---
+# defaults file for monitoring-server
+
+monitoring_server_config_dir: /opt/monitoring-server
+monitoring_server_storage_dir: /opt/monitoring_storage
+
+# docker, k3s
+monitoring_server_orchestrator: docker
+monitoring_server_helmwave_dir: "{{ role_path | dirname | dirname }}/helm"
+monitoring_server_helmwave_tmp: "{{ monitoring_server_helmwave_dir }}/tmp"
+monitoring_server_kubernetes_namespace: monitoring
+
+monitoring_server_docker_proxy_network_external: true
+monitoring_server_docker_proxy_network_name: proxy
+
+monitoring_server_victoria_metrics_enabled: false
+monitoring_server_victoria_metrics_config_dir: "{{ monitoring_server_config_dir }}/victoria-metrics"
+
+# node_exporter
+monitoring_server_victoria_metrics_scrape_node_exporter: true
+monitoring_server_victoria_metrics_scrape_node_exporter_port_default: 9100
+monitoring_server_victoria_metrics_alerts_rules_node_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_node_exporter }}"
+
+# docker_exporter
+monitoring_server_victoria_metrics_scrape_docker_exporter: true
+monitoring_server_victoria_metrics_scrape_docker_exporter_port_default: 9323
+monitoring_server_victoria_metrics_alerts_rules_docker_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_docker_exporter }}"
+
+# cadvisor
+monitoring_server_victoria_metrics_scrape_cadvisor: true
+monitoring_server_victoria_metrics_scrape_cadvisor_port_default: 9326
+monitoring_server_victoria_metrics_alerts_rules_cadvisor_default: "{{ monitoring_server_victoria_metrics_scrape_cadvisor }}"
+
+# ipa_exporter
+monitoring_server_victoria_metrics_scrape_ipa_exporter: true
+monitoring_server_victoria_metrics_scrape_ipa_exporter_port_default: 9189
+monitoring_server_victoria_metrics_alerts_rules_ipa_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_ipa_exporter }}"
+
+# redis_exporter
+monitoring_server_victoria_metrics_scrape_redis_exporter: true
+monitoring_server_victoria_metrics_scrape_redis_exporter_port_default: 9121
+monitoring_server_victoria_metrics_alerts_rules_redis_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_redis_exporter }}"
+
+# nginx_exporter
+monitoring_server_victoria_metrics_scrape_nginx_exporter: true
+monitoring_server_victoria_metrics_scrape_nginx_exporter_port_default: 9113
+monitoring_server_victoria_metrics_alerts_rules_nginx_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_nginx_exporter }}"
+
+# php_fpm_exporter
+monitoring_server_victoria_metrics_scrape_php_fpm_exporter: true
+monitoring_server_victoria_metrics_scrape_php_fpm_exporter_port_default: 9253
+monitoring_server_victoria_metrics_alerts_rules_php_fpm_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_php_fpm_exporter }}"
+
+# nginxlog_exporter
+monitoring_server_victoria_metrics_scrape_nginxlog_exporter: true
+monitoring_server_victoria_metrics_scrape_nginxlog_exporter_port_default: 4040
+monitoring_server_victoria_metrics_alerts_rules_nginxlog_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_nginxlog_exporter }}"
+
+# mysqld_exporter
+monitoring_server_victoria_metrics_scrape_mysqld_exporter: true
+monitoring_server_victoria_metrics_scrape_mysqld_exporter_port_default: 9104
+monitoring_server_victoria_metrics_alerts_rules_mysqld_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_mysqld_exporter }}"
+
+# prom_client
+monitoring_server_victoria_metrics_scrape_prom_client: false
+monitoring_server_victoria_metrics_scrape_prom_client_port_default: 9464
+monitoring_server_victoria_metrics_alerts_rules_prom_client_default: "{{ monitoring_server_victoria_metrics_scrape_prom_client }}"
+
+# pve_exporter
+monitoring_server_victoria_metrics_scrape_pve_exporter: true
+monitoring_server_victoria_metrics_scrape_pve_exporter_port_default: 9221
+monitoring_server_victoria_metrics_alerts_rules_pve_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_pve_exporter }}"
+
+# blackbox
+monitoring_server_victoria_metrics_scrape_blackbox: false
+monitoring_server_victoria_metrics_alerts_rules_blackbox_default: true
+
+# nodejs_exporter
+monitoring_server_victoria_metrics_scrape_nodejs_exporter: false
+monitoring_server_victoria_metrics_alerts_rules_nodejs_exporter_default: true
+
+# -- start grafana block ----
+monitoring_server_grafana_enabled: false
+
+monitoring_server_default_password: "PleAse_Change_ME!"
+
+# GF_SECURITY_ADMIN_USER
+monitoring_server_grafana_security_admin_user: admin
+
+# GF_SECURITY_ADMIN_PASSWORD
+monitoring_server_grafana_security_admin_password: "{{ monitoring_server_default_password }}"
+
+# GF_INSTALL_PLUGINS
+monitoring_server_grafana_install_plugins: "grafana-clock-panel,grafana-simple-json-datasource"
+
+# GF_SERVER_ROOT_URL
+monitoring_server_grafana_server_root_url: "https://grafana.docker.localhost"
+
+# GF_SERVER_DOMAIN
+monitoring_server_grafana_server_domain: .docker.localhost
+
+monitoring_server_grafana_dashboard_provisioning: "{{ true if monitoring_server_orchestrator == 'k3s' else monitoring_server_grafana_enabled }}"
+monitoring_server_grafana_dashboard_default_folder: addons
+
+# Grafana dashboards:
+monitoring_server_grafana_dashboards_group_defaults_mysql:
+  mysql:
+    enable: false
+    dashboards:
+      - name: Mysql
+        uid: 549c2bf8936f7767ea6ac47c47b00f2a
+        src: "../../ADDONS/grafana_dashboards/MySQL-1771724748006.json"
+
+monitoring_server_grafana_dashboards_group_defaults_pve1:
+  pve1:
+    enable: false
+    dashboards:
+      - name: Proxmox via Prometheus
+        uid: Dp7Cd57Zza
+        src: "../../ADDONS/grafana_dashboards/Proxmox via Prometheus-1771778631100.json"
+
+monitoring_server_grafana_dashboards_group_defaults_nginx:
+  nginx:
+    enable: false
+    folder: Nginx
+    dashboards:
+      - name: Nginx 9108
+        uid: 16P-l3iGk
+        src: "../../ADDONS/grafana_dashboards/nginx_9108.json"
+      - name: Nginx Log exporter
+        uid: JfOTY2Pnk
+        src: "../../ADDONS/grafana_dashboards/nginxlog_exporter.json"
+      - name: Nginx prometheus exporter
+        uid: MsjffzSZz
+        src: "../../ADDONS/grafana_dashboards/nginx_prometheus_exporter.json"
+
+monitoring_server_grafana_dashboards_group_defaults_blackbox:
+  blackbox:
+    enable: false
+    dashboards:
+      - name: Blackbox Exporter (HTTP prober)
+        uid: NEzutrbMk
+        src: "../../ADDONS/grafana_dashboards/Blackbox Exporter (HTTP prober)-1771753132911.json"
+      - name: Blackbox Exporter (HTTP prober)
+        uid: NEzutrbMk
+        src: "../../ADDONS/grafana_dashboards/blackbox_13659_rev1.json"
+
+monitoring_server_grafana_dashboards_group_defaults_php_fpm:
+  php_fpm:
+    enable: false
+    dashboards:
+      - name: php-fpm
+        uid: LpT35aB7z
+        src: "../../ADDONS/grafana_dashboards/php_fpm_exporter.json"
+
+monitoring_server_grafana_dashboards_group_defaults_prom_client:
+  prom_client:
+    enable: false
+    dashboards:
+      - name: prom-client
+        uid: 0623c745-0ac3-479b-9e4b-5e7b8facbaf4
+        src: "../../ADDONS/grafana_dashboards/nodejs_application.json"
+
+monitoring_server_grafana_dashboards_group_defaults_freeipa:
+  freeipa:
+    enable: false
+    dashboards:
+      - name: FreeIPA Exporter
+        uid: freeipa-exporter-dashboard
+        src: "../../ADDONS/grafana_dashboards/freeipa_exporter.json"
+
+monitoring_server_grafana_dashboards_group_defaults_redis:
+  redis:
+    enable: false
+    dashboards:
+      - name: Redis Exporter
+        uid: redis-exporter-dashboard
+        src: "../../ADDONS/grafana_dashboards/redis_exporter.json"
+
+# -- end grafana block ----
+
+monitoring_server_local_storage_s3_enabled: false
+
+monitoring_server_local_storage_s3:
+  access_key: local_storage_s3
+  secret_key: supersecret_local_storage_s3
+
+monitoring_server_local_storage_s3_volume_device: false
+
+monitoring_server_local_storage_s3_image_registry: docker.io
+monitoring_server_local_storage_s3_image_name: minio/minio
+monitoring_server_local_storage_s3_image_version: RELEASE.2025-09-07T16-13-09Z
+monitoring_server_local_storage_s3_image: >-
+  {{ monitoring_server_local_storage_s3_image_registry }}/{{ monitoring_server_local_storage_s3_image_name }}:{{ monitoring_server_local_storage_s3_image_version }}
+
+monitoring_server_grafana_loki_enabled: false
+
+monitoring_server_grafana_loki_image_registry: docker.io
+monitoring_server_grafana_loki_image_name: grafana/loki
+monitoring_server_grafana_loki_image_version: 3.6.4
+monitoring_server_grafana_loki_image: >-
+  {{ monitoring_server_grafana_loki_image_registry }}/{{ monitoring_server_grafana_loki_image_name }}:{{ monitoring_server_grafana_loki_image_version }}
+
+monitoring_server_grafana_loki_common_storage_s3:
+  endpoint: s3:9000
+  insecure: true
+  bucketnames: loki-data
+  access_key_id: "{{ monitoring_server_local_storage_s3.access_key }}"
+  secret_access_key: "{{ monitoring_server_local_storage_s3.secret_key }}"
+  s3forcepathstyle: true
+
+monitoring_server_grafana_loki_gateway_image_registry: docker.io
+monitoring_server_grafana_loki_gateway_image_name: library/nginx
+monitoring_server_grafana_loki_gateway_image_version: 1.29.4
+monitoring_server_grafana_loki_gateway_image: >-
+  {{ monitoring_server_grafana_loki_gateway_image_registry }}/{{ monitoring_server_grafana_loki_gateway_image_name }}:{{ monitoring_server_grafana_loki_gateway_image_version }}

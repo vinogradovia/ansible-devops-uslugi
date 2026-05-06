@@ -1,0 +1,67 @@
+---
+
+# TODO: Clean disabled Dashboards
+# TODO: Custom dashboards from inventory vars ?
+
+- name: Block for monitoring_server_orchestrator docker
+  when: monitoring_server_orchestrator == 'docker'
+  block:
+    - name: Provisioning GrafanaDashboard {{ monitoring_server_grafana_dashboard_item.name }}
+      ansible.builtin.copy:
+        src: "{{ role_path + '/' + monitoring_server_grafana_dashboard_item.src }}"
+        dest: "{{ monitoring_server_config_dir }}/grafana/provisioning/dashboards/{{ monitoring_server_grafana_dashboard_item.src | basename }}"
+        mode: "0644"
+        owner: root
+        group: root
+
+# TODO: Check grafana-operator (crd) exists
+
+- name: Include tasks for monitoring_server_orchestrator k3s
+  when: monitoring_server_orchestrator == 'k3s'
+  delegate_to: localhost
+  delegate_facts: true
+  become: false
+  run_once: true
+  block:
+    # - name: Debug monitoring_server_grafana_dashboard_item
+    #   ansible.builtin.debug:
+    #     var: monitoring_server_grafana_dashboard_item
+
+    - name: Deploy ConfigMap grafana-dashboard-definition for {{ monitoring_server_grafana_dashboard_item.name }}
+      kubernetes.core.k8s:
+        # state: "{{ 'present' if monitoring_server_grafana_dashboard_item.state else 'absent' }}"
+        state: present
+        namespace: "{{ monitoring_server_kubernetes_namespace }}"
+        kubeconfig: "{{ monitoring_server_orchestrator_context.dest }}"
+        definition:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: "grafana-dashboard-definition-{{ monitoring_server_grafana_dashboards_group_item.key | lower | replace('_', '-') }}-{{ monitoring_server_grafana_dashboard_item.uid | lower }}"  #  yamllint disable-line rule:line-length
+          data:
+            json: "{{ lookup('file', role_path + '/' + monitoring_server_grafana_dashboard_item.src) | string }}"
+
+    - name: Deploy GrafanaDashboard {{ monitoring_server_grafana_dashboard_item.name }}
+      kubernetes.core.k8s:
+        # state: "{{ 'present' if monitoring_server_grafana_dashboard_item.state else 'absent' }}"
+        state: present
+        namespace: "{{ monitoring_server_kubernetes_namespace }}"
+        kubeconfig: "{{ monitoring_server_orchestrator_context.dest }}"
+        definition:
+          apiVersion: grafana.integreatly.org/v1beta1
+          kind: GrafanaDashboard
+          metadata:
+            name: "{{ monitoring_server_grafana_dashboards_group_item.key | lower | replace('_', '-') }}-{{ monitoring_server_grafana_dashboard_item.uid | lower }}"
+          spec:
+            folderRef: "{{ monitoring_server_grafana_dashboards_group_item.value.folder | default(monitoring_server_grafana_dashboard_default_folder) | lower }}"
+            datasources:
+              - datasourceName: VictoriaMetrics
+                inputName: DS_PROMETHEUS
+              - datasourceName: VictoriaMetrics
+                inputName: DS_VICTORIAMETRICS
+            instanceSelector:
+              matchLabels:
+                dashboards: "grafana"
+            configMapRef:
+              name: "grafana-dashboard-definition-{{ monitoring_server_grafana_dashboards_group_item.key | lower | replace('_', '-') }}-{{ monitoring_server_grafana_dashboard_item.uid | lower }}"  #  yamllint disable-line rule:line-length
+              key: json

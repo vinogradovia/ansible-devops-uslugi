@@ -1,0 +1,10 @@
+---
+# SPDX-License-Identifier: MIT-0
+galaxy_info:
+  author: Ivan Vinogradov <vinogradovia@gmail.com>
+  description: configure traefik in docker
+  license: WTFPL
+  min_ansible_version: "2.2"
+  galaxy_tags:
+    - traefik
+dependencies: []

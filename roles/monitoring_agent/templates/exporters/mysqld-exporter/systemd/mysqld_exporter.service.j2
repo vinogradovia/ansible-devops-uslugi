@@ -1,0 +1,13 @@
+[Unit]
+Description=Mysqld Exporter
+
+[Service]
+User={{ monitoring_agent_mysqld_exporter_systemd_name }}
+# Fallback when environment file does not exist
+# Environment=OPTIONS=
+# EnvironmentFile=-{{ monitoring_agent_systemd_sysconfig_dir }}/{{ monitoring_agent_mysqld_exporter_systemd_name }}
+Environment=MY_CONFIG_CHECKSUM={{ monitoring_agent_mysqld_exporter_my_cnf_stat.checksum }}
+ExecStart={{ monitoring_agent_mysqld_exporter_binary_install_path }} --config.my-cnf {{ monitoring_agent_config_dir }}/.mysqld_exporter_my.cnf --web.listen-address :{{ monitoring_agent_mysqld_exporter_port }}
+
+[Install]
+WantedBy=multi-user.target

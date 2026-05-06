@@ -1,0 +1,107 @@
+---
+- name: Debug
+  ansible.builtin.debug:
+    msg: "k3s"
+
+# create monitoring_server_helmwave_tmp
+
+# fetch context TODO:auth
+- name: Fetch k3s context
+  changed_when: false
+  check_mode: false
+  ansible.builtin.fetch:
+    src: /etc/rancher/k3s/k3s.yaml
+    dest: "{{ monitoring_server_helmwave_tmp }}"
+  register: monitoring_server_orchestrator_context
+  tags:
+    - helmwave
+    - monitoring_server_victoria_metrics_exporter_alerts
+
+- name: Show monitoring_server_orchestrator_context.dest
+  ansible.builtin.debug:
+    var: monitoring_server_orchestrator_context.dest
+  tags:
+    - helmwave
+    - monitoring_server_victoria_metrics_exporter_alerts
+
+- name: Upgrade k3s context
+  when: "'dest' in monitoring_server_orchestrator_context"
+  become: false
+  changed_when: false
+  check_mode: false
+  delegate_facts: true
+  delegate_to: localhost
+  diff: false
+  run_once: true
+  ansible.builtin.lineinfile:
+    dest: "{{ monitoring_server_orchestrator_context.dest }}"
+    regexp: '    server: https://127.0.0.1:6443'
+    line: '    server: https://{{ ansible_facts["default_ipv4"]["address"] }}:6443'
+    # line: '    server: https://10.20.230.15:6443'
+  tags:
+    - helmwave
+    - monitoring_server_victoria_metrics_exporter_alerts
+
+- name: Render k3s/local-path-provisioner.yml
+  ansible.builtin.template:
+    src: k3s/local-path-provisioner.yml.j2
+    dest: "/var/lib/rancher/k3s/server/manifests/custom-local-storage.yaml"
+    owner: root
+    group: root
+    mode: '0644'
+    # validate: yq .
+
+# Move to ?? deploy k8s ?
+- name: Create a k8s namespace
+  delegate_to: localhost
+  delegate_facts: true
+  become: false
+  run_once: true
+  kubernetes.core.k8s:
+    name: "{{ monitoring_server_kubernetes_namespace }}"
+    api_version: v1
+    kind: Namespace
+    state: present
+    kubeconfig: "{{ monitoring_server_orchestrator_context.dest }}"
+
+- name: Create Secret grafana-credentials
+  delegate_to: localhost
+  delegate_facts: true
+  become: false
+  run_once: true
+  kubernetes.core.k8s:
+    kubeconfig: "{{ monitoring_server_orchestrator_context.dest }}"
+    name: grafana-admin-credentials-custom
+    namespace: "{{ monitoring_server_kubernetes_namespace }}"
+    state: present
+    kind: Secret
+    definition:
+      apiVersion: v1
+      metadata:
+        labels:
+          app.kubernetes.io/managed-by: ansible
+          ansible.com/role: "{{ role_name }}"
+      stringData:
+        GF_SECURITY_ADMIN_PASSWORD: "{{ monitoring_server_grafana_security_admin_password }}"
+        GF_SECURITY_ADMIN_USER: "{{ monitoring_server_grafana_security_admin_user }}"
+      type: Opaque
+
+# - name: Helmwave up
+#   delegate_to: localhost
+#   delegate_facts: true
+#   become: false
+#   run_once: true
+#   ansible.builtin.command:
+#     chdir: "{{ monitoring_server_helmwave_dir }}"
+#     argv:
+#       - helmwave up --build --yml
+#   tags:
+#     helmwave
+
+# restat k3s after changed config/manifests
+# create config-map for exporters
+# reload vmaget? after update exporter configmap
+# helmwave build
+# helmwave build
+# helmwave up
+# install python kubernetes

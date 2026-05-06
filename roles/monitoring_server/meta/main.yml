@@ -1,0 +1,22 @@
+---
+galaxy_info:
+  author: Ivan Vinogradov <vinogradovia@gmail.com>
+  description: configure monitoring stack
+  license: WTFPL
+  min_ansible_version: "2.2"
+  galaxy_tags:
+    - monitoring
+dependencies:
+  - role: xanmanning.k3s
+    when: monitoring_server_orchestrator == 'k3s'
+    tags:
+      - init
+      - never
+    vars:
+      k3s_state: installed
+      k3s_release_version: v1.35.1+k3s1
+      k3s_build_cluster: false
+      k3s_become: true
+      k3s_server:
+        disable:
+          - local-storage

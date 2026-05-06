@@ -1,0 +1,27 @@
+listen {
+  port = {{ monitoring_agent_nginxlog_exporter_port }}
+  address = "0.0.0.0"
+}
+
+{% for ns in monitoring_agent_nginxlog_exporter_namespaces %}
+{% set ns_parser = ns.parser | default(monitoring_agent_nginxlog_exporter_parser) | default('') %}
+namespace "{{ ns.name }}" {
+{% if ns_parser %}
+  parser = "{{ ns_parser }}"
+{% else %}
+  format = "{{ (ns.format | default(monitoring_agent_nginxlog_exporter_format)) | replace('"', '\\"') }}"
+{% endif %}
+
+  source {
+    files = [
+{% for file in ns.source_files %}
+      "{{ file }}"{{ "," if not loop.last else "" }}
+{% endfor %}
+    ]
+  }
+
+  metrics_override = { prefix = "{{ monitoring_agent_nginxlog_exporter_metrics_prefix }}" }
+  namespace_label = "vhost"
+}
+
+{% endfor %}

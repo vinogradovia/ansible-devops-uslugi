@@ -1,0 +1,13 @@
+[Unit]
+Description=PHP-FPM Prometheus Exporter
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User={{ monitoring_agent_php_fpm_exporter_systemd_name }}
+ExecStart={{ monitoring_agent_php_fpm_exporter_binary_install_path }} server --phpfpm.scrape-uri={{ monitoring_agent_php_fpm_exporter_scrape_uri }} --web.listen-address=:{{ monitoring_agent_php_fpm_exporter_port }}
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

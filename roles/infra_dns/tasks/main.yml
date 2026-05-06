@@ -1,0 +1,84 @@
+---
+- name: Install and configure bind9
+  when: infra_dns_enabled
+  block:
+    - name: Install bind9 packages
+      ansible.builtin.apt:
+        name: "{{ infra_dns_packages }}"
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+      tags:
+        - install
+
+    - name: Ensure bind9 zone directory exists
+      ansible.builtin.file:
+        path: "{{ infra_dns_zone_dir }}"
+        state: directory
+        owner: bind
+        group: bind
+        mode: "0750"
+      tags:
+        - install
+
+    - name: Deploy bind9 named.conf.options
+      ansible.builtin.template:
+        src: named.conf.options.j2
+        dest: /etc/bind/named.conf.options
+        owner: root
+        group: bind
+        mode: "0640"
+        validate: "named-checkconf %s"
+      notify:
+        - Restart bind9
+      tags:
+        - config
+
+    - name: Deploy bind9 named.conf.local
+      ansible.builtin.template:
+        src: named.conf.local.j2
+        dest: /etc/bind/named.conf.local
+        owner: root
+        group: bind
+        mode: "0640"
+      notify:
+        - Restart bind9
+      tags:
+        - config
+
+    - name: Deploy zones
+      ansible.builtin.include_tasks:
+        file: deploy_zone.yml
+      loop: "{{ infra_dns_zones }}"
+      loop_control:
+        loop_var: zone
+        label: "{{ zone.name }}"
+      tags:
+        - deploy
+        - validate
+
+    - name: Ensure bind9 is enabled and started
+      ansible.builtin.systemd:
+        name: named
+        state: started
+        enabled: true
+      tags:
+        - install
+
+- name: Uninstall bind9
+  when: not infra_dns_enabled
+  block:
+    - name: Stop and disable bind9
+      ansible.builtin.systemd:
+        name: named
+        state: stopped
+        enabled: false
+      tags:
+        - install
+
+    - name: Remove bind9 packages
+      ansible.builtin.apt:
+        name: "{{ infra_dns_packages }}"
+        state: absent
+      tags:
+        - install

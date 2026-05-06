@@ -1,0 +1,17 @@
+[Unit]
+Description=Redis Exporter
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User={{ monitoring_agent_redis_exporter_systemd_name }}
+Environment=REDIS_ADDR={{ monitoring_agent_redis_exporter_addr }}
+{% if monitoring_agent_redis_exporter_password != "" %}
+Environment=REDIS_PASSWORD={{ monitoring_agent_redis_exporter_password }}
+{% endif %}
+ExecStart={{ monitoring_agent_redis_exporter_binary_install_path }} --web.listen-address=:{{ monitoring_agent_redis_exporter_port }}
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

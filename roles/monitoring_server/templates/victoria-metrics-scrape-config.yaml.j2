@@ -1,0 +1,55 @@
+scrape_configs:
+{% if monitoring_server_victoria_metrics_scrape_node_exporter %}
+  - job_name: node-exporter
+    file_sd_configs:
+      - files:
+          - node_exporter_targets.json
+{% endif %}
+{% if monitoring_server_victoria_metrics_scrape_docker_exporter %}
+  - job_name: docker-exporter
+    file_sd_configs:
+      - files:
+          - docker_exporter_targets.json
+{% endif %}
+{% if monitoring_server_victoria_metrics_scrape_cadvisor %}
+  - job_name: cadvisor
+    file_sd_configs:
+      - files:
+          - cadvisor_targets.json
+{% endif %}
+{% if monitoring_server_victoria_metrics_scrape_ipa_exporter %}
+  - job_name: ipa-exporter
+    file_sd_configs:
+      - files:
+          - ipa_exporter_targets.json
+{% endif %}
+{% if monitoring_server_victoria_metrics_scrape_redis_exporter %}
+  - job_name: redis-exporter
+    file_sd_configs:
+      - files:
+          - redis_exporter_targets.json
+{% endif %}
+{% if monitoring_server_victoria_metrics_scrape_nginx_exporter %}
+  - job_name: nginx-exporter
+    file_sd_configs:
+      - files:
+          - nginx_exporter_targets.json
+{% endif %}
+{% if monitoring_server_victoria_metrics_scrape_php_fpm_exporter %}
+  - job_name: php-fpm-exporter
+    file_sd_configs:
+      - files:
+          - php_fpm_exporter_targets.json
+{% endif %}
+{% if monitoring_server_victoria_metrics_scrape_nginxlog_exporter %}
+  - job_name: nginxlog-exporter
+    file_sd_configs:
+      - files:
+          - nginxlog_exporter_targets.json
+{% endif %}
+{% if monitoring_server_victoria_metrics_scrape_prom_client %}
+  - job_name: prom-client
+    file_sd_configs:
+      - files:
+          - prom_client_targets.json
+{% endif %}

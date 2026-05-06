@@ -1,0 +1,68 @@
+---
+# tasks file for monitoring-server
+
+- name: Run checks for monitoring_server_orchestrator docker
+  ansible.builtin.include_tasks:
+    file: check-and-install-requirements.docker.yml
+
+- name: Run checks for monitoring_server_orchestrator k3s
+  when: monitoring_server_orchestrator == 'k3s'
+  ansible.builtin.include_tasks:
+    file: check-and-install-requirements.k3s.yml
+
+- name: Include tasks for monitoring_server_orchestrator docker
+  when: monitoring_server_orchestrator == 'docker'
+  ansible.builtin.include_tasks:
+    file: monitoring-server.docker.yml
+
+- name: Include tasks for monitoring_server_orchestrator k3s
+  when: monitoring_server_orchestrator == 'k3s'
+  ansible.builtin.include_tasks:
+    file: monitoring-server.k3s.yml
+  tags:
+    - helmwave
+    - k3s
+    - monitoring_server_victoria_metrics_exporter_alerts
+
+- name: Provisioning victoria-metrics exporters scrape_config/targets
+  ansible.builtin.include_tasks: victoria-metrics-provisioning-exporter-targets.yaml
+  loop_control:
+    loop_var: monitoring_server_victoria_metrics_exporters_target_item
+  with_items: "{{ monitoring_server_victoria_metrics_exporters }}"
+
+- name: Provisioning victoria-metrics alerts
+  ansible.builtin.include_tasks: victoria-metrics-provisioning-alerts.yaml
+  loop_control:
+    loop_var: monitoring_server_victoria_metrics_alerts_rules__state
+  loop:
+    - present
+    - absent
+  # with_items: "{{ monitoring_server_victoria_metrics_exporters }}"
+  tags:
+    - monitoring_server_victoria_metrics_exporter
+    - monitoring_server_victoria_metrics_exporter_alerts
+
+- name: GrafanaDashboards
+  when: monitoring_server_grafana_dashboard_provisioning
+  block:
+    - name: Get data from monitoring_server_grafana_dashboards_group_
+      ansible.builtin.set_fact:
+        monitoring_server_grafana_dashboards_groups_default: "{{ lookup('community.general.merge_variables', 'monitoring_server_grafana_dashboards_group_default', pattern_type='prefix') }}"
+        monitoring_server_grafana_dashboards_groups_install: "{{ lookup('community.general.merge_variables', 'monitoring_server_grafana_dashboards_group_install', pattern_type='prefix') }}"
+    - name: Merge data from monitoring_server_grafana_dashboards_groups_
+      ansible.builtin.set_fact:
+        monitoring_server_grafana_dashboards_groups: "{{ monitoring_server_grafana_dashboards_groups_default | ansible.builtin.combine(monitoring_server_grafana_dashboards_groups_install, recursive=true) }}"
+    # - name: Debug
+    #   ansible.builtin.debug:
+    #     msg:
+    #       - "{{ monitoring_server_grafana_dashboards_groups_default }}"
+    #       - "{{ monitoring_server_grafana_dashboards_groups_install }}"
+    #       - "{{ monitoring_server_grafana_dashboards_groups }}"
+    - name: Render GrafanaDashboards Group
+      loop_control:
+        label: "group: {{ monitoring_server_grafana_dashboards_group_item.key }}"
+        loop_var: monitoring_server_grafana_dashboards_group_item
+      with_dict:
+        - "{{ monitoring_server_grafana_dashboards_groups }}"
+      ansible.builtin.include_tasks:
+        file: grafana-provisioning-dashboards_group.yaml

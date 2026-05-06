@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: MIT-0
+---
+namespace: devops
+name: uslugi
+version: 1.0.0
+readme: README.md
+authors:
+  - Ivan Vinogradov <vinogradovia@gmail.com>
+description: Collection for DevOps services
+license:
+  - GPL-2.0-or-later
+license_file: ''
+tags:
+  - monitoring
+
+dependencies:
+  community.general: ">=12.2.0"
+  community.docker: ">=5.0.0"
+  kubernetes.core: ">=6.2.0"
+  # xanmanning.k3s: ">=v3.6.2"
+
+repository: https://github.com/vinogradovia/devops-uslugi
+documentation: https://github.com/vinogradovia/devops-uslugi
+homepage: https://github.com/vinogradovia/devops-uslugi
+issues: https://github.com/vinogradovia/devops-uslugi/issues
+build_ignore: []

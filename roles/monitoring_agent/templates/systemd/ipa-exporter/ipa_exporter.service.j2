@@ -1,0 +1,18 @@
+[Unit]
+Description=FreeIPA Exporter
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User={{ monitoring_agent_ipa_exporter_systemd_name }}
+Environment=FREEIPA_HOSTS={{ monitoring_agent_ipa_exporter_hosts }}
+Environment=FREEIPA_DOMAIN={{ monitoring_agent_ipa_exporter_domain }}
+Environment=FREEIPA_BIND_DN={{ monitoring_agent_ipa_exporter_user }}
+Environment=FREEIPA_BIND_PW={{ monitoring_agent_ipa_exporter_password }}
+Environment=EXPORTER_PORT={{ monitoring_agent_ipa_exporter_port }}
+ExecStart={{ monitoring_agent_ipa_exporter_binary_install_path }}
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

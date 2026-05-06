@@ -1,0 +1,77 @@
+---
+
+- name: Check if pve-exporter user exit
+  ansible.builtin.user:
+    name: "{{ monitoring_agent_pve_exporter_systemd_name }}"
+  check_mode: true
+  changed_when: false
+  register: monitoring_agent_pve_exporter_user_status
+
+- name: Add the user for pve-exporter
+  ansible.builtin.user:
+    name: "{{ monitoring_agent_pve_exporter_systemd_name }}"
+    create_home: false
+    shell: /bin/false
+    state: "{{ 'present' if monitoring_agent_pve_exporter_enabled or monitoring_agent_pve_exporter_user_status.state | default('') == 'present' else 'absent' }}"
+
+- name: Install pve-exporter
+  when: monitoring_agent_pve_exporter_enabled
+  notify:
+    - Reload systemd daemon
+    - Restart service {{ monitoring_agent_pve_exporter_systemd_name }}
+  block:
+    - name: Install with pip
+      ansible.builtin.pip:
+        name: prometheus-pve-exporter
+        virtualenv: "{{ monitoring_agent_pve_exporter_config_dir }}/.venv"
+        # On Debian-based systems the correct python*-venv package must be installed to use the `venv` module.
+        virtualenv_command: "python3 -m venv"
+
+- name: Configure service pve-exporter
+  notify:
+    - Reload systemd daemon
+    - Restart service {{ monitoring_agent_pve_exporter_systemd_name }}
+  when: monitoring_agent_pve_exporter_enabled
+  block:
+    - name: Render pve-exporter systemd service
+      ansible.builtin.template:
+        src: "exporters/pve-exporter/systemd/{{ monitoring_agent_pve_exporter_systemd_fullname }}.j2"
+        dest: "{{ monitoring_agent_systemd_unit_dir }}/{{ monitoring_agent_pve_exporter_systemd_fullname }}"
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Force all notified handlers to run at this point, not waiting for normal sync points
+      ansible.builtin.meta: flush_handlers
+
+- name: State service pve-exporter
+  when: monitoring_agent_pve_exporter_enabled or ansible_facts['services'][monitoring_agent_pve_exporter_systemd_fullname]['status'] | default('not-found') != 'not-found'
+  ansible.builtin.systemd:
+    name: "{{ monitoring_agent_pve_exporter_systemd_name }}"
+    enabled: "{{ monitoring_agent_pve_exporter_enabled }}"
+    state: "{{ 'started' if monitoring_agent_pve_exporter_enabled else 'stopped' }}"
+
+- name: Remove service pve-exporter
+  notify:
+    - Reload systemd daemon
+    - Reset failed state for service pve_exporter
+  when: not monitoring_agent_pve_exporter_enabled
+  block:
+    - name: Absent pve-exporter systemd service config
+      ansible.builtin.file:
+        dest: "{{ monitoring_agent_systemd_unit_dir }}/{{ monitoring_agent_pve_exporter_systemd_fullname }}"
+        # owner: root
+        # group: root
+        # mode: '0644'
+        state: absent
+
+    - name: Force all notified handlers to run at this point, not waiting for normal sync points
+      ansible.builtin.meta: flush_handlers
+
+- name: Remove the user for pve-exporter
+  when: not monitoring_agent_pve_exporter_enabled
+  ansible.builtin.user:
+    name: "{{ monitoring_agent_pve_exporter_systemd_name }}"
+    create_home: false
+    shell: /bin/false
+    state: 'absent'
