@@ -1,0 +1,45 @@
+---
+# type: custom — сертификат/ключ разворачиваются из файлов на контроллере (domain.ssl.cert_src/
+# key_src), а не из inline-переменных. Ansible прозрачно расшифровывает vault-файл в src,
+# если у него есть заголовок $ANSIBLE_VAULT (и доступен vault_password_file) — поэтому ключ
+# можно хранить как отдельный зашифрованный файл, без vault-строк в переменных.
+#
+# Несколько доменов могут ссылаться на одну и ту же пару cert_file/key_file (общий сертификат) —
+# список дедуплицируется по cert_file, чтобы не копировать один и тот же файл многократно.
+
+- name: Собрать уникальный список custom-сертификатов из nginx_domains
+  ansible.builtin.set_fact:
+    _nginx_custom_certs: >-
+      {{ nginx_domains
+         | selectattr('ssl', 'defined')
+         | selectattr('ssl.mode', 'defined')
+         | selectattr('ssl.mode', 'equalto', 'custom')
+         | selectattr('ssl.cert_src', 'defined')
+         | map(attribute='ssl')
+         | unique(attribute='cert_file')
+         | list }}
+
+- name: Разложить сертификаты (ssl.cert_src -> ssl.cert_file)
+  ansible.builtin.copy:
+    src: "{{ item.cert_src }}"
+    dest: "{{ item.cert_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ _nginx_custom_certs }}"
+  loop_control:
+    label: "{{ item.cert_file }}"
+  notify: reload nginx
+
+- name: Разложить приватные ключи (ssl.key_src -> ssl.key_file)
+  ansible.builtin.copy:
+    src: "{{ item.key_src }}"
+    dest: "{{ item.key_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+  loop: "{{ _nginx_custom_certs }}"
+  loop_control:
+    label: "{{ item.key_file }}"
+  no_log: true
+  notify: reload nginx

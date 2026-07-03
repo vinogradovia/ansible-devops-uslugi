@@ -1,0 +1,16 @@
+---
+# Стратегия — fail-fast: если "nginx -t" падает, играем всей плейбукой,
+# handler "reload nginx" ниже просто не выполнится.
+# Порядок выполнения handler'ов с одинаковым listen — по порядку в этом файле,
+# а не по порядку notify.
+
+- name: validate nginx configuration
+  ansible.builtin.command: nginx -t
+  changed_when: false
+  listen: reload nginx
+
+- name: reload nginx
+  ansible.builtin.systemd:
+    name: "{{ nginx_service_name }}"
+    state: reloaded
+  listen: reload nginx

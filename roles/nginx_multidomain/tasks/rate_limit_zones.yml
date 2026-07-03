@@ -1,0 +1,23 @@
+---
+# limit_req_zone должен объявляться один раз в http{}-контексте на зону.
+# Домены могут переиспользовать одну и ту же zone_name (например shared_web) —
+# поэтому список дедуплицируется перед рендером.
+
+- name: Собрать уникальный список rate-limit зон из nginx_domains
+  ansible.builtin.set_fact:
+    _nginx_rate_limit_zones: >-
+      {{ nginx_domains
+         | selectattr('rate_limit', 'defined')
+         | map(attribute='rate_limit')
+         | unique(attribute='zone_name')
+         | list }}
+
+- name: Отрендерить conf.d/rate-limit-zones.conf
+  ansible.builtin.template:
+    src: rate-limit-zones.conf.j2
+    dest: "{{ nginx_confd_dir }}/rate-limit-zones.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload nginx
+  when: _nginx_rate_limit_zones | length > 0

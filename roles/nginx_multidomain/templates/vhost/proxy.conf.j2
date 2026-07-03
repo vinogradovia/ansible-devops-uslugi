@@ -1,0 +1,168 @@
+# {{ ansible_managed }}
+# ============================================================================
+# {{ domain.name }} — type: proxy
+# Управляется ролью nginx_multidomain — не редактировать вручную.
+# ============================================================================
+
+{% set server_names = [domain.name] + (domain.aliases | default([])) %}
+{% set ssl_enabled = (domain.ssl is defined) and (domain.ssl.enabled | default(false)) %}
+{% set redirect_https = ssl_enabled and (domain.ssl.redirect_https | default(false)) %}
+{% set hsts_enabled = ssl_enabled and (domain.ssl.hsts | default(false)) %}
+{% set log_formats = domain.logs.format | default(nginx_default_log_formats) if domain.logs is defined else nginx_default_log_formats %}
+{% set override_paths = (domain.custom_locations | default([]))
+     | selectattr('override', 'defined') | selectattr('override') | map(attribute='path') | list %}
+{% set listen_address = (domain.listen_address ~ ':') if domain.listen_address is defined else '' %}
+{% set has_pool = domain.upstream is defined and domain.upstream.servers is defined %}
+{% set http_enabled = (domain.ssl.http_enabled | default(true)) if ssl_enabled else true %}
+
+{% macro upstream_block(name, up) %}
+upstream {{ name }} {
+{% if up.load_balancing is defined %}
+    {{ up.load_balancing }};
+{% endif %}
+{% for srv in up.servers %}
+    server {{ srv.address }}{% if srv.weight is defined %} weight={{ srv.weight }}{% endif %}{% if srv.max_fails is defined %} max_fails={{ srv.max_fails }}{% endif %}{% if srv.fail_timeout is defined %} fail_timeout={{ srv.fail_timeout }}{% endif %}{% if srv.backup | default(false) %} backup{% endif %};
+{% endfor %}
+{% if up.keepalive is defined %}
+    keepalive {{ up.keepalive }};
+{% endif %}
+}
+{% endmacro %}
+{% if has_pool %}
+# --- upstream-пул для {{ domain.name }} -------------------------------------
+{{ upstream_block(domain.upstream.name, domain.upstream) }}
+{% endif %}
+{% for extra_up in (domain.extra_upstreams | default([])) %}
+# --- доп. upstream {{ extra_up.name }} (используется из custom_locations) ---
+{{ upstream_block(extra_up.name, extra_up) }}
+{% endfor %}
+
+{% if redirect_https %}
+# --- HTTP: только редирект на HTTPS + ACME-challenge ------------------------
+server {
+    listen {{ listen_address }}80;
+{% if domain.listen_address is not defined %}
+    listen [::]:80;
+{% endif %}
+    server_name {{ server_names | join(' ') }};
+
+    location /.well-known/acme-challenge/ {
+        root {{ nginx_certbot_webroot_path }};
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+{% endif %}
+
+server {
+{% if ssl_enabled %}
+    listen {{ listen_address }}443 ssl;
+{% if domain.listen_address is not defined %}
+    listen [::]:443 ssl;
+{% endif %}
+{% if not redirect_https and http_enabled %}
+    listen {{ listen_address }}80;
+{% if domain.listen_address is not defined %}
+    listen [::]:80;
+{% endif %}
+{% endif %}
+{% if domain.http2 | default(false) %}
+    http2 on;
+{% endif %}
+{% else %}
+    listen {{ listen_address }}80;
+{% if domain.listen_address is not defined %}
+    listen [::]:80;
+{% endif %}
+{% endif %}
+
+    server_name {{ server_names | join(' ') }};
+
+{% if domain.root is defined %}
+    root {{ domain.root }};
+    index {{ (domain.index_files | default(nginx_default_index_files)) | join(' ') }};
+{% endif %}
+
+{% if domain.client_max_body_size is defined %}
+    client_max_body_size {{ domain.client_max_body_size }};
+{% endif %}
+{% if domain.proxy_cache is defined %}
+    # NB: зона проксирующего кэша ({{ domain.proxy_cache }}) должна быть объявлена директивой
+    # proxy_cache_path — либо через nginx_proxy_cache_zones, либо вручную вне этой роли.
+    proxy_cache {{ domain.proxy_cache }};
+{% endif %}
+{% if domain.extra_server_directives is defined %}
+    # --- произвольные server-level директивы (domain.extra_server_directives) ---
+{{ domain.extra_server_directives | indent(4, first=true) }}
+{% endif %}
+
+{% if ssl_enabled %}
+    ssl_certificate     {{ ssl_cert }};
+    ssl_certificate_key {{ ssl_key }};
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+{% if not redirect_https %}
+    location /.well-known/acme-challenge/ {
+        root {{ nginx_certbot_webroot_path }};
+    }
+{% endif %}
+{% if hsts_enabled %}
+
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+{% endif %}
+{% endif %}
+
+{% for fmt in log_formats %}
+{% if fmt == 'plain' %}
+    access_log {{ domain.logs.access_log_path | default(nginx_log_dir ~ '/access_' ~ domain.name ~ '.log') if domain.logs is defined else nginx_log_dir ~ '/access_' ~ domain.name ~ '.log' }};
+    error_log  {{ domain.logs.error_log_path | default(nginx_log_dir ~ '/error_' ~ domain.name ~ '.log') if domain.logs is defined else nginx_log_dir ~ '/error_' ~ domain.name ~ '.log' }} error;
+{% elif fmt == 'json' %}
+    # NB: требует log_format nginx_json в http{} — добавляется в следующем срезе (nginx.conf.j2)
+    access_log {{ nginx_log_dir }}/access_{{ domain.name }}.json nginx_json;
+    error_log  {{ nginx_log_dir }}/error_{{ domain.name }}.json;
+{% endif %}
+{% endfor %}
+{% set extra_access_logs = domain.logs.extra_access_log | default([]) if domain.logs is defined else [] %}
+{% for extra in extra_access_logs %}
+    access_log {{ extra.path }}{% if extra.format is defined %} {{ extra.format }}{% endif %};
+{% endfor %}
+
+{% if domain.basic_auth is defined and (domain.basic_auth.enabled | default(false)) %}
+    # NB: файл htpasswd генерируется отдельной задачей (следующий срез)
+    auth_basic "Restricted";
+    auth_basic_user_file {{ nginx_htpasswd_dir }}/{{ domain.name }};
+{% endif %}
+
+{% if '/' not in override_paths %}
+    location / {
+{% if has_pool and domain.upstream.keepalive is defined %}
+        proxy_http_version 1.1;
+{% endif %}
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+{% if domain.proxy_redirect is defined %}
+        proxy_redirect {{ domain.proxy_redirect.from }} {{ domain.proxy_redirect.to }};
+{% endif %}
+{% if has_pool %}
+        proxy_pass http://{{ domain.upstream.name }};
+{% else %}
+        proxy_pass {{ domain.proxy_pass }};
+{% endif %}
+{% if domain.rate_limit is defined %}
+        limit_req zone={{ domain.rate_limit.zone_name }} burst={{ domain.rate_limit.burst | default(0) }}{% if domain.rate_limit.nodelay | default(false) %} nodelay{% endif %};
+{% endif %}
+    }
+{% endif %}
+
+{% for loc in (domain.custom_locations | default([])) %}
+    location {{ loc.path }} {
+{{ loc.config | indent(8, first=true) }}
+    }
+{% endfor %}
+}

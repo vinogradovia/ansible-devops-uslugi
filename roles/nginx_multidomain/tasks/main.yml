@@ -1,0 +1,71 @@
+---
+# ============================================================================
+# nginx_multidomain — установка nginx (package|repo) + rate-limit зоны +
+#   vhost'ы type: static, proxy
+#
+# Ещё не реализовано (см. документ по архитектуре / backlog):
+#   - validate_domains.yml (проверка дублей server_name по группе инвентаря)
+#   - certificates_letsencrypt.yml
+#   - basic_auth.yml (генерация htpasswd через community.general.htpasswd)
+#   - logrotate.yml
+#   - vhost/php_fpm.conf.j2
+#   - nginx.conf.j2 (в т.ч. log_format nginx_json для json-логов — главный nginx.conf
+#     этой ролью пока не управляется)
+# ============================================================================
+
+- name: Проверить, что nginx_domains — список
+  ansible.builtin.assert:
+    that:
+      - nginx_domains is sequence
+    fail_msg: "nginx_domains должен быть списком (list) доменов"
+    quiet: true
+
+- name: "Установка Nginx: {{ nginx_install_method }}"
+  ansible.builtin.include_tasks: install_package.yml
+  when: nginx_install_method == "package"
+
+- name: "Установка Nginx: {{ nginx_install_method }}"
+  ansible.builtin.include_tasks: install_repo.yml
+  when: nginx_install_method == "repo"
+
+- name: Создать базовые директории (sites-*, conf.d, логи)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ nginx_sites_available_dir }}"
+    - "{{ nginx_sites_enabled_dir }}"
+    - "{{ nginx_confd_dir }}"
+    - "{{ nginx_log_dir }}"
+
+- name: Собрать и разложить rate-limit зоны
+  ansible.builtin.include_tasks: rate_limit_zones.yml
+
+- name: Собрать и разложить proxy_cache зоны
+  ansible.builtin.include_tasks: proxy_cache_zones.yml
+
+- name: Разложить произвольные conf.d файлы
+  ansible.builtin.include_tasks: conf_d_files.yml
+  when: nginx_conf_d_files | length > 0
+
+- name: "Разложить custom-сертификаты (ssl.mode: custom, ssl.cert_src/key_src)"
+  ansible.builtin.include_tasks: certificates_custom.yml
+
+- name: Отрендерить stub_status
+  ansible.builtin.include_tasks: stub_status.yml
+
+- name: "Сгенерировать vhost'ы (type: static, proxy)"
+  ansible.builtin.include_tasks: vhosts.yml
+  loop: "{{ nginx_domains }}"
+  loop_control:
+    loop_var: domain
+    label: "{{ domain.name }}"
+  when:
+    - domain.enabled | default(true)
+    - domain.type in ['static', 'proxy']
+
+- name: Убедиться, что финальный reload/validate отработал в конце плея
+  ansible.builtin.meta: flush_handlers

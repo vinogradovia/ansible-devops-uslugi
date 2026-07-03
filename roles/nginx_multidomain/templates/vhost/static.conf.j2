@@ -1,0 +1,108 @@
+# {{ ansible_managed }}
+# ============================================================================
+# {{ domain.name }} — type: static
+# Управляется ролью nginx_multidomain — не редактировать вручную.
+# ============================================================================
+
+{% set server_names = [domain.name] + (domain.aliases | default([])) %}
+{% set ssl_enabled = (domain.ssl is defined) and (domain.ssl.enabled | default(false)) %}
+{% set redirect_https = ssl_enabled and (domain.ssl.redirect_https | default(false)) %}
+{% set hsts_enabled = ssl_enabled and (domain.ssl.hsts | default(false)) %}
+{% set log_formats = domain.logs.format | default(nginx_default_log_formats) if domain.logs is defined else nginx_default_log_formats %}
+{% set override_paths = (domain.custom_locations | default([]))
+     | selectattr('override', 'defined') | selectattr('override') | map(attribute='path') | list %}
+{% set http_enabled = (domain.ssl.http_enabled | default(true)) if ssl_enabled else true %}
+
+{% if redirect_https %}
+# --- HTTP: только редирект на HTTPS + ACME-challenge ------------------------
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{ server_names | join(' ') }};
+
+    location /.well-known/acme-challenge/ {
+        root {{ nginx_certbot_webroot_path }};
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+{% endif %}
+
+server {
+{% if ssl_enabled %}
+    listen 443 ssl;
+    listen [::]:443 ssl;
+{% if not redirect_https and http_enabled %}
+    listen 80;
+    listen [::]:80;
+{% endif %}
+{% else %}
+    listen 80;
+    listen [::]:80;
+{% endif %}
+
+    server_name {{ server_names | join(' ') }};
+
+    root {{ domain.root }};
+    index {{ (domain.index_files | default(nginx_default_index_files)) | join(' ') }};
+
+{% if domain.extra_server_directives is defined %}
+    # --- произвольные server-level директивы (domain.extra_server_directives) ---
+{{ domain.extra_server_directives | indent(4, first=true) }}
+{% endif %}
+
+{% if ssl_enabled %}
+    ssl_certificate     {{ ssl_cert }};
+    ssl_certificate_key {{ ssl_key }};
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+{% if not redirect_https %}
+    location /.well-known/acme-challenge/ {
+        root {{ nginx_certbot_webroot_path }};
+    }
+{% endif %}
+{% if hsts_enabled %}
+
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+{% endif %}
+{% endif %}
+
+{% for fmt in log_formats %}
+{% if fmt == 'plain' %}
+    access_log {{ domain.logs.access_log_path | default(nginx_log_dir ~ '/access_' ~ domain.name ~ '.log') if domain.logs is defined else nginx_log_dir ~ '/access_' ~ domain.name ~ '.log' }};
+    error_log  {{ domain.logs.error_log_path | default(nginx_log_dir ~ '/error_' ~ domain.name ~ '.log') if domain.logs is defined else nginx_log_dir ~ '/error_' ~ domain.name ~ '.log' }};
+{% elif fmt == 'json' %}
+    # NB: требует log_format nginx_json в http{} — добавляется в следующем срезе (nginx.conf.j2)
+    access_log {{ nginx_log_dir }}/access_{{ domain.name }}.json nginx_json;
+    error_log  {{ nginx_log_dir }}/error_{{ domain.name }}.json;
+{% endif %}
+{% endfor %}
+{% set extra_access_logs = domain.logs.extra_access_log | default([]) if domain.logs is defined else [] %}
+{% for extra in extra_access_logs %}
+    access_log {{ extra.path }}{% if extra.format is defined %} {{ extra.format }}{% endif %};
+{% endfor %}
+
+{% if domain.basic_auth is defined and (domain.basic_auth.enabled | default(false)) %}
+    # NB: файл htpasswd генерируется отдельной задачей (следующий срез)
+    auth_basic "Restricted";
+    auth_basic_user_file {{ nginx_htpasswd_dir }}/{{ domain.name }};
+{% endif %}
+
+{% if '/' not in override_paths %}
+    location / {
+        try_files $uri $uri/ =404;
+{% if domain.rate_limit is defined %}
+        limit_req zone={{ domain.rate_limit.zone_name }} burst={{ domain.rate_limit.burst | default(0) }}{% if domain.rate_limit.nodelay | default(false) %} nodelay{% endif %};
+{% endif %}
+    }
+{% endif %}
+
+{% for loc in (domain.custom_locations | default([])) %}
+    location {{ loc.path }} {
+{{ loc.config | indent(8, first=true) }}
+    }
+{% endfor %}
+}

@@ -1,0 +1,12 @@
+# {{ ansible_managed }}
+# Управляется ролью nginx_multidomain — не редактировать вручную.
+# Домены ссылаются на зону по имени через domain.proxy_cache.
+
+{% for zone in nginx_proxy_cache_zones %}
+proxy_cache_path {{ zone.path }}
+  levels={{ zone.levels | default('1:2') }}
+  keys_zone={{ zone.name }}:{{ zone.keys_zone_size | default('10m') }}
+  max_size={{ zone.max_size | default('1g') }}
+  inactive={{ zone.inactive | default('10m') }}
+  use_temp_path={{ zone.use_temp_path | default('off') }};
+{% endfor %}

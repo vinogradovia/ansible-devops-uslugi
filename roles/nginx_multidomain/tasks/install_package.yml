@@ -1,0 +1,7 @@
+---
+- name: "[package] Установить nginx из репозитория дистрибутива"
+  ansible.builtin.apt:
+    name: nginx
+    state: present
+    update_cache: true
+  register: nginx_install_result
