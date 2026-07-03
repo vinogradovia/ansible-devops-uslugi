@@ -1,0 +1,54 @@
+---
+# Выполняется в цикле из main.yml с loop_var: domain.
+# Поддержаны domain.type in ['static', 'proxy'] (см. условие в main.yml).
+
+- name: "[{{ domain.name }}] Проверить обязательные поля для type: proxy"
+  ansible.builtin.assert:
+    that:
+      - domain.proxy_pass is defined or (domain.upstream is defined and domain.upstream.servers is defined)
+    fail_msg: >-
+      [{{ domain.name }}] type: proxy требует либо domain.proxy_pass (простой одиночный backend),
+      либо domain.upstream.servers (upstream-пул).
+    quiet: true
+  when: domain.type == 'proxy'
+
+- name: "[{{ domain.name }}] Создать корневую директорию сайта"
+  ansible.builtin.file:
+    path: "{{ domain.root }}"
+    state: directory
+    owner: "{{ nginx_user }}"
+    group: "{{ nginx_group }}"
+    mode: "0755"
+  when: domain.root is defined
+
+- name: "[{{ domain.name }}] Определить пути к сертификату и ключу"
+  ansible.builtin.set_fact:
+    _domain_ssl_cert: >-
+      {{ domain.ssl.cert_file
+         if (domain.ssl.mode | default('') == 'custom')
+         else '/etc/letsencrypt/live/' ~ domain.name ~ '/fullchain.pem' }}
+    _domain_ssl_key: >-
+      {{ domain.ssl.key_file
+         if (domain.ssl.mode | default('') == 'custom')
+         else '/etc/letsencrypt/live/' ~ domain.name ~ '/privkey.pem' }}
+  when: domain.ssl is defined and (domain.ssl.enabled | default(false))
+
+- name: "[{{ domain.name }}] Отрендерить конфигурацию vhost"
+  ansible.builtin.template:
+    src: "vhost/{{ domain.type }}.conf.j2"
+    dest: "{{ nginx_sites_available_dir }}/{{ domain.name }}.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  vars:
+    ssl_cert: "{{ _domain_ssl_cert | default('') }}"
+    ssl_key: "{{ _domain_ssl_key | default('') }}"
+  notify: reload nginx
+
+- name: "[{{ domain.name }}] Включить vhost (symlink в sites-enabled)"
+  ansible.builtin.file:
+    src: "{{ nginx_sites_available_dir }}/{{ domain.name }}.conf"
+    dest: "{{ nginx_sites_enabled_dir }}/{{ domain.name }}.conf"
+    state: link
+    force: true
+  notify: reload nginx

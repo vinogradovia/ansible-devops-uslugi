@@ -1,0 +1,10 @@
+---
+- name: Отрендерить conf.d/stub_status.conf
+  ansible.builtin.template:
+    src: stub_status.conf.j2
+    dest: "{{ nginx_confd_dir }}/stub_status.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload nginx
+  when: nginx_stub_status.enabled | default(false)

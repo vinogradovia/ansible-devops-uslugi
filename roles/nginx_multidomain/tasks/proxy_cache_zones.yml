@@ -1,0 +1,31 @@
+---
+# proxy_cache_path должен объявляться один раз в http{}-контексте на зону.
+# Зоны собираются из глобального nginx_proxy_cache_zones (а не из nginx_domains) —
+# несколько доменов могут ссылаться на одну и ту же зону через domain.proxy_cache.
+#
+# nginx НЕ создаёт zone.path сам (proxy_cache_path не делает mkdir -p) — без этого шага
+# "nginx -t" гарантированно падает на "mkdir() ... failed (2: No such file or directory)"
+# при первом же использовании nginx_proxy_cache_zones, поймано молекула-сценарием
+# extensions/molecule/nginx_multidomain.
+
+- name: Создать директории proxy-cache зон
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ nginx_user }}"
+    group: "{{ nginx_group }}"
+    mode: "0750"
+  loop: "{{ nginx_proxy_cache_zones }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: nginx_proxy_cache_zones | length > 0
+
+- name: Отрендерить conf.d/proxy-cache-zones.conf
+  ansible.builtin.template:
+    src: proxy-cache-zones.conf.j2
+    dest: "{{ nginx_confd_dir }}/proxy-cache-zones.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload nginx
+  when: nginx_proxy_cache_zones | length > 0
