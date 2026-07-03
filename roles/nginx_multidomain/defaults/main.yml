@@ -36,7 +36,9 @@ nginx_domains: []
 # - name: example.com
 #   aliases: [www.example.com]
 #   type: static                 # static | proxy | php_fpm
-#   enabled: true                # по умолчанию true, если не указано
+#   enabled: true                # по умолчанию true, если не указано. При enabled: false
+#                                 # роль явно удаляет sites-available/<name>.conf и симлинк
+#                                 # в sites-enabled/, если они были созданы этой ролью ранее.
 #   root: /var/www/example.com/public
 #   index_files: ["index.html"]  # опционально, иначе nginx_default_index_files
 #   listen_address: ""           # опционально: слушать только на конкретном IP
@@ -89,6 +91,20 @@ nginx_domains: []
 #   extra_server_directives: |    # опционально: произвольные строки на уровне server{}
 #     ignore_invalid_headers off; # (для директив, которые не покрыты полями выше:
 #     proxy_buffering off;        #  ignore_invalid_headers, proxy_buffering и т.п.)
+#
+#   extra_server_blocks: []        # опционально: список СЫРЫХ server{}-блоков (текстом
+#                                   # целиком, включая "server { ... }"), дописываемых в
+#                                   # тот же файл sites-available/<domain>.conf ПОСЛЕ
+#                                   # основного vhost. Для legacy-листенеров вне обычной
+#                                   # схемы listen 80/443+ssl этого домена (напр. доп.
+#                                   # порт без TLS для старого бэкенда) — не шаблонизируется
+#                                   # по под-полям, просто вставляется как есть.
+#   # - |
+#   #   server {
+#   #       listen 8440;
+#   #       server_name example.com;
+#   #       location / { proxy_pass http://back_srv; }
+#   #   }
 #
 # --- type: proxy — дополнительные поля --------------------------------------
 #

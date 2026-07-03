@@ -166,3 +166,8 @@ server {
     }
 {% endfor %}
 }
+{% for block in (domain.extra_server_blocks | default([])) %}
+
+# --- доп. server{} блок (domain.extra_server_blocks, вне схемы listen/ssl выше) ---
+{{ block }}
+{% endfor %}

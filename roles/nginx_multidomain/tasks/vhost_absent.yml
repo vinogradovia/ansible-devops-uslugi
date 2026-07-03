@@ -1,0 +1,16 @@
+---
+# Выполняется в цикле из main.yml с loop_var: domain, только для доменов
+# с enabled: false — чтобы vhost, ранее сгенерированный этой ролью, не оставался
+# висеть в sites-available/sites-enabled после отключения домена в inventory.
+
+- name: "[{{ domain.name }}] Убрать симлинк из sites-enabled (domain.enabled: false)"
+  ansible.builtin.file:
+    path: "{{ nginx_sites_enabled_dir }}/{{ domain.name }}.conf"
+    state: absent
+  notify: reload nginx
+
+- name: "[{{ domain.name }}] Убрать файл из sites-available (domain.enabled: false)"
+  ansible.builtin.file:
+    path: "{{ nginx_sites_available_dir }}/{{ domain.name }}.conf"
+    state: absent
+  notify: reload nginx
