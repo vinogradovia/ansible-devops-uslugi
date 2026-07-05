@@ -7,6 +7,8 @@ galaxy_info:
   galaxy_tags:
     - monitoring
 dependencies:
+  - role: docker
+    when: monitoring_server_orchestrator == 'docker'
   - role: xanmanning.k3s
     when: monitoring_server_orchestrator == 'k3s'
     tags:

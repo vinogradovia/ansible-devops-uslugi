@@ -1,0 +1,14 @@
+---
+# Роль владеет /etc/docker/daemon.json целиком (ADR §6) — рендерит файл из
+# docker_daemon_json_options, а не читает/дополняет существующий файл. Роли-потребители
+# (например monitoring_agent) передают свои ключи через эту переменную вместо прямой записи.
+
+- name: "[daemon.json] Рендер {{ docker_daemon_json_path }}"
+  ansible.builtin.copy:
+    content: "{{ docker_daemon_json_options | to_nice_json }}\n"
+    dest: "{{ docker_daemon_json_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - Restart Docker daemon

@@ -33,11 +33,18 @@ monitoring_agent_node_exporter_binary_install_path: /usr/sbin/node_exporter
 
 monitoring_agent_docker_exporter_enabled: false
 monitoring_agent_docker_exporter_patch_docker: true
-monitoring_agent_docker_exporter_docker_daemon_json: /etc/docker/daemon.json
 monitoring_agent_docker_exporter_port: 9323
 monitoring_agent_docker_exporter_docker_daemon_metrics_listener: '0.0.0.0'
 monitoring_agent_docker_exporter_docker_daemon_metrics_addr: >-
   {{ monitoring_agent_docker_exporter_docker_daemon_metrics_listener }}:{{ monitoring_agent_docker_exporter_port | string }}
+
+# Ключ metrics-addr для роли docker (docs/adr/0002-docker-role.md §6) — docker владеет
+# /etc/docker/daemon.json целиком, monitoring_agent передаёт только свой ключ через зависимость
+# в meta/main.yml.
+monitoring_agent_docker_daemon_json_options: >-
+  {{ {'metrics-addr': monitoring_agent_docker_exporter_docker_daemon_metrics_addr}
+     if (monitoring_agent_docker_exporter_enabled and monitoring_agent_docker_exporter_patch_docker)
+     else {} }}
 
 monitoring_agent_cadvisor_enabled: false
 monitoring_agent_cadvisor_port: 9326
