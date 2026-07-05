@@ -1,0 +1,25 @@
+---
+# Переменные роли reverse_proxy_npm для converge/verify этого сценария. Лежат в group_vars/,
+# а не в vars: playbook'ов — Ansible подхватывает их для converge.yml и verify.yml одинаково
+# (каталог рядом с playbook'ами), без дублирования (тот же паттерн, что и
+# extensions/molecule/nginx_multidomain/group_vars/all.yml).
+#
+# Сознательно НЕ включено: reverse_proxy_npm_admin_ui_expose_host — этот путь дергает реальный
+# Let's Encrypt HTTP-01 через API NPM (см. ADR §8), а у тестового контейнера нет ни настоящего
+# DNS, ни публичной сети — запрос сертификата гарантированно упадёт. Сценарий вместо этого
+# проверяет именно ДЕФОЛТНОЕ поведение (§11 ADR): admin UI недоступен на внешнем интерфейсе,
+# т.к. reverse_proxy_npm_admin_ui_expose_host по умолчанию false.
+
+reverse_proxy_npm_admin_email: "admin@reverse-proxy-npm.molecule.test"
+reverse_proxy_npm_admin_password: "Molecule_Test_ChangeMe!23"
+
+reverse_proxy_npm_proxy_hosts:
+  # Имя контейнера, а не IP/host.docker.internal: fixture-бэкенд (prepare.yml) подключается к
+  # docker-сети reverse_proxy_npm (converge.yml, после роли) — NPM резолвит его по имени через
+  # Docker embedded DNS. См. roles/reverse_proxy_npm/README.md, «Проксирование на другие
+  # контейнеры на этом же хосте».
+  - domain_name: "whoami.molecule.test"
+    host: "reverse-proxy-npm-fixture-backend"
+    host_port: 80
+    ssl_forced: false
+    state: present

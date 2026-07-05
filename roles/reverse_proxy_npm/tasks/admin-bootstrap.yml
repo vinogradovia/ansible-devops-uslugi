@@ -1,0 +1,83 @@
+---
+# ADR §5: "fail-fast, если пароль не сменён" реализовано как API-вызов на первом converge, а
+# не как assert на переменной окружения (NPM не принимает admin credentials через env).
+#
+# Логика: пробуем залогиниться дефолтными credentials NPM. Если получилось (200) — это первый
+# запуск контейнера, меняем email/пароль на настоящие через API. Если не получилось (401) —
+# либо это не первый прогон (пароль уже сменён раньше), либо кто-то поменял его в обход роли;
+# в обоих случаях просто логинимся уже настоящими credentials ниже.
+
+- name: Try to authenticate with NPM default admin credentials
+  ansible.builtin.uri:
+    url: "{{ reverse_proxy_npm_api_url }}/tokens"
+    method: POST
+    body_format: json
+    body:
+      identity: "{{ reverse_proxy_npm_default_admin_email }}"
+      secret: "{{ reverse_proxy_npm_default_admin_password }}"
+    status_code:
+      - 200
+      - 401
+      - 422
+  register: reverse_proxy_npm_default_login
+  no_log: true
+  changed_when: false
+
+- name: Bootstrap admin account on first run (default credentials still active)
+  when: reverse_proxy_npm_default_login.status == 200
+  no_log: true
+  block:
+    - name: Get current user id (default admin)
+      ansible.builtin.uri:
+        url: "{{ reverse_proxy_npm_api_url }}/users/me"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ reverse_proxy_npm_default_login.json.token }}"
+        status_code:
+          - 200
+      register: reverse_proxy_npm_default_user
+
+    - name: Update admin profile (email/name)
+      ansible.builtin.uri:
+        url: "{{ reverse_proxy_npm_api_url }}/users/{{ reverse_proxy_npm_default_user.json.id }}"
+        method: PUT
+        headers:
+          Authorization: "Bearer {{ reverse_proxy_npm_default_login.json.token }}"
+        body_format: json
+        body:
+          email: "{{ reverse_proxy_npm_admin_email }}"
+          name: "{{ reverse_proxy_npm_admin_name }}"
+          nickname: "{{ reverse_proxy_npm_admin_nickname }}"
+        status_code:
+          - 200
+
+    - name: Change admin password from the NPM default
+      ansible.builtin.uri:
+        url: "{{ reverse_proxy_npm_api_url }}/users/{{ reverse_proxy_npm_default_user.json.id }}/auth"
+        method: PUT
+        headers:
+          Authorization: "Bearer {{ reverse_proxy_npm_default_login.json.token }}"
+        body_format: json
+        body:
+          type: password
+          current: "{{ reverse_proxy_npm_default_admin_password }}"
+          secret: "{{ reverse_proxy_npm_admin_password }}"
+        # NPM (проверено на 2.11.3) отвечает 201 Created на этот вызов, а не 200 OK, в отличие
+        # от остальных PUT-эндпоинтов её API.
+        status_code:
+          - 200
+          - 201
+
+- name: Authenticate with configured admin credentials
+  ansible.builtin.uri:
+    url: "{{ reverse_proxy_npm_api_url }}/tokens"
+    method: POST
+    body_format: json
+    body:
+      identity: "{{ reverse_proxy_npm_admin_email }}"
+      secret: "{{ reverse_proxy_npm_admin_password }}"
+    status_code:
+      - 200
+  register: reverse_proxy_npm_login
+  no_log: true
+  changed_when: false

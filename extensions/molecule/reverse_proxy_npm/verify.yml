@@ -1,0 +1,108 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: false
+  vars:
+    reverse_proxy_npm_api_url: "http://127.0.0.1:81/api"
+  tasks:
+    # --- Контейнер запущен -------------------------------------------------------------------
+    - name: Собрать информацию о контейнере reverse-proxy-npm
+      community.docker.docker_container_info:
+        name: reverse-proxy-npm
+      register: molecule_npm_container
+
+    - name: Контейнер reverse-proxy-npm должен существовать и быть running
+      ansible.builtin.assert:
+        that:
+          - molecule_npm_container.exists
+          - molecule_npm_container.container.State.Status == 'running'
+        quiet: true
+
+    # --- ADR §8: порт 81 не должен быть опубликован на внешнем интерфейсе по умолчанию --------
+    - name: "Порт 81 должен быть забинжен только на 127.0.0.1 (reverse_proxy_npm_admin_ui_bind_address)"
+      ansible.builtin.assert:
+        that:
+          - molecule_npm_container.container.NetworkSettings.Ports['81/tcp'][0].HostIp == '127.0.0.1'
+        fail_msg: >-
+          Порт 81 опубликован на {{ molecule_npm_container.container.NetworkSettings.Ports['81/tcp'][0].HostIp }},
+          ожидался 127.0.0.1 (см. ADR §8 — admin UI не должен быть доступен извне по умолчанию).
+        quiet: true
+
+    # --- compose.yml не должен быть мирочитаемым (может содержать mysql-пароль, см. ADR §6) ---
+    - name: "stat compose.yml"
+      ansible.builtin.stat:
+        path: "{{ reverse_proxy_npm_config_dir | default('/opt/reverse-proxy-npm') }}/compose.yml"
+      register: molecule_compose_stat
+
+    - name: "compose.yml должен иметь mode 0640"
+      ansible.builtin.assert:
+        that:
+          - molecule_compose_stat.stat.mode == '0640'
+        quiet: true
+
+    # --- ADR §5: дефолтный admin-пароль NPM больше не должен работать -------------------------
+    - name: "Логин с дефолтными credentials NPM должен быть отклонён (401)"
+      ansible.builtin.uri:
+        url: "{{ reverse_proxy_npm_api_url }}/tokens"
+        method: POST
+        body_format: json
+        body:
+          identity: "admin@example.com"
+          secret: "changeme"
+        status_code:
+          - 401
+          - 422
+      no_log: true
+      changed_when: false
+
+    # --- Логин с настроенными credentials должен работать -------------------------------------
+    - name: "Логин с настроенными admin credentials"
+      ansible.builtin.uri:
+        url: "{{ reverse_proxy_npm_api_url }}/tokens"
+        method: POST
+        body_format: json
+        body:
+          identity: "{{ reverse_proxy_npm_admin_email }}"
+          secret: "{{ reverse_proxy_npm_admin_password }}"
+        status_code:
+          - 200
+      register: molecule_npm_login
+      no_log: true
+      changed_when: false
+
+    # --- Management-слой: тестовый proxy-host должен быть создан через API --------------------
+    - name: Получить список proxy-hosts
+      ansible.builtin.uri:
+        url: "{{ reverse_proxy_npm_api_url }}/nginx/proxy-hosts"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ molecule_npm_login.json.token }}"
+        status_code:
+          - 200
+      register: molecule_npm_proxy_hosts
+      no_log: true
+      changed_when: false
+
+    - name: "whoami.molecule.test должен присутствовать среди proxy-hosts"
+      ansible.builtin.assert:
+        that:
+          - molecule_npm_proxy_hosts.json | selectattr('domain_names', 'contains', 'whoami.molecule.test') | list | length == 1
+        quiet: true
+
+    # --- Функциональная проверка: NPM реально проксирует на fixture-бэкенд --------------------
+    - name: "HTTP-запрос через NPM на whoami.molecule.test должен отвечать 200"
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:80/"
+        headers:
+          Host: whoami.molecule.test
+        status_code:
+          - 200
+        return_content: true
+      register: molecule_npm_whoami_response
+
+    - name: "Ответ должен быть от контейнера whoami (fixture-бэкенд), а не default nginx"
+      ansible.builtin.assert:
+        that:
+          - "'Hostname' in molecule_npm_whoami_response.content"
+        quiet: true
