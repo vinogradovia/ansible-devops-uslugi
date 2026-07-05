@@ -1,0 +1,8 @@
+---
+- name: Run test
+  hosts: localhost
+  remote_user: root
+  roles:
+    - role: devops.uslugi.reverse_proxy_npm
+      reverse_proxy_npm_admin_email: "admin@reverse-proxy-npm.test"
+      reverse_proxy_npm_admin_password: "Test_Only_ChangeMe!"

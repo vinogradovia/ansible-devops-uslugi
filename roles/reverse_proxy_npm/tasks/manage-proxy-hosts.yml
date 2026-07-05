@@ -1,0 +1,42 @@
+---
+# ADR §3 (management-слой) + §8 (self-proxied admin UI вместо проброса порта 81 наружу).
+
+- name: Compute self-managed admin UI proxy-host (if exposed)
+  ansible.builtin.set_fact:
+    reverse_proxy_npm_admin_ui_host:
+      domain_name: "npm-ui-{{ ansible_host | default(inventory_hostname) }}.{{ reverse_proxy_npm_admin_ui_domain }}"
+      host: "127.0.0.1"
+      host_port: "{{ reverse_proxy_npm_admin_ui_port }}"
+      ssl_forced: true
+      letsencrypt_email: "{{ reverse_proxy_npm_admin_ui_letsencrypt_email | default(reverse_proxy_npm_admin_email, true) }}"
+      state: present
+  when:
+    - reverse_proxy_npm_admin_ui_expose_host
+    - reverse_proxy_npm_admin_ui_domain | length > 0
+
+- name: Fail if admin UI exposure requested without reverse_proxy_npm_admin_ui_domain
+  ansible.builtin.fail:
+    msg: >-
+      reverse_proxy_npm_admin_ui_expose_host: true требует непустой
+      reverse_proxy_npm_admin_ui_domain (см. ADR §8).
+  when:
+    - reverse_proxy_npm_admin_ui_expose_host
+    - reverse_proxy_npm_admin_ui_domain | length == 0
+
+- name: Manage proxy hosts via NPM API
+  devops.uslugi.npm_proxy:
+    url: "{{ reverse_proxy_npm_api_url }}"
+    token: "{{ reverse_proxy_npm_login.json.token }}"
+    domain: "{{ item.domain_name }}"
+    host: "{{ item.host }}"
+    host_port: "{{ item.host_port | default(80) }}"
+    ssl_forced: "{{ item.ssl_forced | default(false) }}"
+    letsencrypt_email: "{{ item.letsencrypt_email | default('') }}"
+    state: "{{ item.state | default('present') }}"
+  throttle: 1
+  no_log: true
+  loop: >-
+    {{ reverse_proxy_npm_proxy_hosts
+       + ([reverse_proxy_npm_admin_ui_host] if reverse_proxy_npm_admin_ui_host is defined else []) }}
+  loop_control:
+    label: "{{ item.domain_name }} ({{ item.state | default('present') }})"

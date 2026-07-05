@@ -1,0 +1,40 @@
+---
+# ADR §5: fail-fast без скрытых дефолтов. Пароль/email NPM не задаются через переменные
+# окружения контейнера (в отличие от Grafana в monitoring_server) — их меняет сама роль через
+# API на первом converge (см. admin-bootstrap.yml), поэтому здесь мы только проверяем, что
+# оператор передал настоящие значения, а не оставил дефолт NPM.
+
+- name: Fail if reverse_proxy_npm_admin_email is not set or still the NPM default
+  ansible.builtin.assert:
+    that:
+      - reverse_proxy_npm_admin_email is defined
+      - reverse_proxy_npm_admin_email | length > 0
+      - reverse_proxy_npm_admin_email != reverse_proxy_npm_default_admin_email
+    fail_msg: >-
+      reverse_proxy_npm_admin_email обязателен и не должен совпадать с дефолтным
+      admin@example.com — задайте настоящий email в inventory/group_vars.
+    quiet: true
+
+- name: Fail if reverse_proxy_npm_admin_password is not set or still the NPM default
+  ansible.builtin.assert:
+    that:
+      - reverse_proxy_npm_admin_password is defined
+      - reverse_proxy_npm_admin_password | length > 0
+      - reverse_proxy_npm_admin_password != reverse_proxy_npm_default_admin_password
+    fail_msg: >-
+      reverse_proxy_npm_admin_password обязателен и не должен совпадать с дефолтным
+      паролем NPM (changeme) — задайте настоящий пароль в inventory/group_vars (vault).
+    quiet: true
+  no_log: true
+
+- name: Fail if MySQL backend selected without connection details
+  ansible.builtin.assert:
+    that:
+      - reverse_proxy_npm_mysql_host | length > 0
+      - reverse_proxy_npm_mysql_password | length > 0
+    fail_msg: >-
+      reverse_proxy_npm_db_driver: mysql требует reverse_proxy_npm_mysql_host и
+      reverse_proxy_npm_mysql_password.
+    quiet: true
+  no_log: true
+  when: reverse_proxy_npm_db_driver == 'mysql'

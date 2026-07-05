@@ -1,0 +1,42 @@
+---
+- name: Create config dirs
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0750'
+  loop:
+    - "{{ reverse_proxy_npm_config_dir }}"
+    - "{{ reverse_proxy_npm_config_dir }}/data"
+    - "{{ reverse_proxy_npm_config_dir }}/letsencrypt"
+
+- name: Render reverse-proxy-npm compose.yml
+  ansible.builtin.template:
+    src: compose-reverse-proxy-npm.yml.j2
+    dest: "{{ reverse_proxy_npm_config_dir }}/compose.yml"
+    owner: root
+    group: root
+    # Может содержать reverse_proxy_npm_mysql_password (ADR §6/P1 из ROADMAP — секреты не
+    # должны быть мирочитаемыми).
+    mode: '0640'
+
+- name: Create and start services
+  community.docker.docker_compose_v2:
+    project_src: "{{ reverse_proxy_npm_config_dir }}"
+  register: reverse_proxy_npm_start_result
+
+- name: Wait for NPM API to become available
+  # Без delegate_to: reverse_proxy_npm_api_url смотрит на 127.0.0.1 порта 81 (ADR §8) — это
+  # loopback управляемого хоста, а не контроллера, поэтому запрос должен выполняться на самом
+  # хосте, где задеплоен NPM.
+  ansible.builtin.uri:
+    url: "{{ reverse_proxy_npm_api_url }}/"
+    status_code:
+      - 200
+      - 401
+  register: reverse_proxy_npm_api_check
+  until: reverse_proxy_npm_api_check.status in [200, 401]
+  retries: 24
+  delay: 5
+  changed_when: false
