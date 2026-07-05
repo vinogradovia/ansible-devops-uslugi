@@ -85,46 +85,9 @@
 - name: Block for monitoring_server_orchestrator docker
   when: monitoring_agent_orchestrator == "docker"
   block:
-    # docker-metrics
-    - name: Patch docker daemon for metrics-addr
-      when: monitoring_agent_docker_exporter_enabled and monitoring_agent_docker_exporter_patch_docker
-      notify:
-        - Restart Docker daemon
-      tags: debug
-      block:
-        - name: Create docker daemon.json
-          ansible.builtin.file:
-            path: monitoring_agent_docker_exporter_docker_daemon_json
-            mode: '0644'
-            owner: root
-            group: root
-            state: touch
-          changed_when: false
-
-        - name: Read daemon JSON file
-          ansible.builtin.slurp:
-            path: "{{ monitoring_agent_docker_exporter_docker_daemon_json }}"
-          register: monitoring_agent_docker_exporter_docker_daemon_json_raw
-
-        - name: Convert JSON content to string
-          when: monitoring_agent_docker_exporter_docker_daemon_json_raw.content != ""
-          ansible.builtin.set_fact:
-            monitoring_agent_docker_exporter_docker_daemon_json_content: "{{ monitoring_agent_docker_exporter_docker_daemon_json_raw.content | b64decode | from_json }}"
-
-        - name: Set empty JSON content
-          when: monitoring_agent_docker_exporter_docker_daemon_json_raw.content == ""
-          ansible.builtin.set_fact:
-            monitoring_agent_docker_exporter_docker_daemon_json_content: {}
-        - name: Add new metrics-addr
-          ansible.builtin.set_fact:
-            monitoring_agent_docker_exporter_docker_daemon_json_content: "{{ monitoring_agent_docker_exporter_docker_daemon_json_content | combine({'metrics-addr': (monitoring_agent_docker_exporter_docker_daemon_metrics_addr | string)}) }}"
-        - name: Write updated JSON content back to file
-          ansible.builtin.copy:
-            content: "{{ monitoring_agent_docker_exporter_docker_daemon_json_content | to_json }}\n"
-            dest: "{{ monitoring_agent_docker_exporter_docker_daemon_json }}"
-            mode: '0644'
-            owner: root
-            group: root
+    # docker-metrics: metrics-addr в /etc/docker/daemon.json теперь ставит роль docker
+    # (docs/adr/0002-docker-role.md §6), см. monitoring_agent_docker_daemon_json_options
+    # в defaults и зависимость в meta/main.yml.
 
     - name: Render monitoring-agent compose.yml
       ansible.builtin.template:

@@ -1,0 +1,10 @@
+---
+# Для ручной проверки установки Docker Engine с нуля (`molecule converge -s docker`) задайте
+# группу docker_hosts с реальным SSH-доступом в extensions/molecule/inventory/hosts.yml.
+- name: Converge
+  hosts: docker_hosts
+  become: true
+  collections:
+    - devops.uslugi
+  roles:
+    - docker

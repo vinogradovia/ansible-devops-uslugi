@@ -1,0 +1,15 @@
+---
+# tasks file for docker
+
+- name: Include install-repo tasks
+  ansible.builtin.include_tasks:
+    file: install-repo.yml
+
+- name: Include daemon-json tasks
+  ansible.builtin.include_tasks:
+    file: daemon-json.yml
+
+- name: Include docker-group tasks
+  when: docker_users | length > 0
+  ansible.builtin.include_tasks:
+    file: docker-group.yml

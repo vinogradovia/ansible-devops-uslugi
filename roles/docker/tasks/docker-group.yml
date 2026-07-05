@@ -1,0 +1,9 @@
+---
+# Доступ к Docker без root (ADR §7) — опционально, только для пользователей из docker_users.
+
+- name: "[group] Добавить пользователей в группу docker"
+  ansible.builtin.user:
+    name: "{{ item }}"
+    groups: docker
+    append: true
+  loop: "{{ docker_users }}"
