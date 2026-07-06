@@ -40,11 +40,13 @@ nginx_multidomain/
 │   └── vhost/
 │       ├── static.conf.j2
 │       └── proxy.conf.j2
-├── handlers/
-│   └── main.yml                      # fail-fast: nginx -t → reload
-└── docs/
-    └── nginx_multidomain_role_architecture.md   # этот файл
+└── handlers/
+    └── main.yml                      # fail-fast: nginx -t → reload
 ```
+
+Этот документ — `docs/adr/0003-ginx-multidomain-role.md` в корне коллекции, а не внутри роли;
+каталог `roles/nginx_multidomain/docs/` пуст (см. ROADMAP.md, пункт P3-25 — раньше там лежали
+нерабочие черновики-артефакты первой скелетной генерации роли, удалены).
 
 Отсутствует по сравнению с первоначальным замыслом (и не появилось взамен): `meta/main.yml`,
 `vars/Debian.yml`/`vars/Ubuntu.yml`, `templates/nginx.conf.j2`, `templates/snippets/*.j2`,
