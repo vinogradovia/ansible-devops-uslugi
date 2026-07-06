@@ -1,4 +1,18 @@
 ---
+- name: "Fail if reverse zone has no explicit soa_contact | {{ zone.name }}"
+  ansible.builtin.assert:
+    that:
+      - zone.soa_contact is defined
+    fail_msg: >-
+      zone.soa_contact is required for reverse zones — the default
+      "hostmaster.{{ zone.name }}" is not a valid domain for a PTR zone
+      (see ROADMAP.md, пункт P2-20). Set zone.soa_contact explicitly, e.g. hostmaster.example.com.
+    quiet: true
+  when: zone.name is regex('\.(in-addr|ip6)\.arpa$')
+  tags:
+    - deploy
+    - validate
+
 - name: "Ensure include hosts file exists | {{ zone.name }}"
   ansible.builtin.copy:
     content: "; Ansible managed — additional host records for {{ zone.name }}\n"
@@ -56,7 +70,7 @@
 - name: "Set serial number | {{ zone.name }}"
   ansible.builtin.set_fact:
     infra_dns_serial: >-
-      {{ infra_dns_current_serial.stdout | default(ansible_date_time.date | replace('-','') ~ '01', true) }}
+      {{ infra_dns_current_serial.stdout | default(now(utc=true, fmt='%Y%m%d') ~ '01', true) }}
   tags:
     - deploy
 
