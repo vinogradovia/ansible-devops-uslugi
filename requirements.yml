@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: MIT-0
+---
+# xanmanning.k3s — обязательная зависимость роли monitoring_server для k3s-оркестратора
+# (roles/monitoring_server/meta/main.yml), но это standalone-роль, а не коллекция, поэтому
+# её нельзя объявить в galaxy.yml (поле dependencies принимает только namespace.name коллекций
+# — см. galaxy.yml). В отличие от коллекций, requirements.yml для ролей не поддерживает
+# диапазоны версий (>=) — версия фиксируется точным тегом релиза. Перед использованием
+# monitoring_server_orchestrator: k3s установите её отдельно:
+#
+#   ansible-galaxy install -r requirements.yml
+roles:
+  - name: xanmanning.k3s
+    version: v3.6.4

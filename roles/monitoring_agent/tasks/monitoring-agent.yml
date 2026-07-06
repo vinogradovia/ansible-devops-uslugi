@@ -74,12 +74,13 @@
 - name: Render .my.cnf for mysqld-exporter
   when: monitoring_agent_mysqld_exporter_enabled
   register: monitoring_agent_mysqld_exporter_my_cnf_stat
+  no_log: true
   ansible.builtin.template:
     src: exporters/mysqld-exporter/mysqld_exporter_my.cnf.j2
     dest: "{{ monitoring_agent_config_dir }}/.mysqld_exporter_my.cnf"
     owner: root
     group: root
-    mode: '0644'
+    mode: '0600'
 
 # monitoring-agent in docker
 - name: Block for monitoring_server_orchestrator docker
@@ -95,8 +96,9 @@
         dest: "{{ monitoring_agent_config_dir }}/compose.yml"
         owner: root
         group: root
-        mode: '0644'
+        mode: '0600'
         validate: docker compose -f %s config
+      no_log: true
       tags: debug
 
     - name: Create and start services

@@ -6,3 +6,11 @@
     msg: "Error, change monitoring_server_grafana_security_admin_password"
   when: monitoring_server_grafana_enabled and monitoring_server_grafana_security_admin_password == monitoring_server_default_password
   # ignore_errors: True
+
+- name: Fail if using default local_storage_s3 credentials
+  ansible.builtin.fail:
+    msg: "Error, change monitoring_server_local_storage_s3.access_key/secret_key from their defaults"
+  when: >-
+    monitoring_server_local_storage_s3_enabled and
+    (monitoring_server_local_storage_s3.access_key == 'local_storage_s3' or
+     monitoring_server_local_storage_s3.secret_key == 'supersecret_local_storage_s3')
