@@ -50,6 +50,17 @@
 - name: GrafanaDashboards
   when: monitoring_server_grafana_dashboard_provisioning
   block:
+    - name: Render Grafana dashboard provisioning provider config
+      when: monitoring_server_orchestrator == 'docker'
+      notify:
+        - Restart grafana
+      ansible.builtin.template:
+        src: grafana-dashboard-provider.yaml.j2
+        dest: "{{ monitoring_server_config_dir }}/grafana/provisioning/dashboards/dashboard-provider.yml"
+        owner: root
+        group: root
+        mode: '0644'
+
     - name: Get data from monitoring_server_grafana_dashboards_group_
       ansible.builtin.set_fact:
         monitoring_server_grafana_dashboards_groups_default: "{{ lookup('community.general.merge_variables', 'monitoring_server_grafana_dashboards_group_default', pattern_type='prefix') }}"
