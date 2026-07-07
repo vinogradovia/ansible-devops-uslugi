@@ -38,6 +38,12 @@ infra_dns_zone_default_soa_minimum: 10M
 infra_dns_zone_default_include_hosts: true
 
 # List of zones to serve
+#
+# soa_contact is optional for forward zones (defaults to "hostmaster.<zone.name>"), но
+# ОБЯЗАТЕЛЕН для reverse-зон (*.in-addr.arpa / *.ip6.arpa) — дефолт для них собрал бы
+# несуществующий домен вида "hostmaster.30.20.10.in-addr.arpa". Роль явно падает
+# assert'ом в deploy_zone.yml, если soa_contact не задан для такой зоны.
+#
 # infra_dns_zones:
 #   - name: example.com
 #     soa_ns: sl-dns-01.example.com
@@ -56,5 +62,13 @@ infra_dns_zone_default_include_hosts: true
 #       - ns1.another.example.com.
 #     records:
 #       - { name: ns1, type: A, value: 10.20.31.1 }
+#
+#   - name: 30.20.10.in-addr.arpa               # reverse-зона — soa_contact ОБЯЗАТЕЛЕН
+#     soa_ns: sl-dns-01.example.com
+#     soa_contact: hostmaster.example.com
+#     ns_records:
+#       - sl-dns-01.example.com.
+#     records:
+#       - { name: "240", type: PTR, value: sl-dns-01.example.com. }
 
 infra_dns_zones: []

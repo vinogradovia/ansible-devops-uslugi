@@ -1,0 +1,11 @@
+---
+# Проверки, общие для обоих оркестраторов (docker и k3s): monitoring-server.k3s.yml создаёт
+# Secret grafana-credentials безусловно (без when: monitoring_server_grafana_enabled), поэтому
+# эта проверка не может жить только в check-and-install-requirements.docker.yml — см. ROADMAP.md,
+# пункт P2-16.
+
+- name: Fail if using default_passwors
+  ansible.builtin.fail:
+    msg: "Error, change monitoring_server_grafana_security_admin_password"
+  when: monitoring_server_grafana_enabled and monitoring_server_grafana_security_admin_password == monitoring_server_default_password
+  # ignore_errors: True
