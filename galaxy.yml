@@ -17,7 +17,10 @@ dependencies:
   community.general: ">=12.2.0"
   community.docker: ">=5.0.0"
   kubernetes.core: ">=6.2.0"
-  # xanmanning.k3s: ">=v3.6.2"
+  # xanmanning.k3s — обязательная зависимость roles/monitoring_server для k3s-оркестратора,
+  # но это standalone-роль, а не коллекция: поле dependencies принимает только namespace.name
+  # коллекций, поэтому её здесь объявить нельзя. Зависимость зафиксирована в requirements.yml
+  # в корне коллекции — установите её через `ansible-galaxy install -r requirements.yml`.
 
 repository: https://github.com/vinogradovia/devops-uslugi
 documentation: https://github.com/vinogradovia/devops-uslugi

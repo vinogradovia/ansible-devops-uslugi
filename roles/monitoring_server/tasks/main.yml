@@ -1,7 +1,12 @@
 ---
 # tasks file for monitoring-server
 
+- name: Run checks common to both orchestrators
+  ansible.builtin.include_tasks:
+    file: check-and-install-requirements.yml
+
 - name: Run checks for monitoring_server_orchestrator docker
+  when: monitoring_server_orchestrator == 'docker'
   ansible.builtin.include_tasks:
     file: check-and-install-requirements.docker.yml
 
@@ -45,6 +50,17 @@
 - name: GrafanaDashboards
   when: monitoring_server_grafana_dashboard_provisioning
   block:
+    - name: Render Grafana dashboard provisioning provider config
+      when: monitoring_server_orchestrator == 'docker'
+      notify:
+        - Restart grafana
+      ansible.builtin.template:
+        src: grafana-dashboard-provider.yaml.j2
+        dest: "{{ monitoring_server_config_dir }}/grafana/provisioning/dashboards/dashboard-provider.yml"
+        owner: root
+        group: root
+        mode: '0644'
+
     - name: Get data from monitoring_server_grafana_dashboards_group_
       ansible.builtin.set_fact:
         monitoring_server_grafana_dashboards_groups_default: "{{ lookup('community.general.merge_variables', 'monitoring_server_grafana_dashboards_group_default', pattern_type='prefix') }}"
@@ -66,3 +82,14 @@
         - "{{ monitoring_server_grafana_dashboards_groups }}"
       ansible.builtin.include_tasks:
         file: grafana-provisioning-dashboards_group.yaml
+
+- name: Remove fetched k3s kubeconfig from the control host
+  when:
+    - monitoring_server_orchestrator == 'k3s'
+    - monitoring_server_orchestrator_context is defined
+    - "'dest' in monitoring_server_orchestrator_context"
+  delegate_to: localhost
+  become: false
+  ansible.builtin.file:
+    path: "{{ monitoring_server_orchestrator_context.dest }}"
+    state: absent

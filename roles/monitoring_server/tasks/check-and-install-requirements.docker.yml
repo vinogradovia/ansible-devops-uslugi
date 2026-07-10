@@ -1,8 +1,35 @@
 ---
 # TODO: add check monitoring_server_storage_dir exist
 
-- name: Fail if using default_passwors
+- name: Fail if alert rules are enabled for an exporter under docker orchestrator
   ansible.builtin.fail:
-    msg: "Error, change monitoring_server_grafana_security_admin_password"
-  when: monitoring_server_grafana_enabled and monitoring_server_grafana_security_admin_password == monitoring_server_default_password
-  # ignore_errors: True
+    msg: >-
+      monitoring_server_victoria_metrics_exporters['{{ monitoring_server_victoria_metrics_exporters_item.name }}'].alert_rules_default_enabled
+      is true, but VMAlert/alert_rules_src is only implemented for
+      monitoring_server_orchestrator: k3s — there is no vmalert service in
+      compose-monitoring-server.yml.j2 (see ROADMAP.md, пункты P0-1 и P5-33). Set
+      monitoring_server_victoria_metrics_alerts_rules_{{ monitoring_server_victoria_metrics_exporters_item.name | replace('-', '_') }}_default: false
+      or switch to monitoring_server_orchestrator: k3s.
+  loop: "{{ monitoring_server_victoria_metrics_exporters }}"
+  loop_control:
+    loop_var: monitoring_server_victoria_metrics_exporters_item
+    label: "{{ monitoring_server_victoria_metrics_exporters_item.name }}"
+  when: monitoring_server_victoria_metrics_exporters_item.alert_rules_default_enabled | bool
+
+- name: Fail if grafana_loki_enabled without local_storage_s3_enabled
+  ansible.builtin.fail:
+    msg: >-
+      monitoring_server_grafana_loki_enabled requires monitoring_server_local_storage_s3_enabled:
+      true — loki-config.yaml.j2 hardcodes object_store: s3 (no local-filesystem alternative
+      implemented), and compose-monitoring-server.yml.j2 points loki_read/loki_write at the "s3"
+      service unconditionally. Without it, docker compose config fails validation because the "s3"
+      service doesn't exist in the rendered compose file.
+  when: monitoring_server_grafana_loki_enabled and not monitoring_server_local_storage_s3_enabled
+
+- name: Fail if using default local_storage_s3 credentials
+  ansible.builtin.fail:
+    msg: "Error, change monitoring_server_local_storage_s3.access_key/secret_key from their defaults"
+  when: >-
+    monitoring_server_local_storage_s3_enabled and
+    (monitoring_server_local_storage_s3.access_key == 'local_storage_s3' or
+     monitoring_server_local_storage_s3.secret_key == 'supersecret_local_storage_s3')
