@@ -2,6 +2,18 @@
 - name: Block for monitoring_server_orchestrator docker
   when: monitoring_server_orchestrator == 'docker'
   block:
+    - name: Fail if enabling a k3s-only exporter under docker orchestrator ({{ monitoring_server_victoria_metrics_exporters_target_item.name }})
+      ansible.builtin.fail:
+        msg: >-
+          monitoring_server_victoria_metrics_exporters_target_item
+          '{{ monitoring_server_victoria_metrics_exporters_target_item.name }}' has no src/dest
+          (VMScrape/k3s-only, see vars/main.yml) but was enabled
+          (monitoring_server_orchestrator: docker). This exporter is not supported under the
+          docker orchestrator yet — see ROADMAP.md, пункт P0-4.
+      when:
+        - monitoring_server_victoria_metrics_exporters_target_item.state
+        - "'dest' not in monitoring_server_victoria_metrics_exporters_target_item"
+
     - name: Provisioning victoria-metrics node_exporter_targets remove
       when:
         - not (monitoring_server_victoria_metrics_exporters_target_item.state | bool)
@@ -13,7 +25,10 @@
         state: absent
         dest: "{{ monitoring_server_victoria_metrics_exporters_target_item.dest }}"
     - name: Provisioning node_exporter_targets
-      when: monitoring_server_victoria_metrics_enabled and monitoring_server_victoria_metrics_exporters_target_item.state
+      when:
+        - monitoring_server_victoria_metrics_enabled
+        - monitoring_server_victoria_metrics_exporters_target_item.state
+        - "'dest' in monitoring_server_victoria_metrics_exporters_target_item"
       ansible.builtin.template:
         src: "{{ monitoring_server_victoria_metrics_exporters_target_item.src }}"
         dest: "{{ monitoring_server_victoria_metrics_exporters_target_item.dest }}"

@@ -1,0 +1,5 @@
+---
+mysql_replication_role: read_replica
+mysql_replication_server_id: 2
+mysql_replication_primary_host: 192.168.56.10
+mysql_replication_repl_password: molecule-test-repl-password

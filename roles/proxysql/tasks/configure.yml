@@ -1,0 +1,38 @@
+---
+# Bootstrap-конфигурация — читается ProxySQL только при первом старте (см. комментарий в
+# шаблоне). Дальнейшие изменения — через admin-интерфейс (tasks/sync-*.yml).
+
+- name: Render proxysql.cnf
+  # owner: proxysql (не root) — служба запускается как User=proxysql/Group=proxysql
+  # (см. /lib/systemd/system/proxysql.service, пакет создаёт этого системного пользователя).
+  # Найдено реальным прогоном molecule (ADR §10): при root:root 0600 демон не мог прочитать
+  # файл ("Unable to open config file /etc/proxysql.cnf") и падал с "Result: protocol" ещё до
+  # открытия admin-порта.
+  ansible.builtin.template:
+    src: proxysql.cnf.j2
+    dest: "{{ proxysql_config_path }}"
+    owner: "{{ proxysql_service_name }}"
+    group: "{{ proxysql_service_name }}"
+    mode: '0600'
+  notify: Restart ProxySQL
+
+# Первый запуск сервиса — здесь, а не в install-repo.yml (см. её комментарий): к этому моменту
+# наш proxysql.cnf с реальными admin_credentials уже на диске, поэтому datadir инициализируется
+# сразу с ними, а не с пакетными дефолтами admin:admin.
+- name: Включить и запустить сервис {{ proxysql_service_name }}
+  ansible.builtin.systemd:
+    name: "{{ proxysql_service_name }}"
+    enabled: true
+    state: started
+
+# Type=forking в systemd-юните: systemd (и модуль systemd) считает сервис "started" сразу после
+# выхода родительского процесса, а сам ProxySQL в этот момент ещё может донастраивать SSL и
+# открывать admin-порт — tasks/sync-*.yml, идущие следом, подключаются к нему немедленно.
+# Найдено реальным прогоном molecule (ADR §10): "Connection refused" на первом же
+# ansible.mysql.mysql_query сразу после старта.
+- name: Дождаться, пока admin-интерфейс реально примет соединение
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ proxysql_admin_listen_port }}"
+    delay: 1
+    timeout: 15

@@ -1,0 +1,31 @@
+---
+# Дефолты роли (hostgroup/порты) заданы здесь ЯВНО, а не через defaults/main.yml роли —
+# verify.yml выполняется отдельным прогоном ansible-playbook, где роль proxysql не
+# импортируется, поэтому её defaults/main.yml не в скоупе (найдено реальным прогоном molecule:
+# "'proxysql_admin_listen_port' is undefined" в verify.yml). Значения совпадают с
+# roles/proxysql/defaults/main.yml — если там поменяются дефолты, синхронизировать и здесь.
+proxysql_writer_hostgroup: 10
+proxysql_reader_hostgroup: 20
+proxysql_admin_user: admin
+proxysql_admin_listen_port: 6032
+proxysql_mysql_listen_port: 6033
+
+proxysql_admin_password: molecule-admin-password
+proxysql_monitor_user: proxysql_monitor
+proxysql_monitor_password: molecule-monitor-password
+
+# Совпадает со статическими адресами mysql-writer/mysql-reader в molecule.yml.
+proxysql_backend_servers:
+  - hostgroup: "{{ proxysql_writer_hostgroup }}"
+    address: 192.168.57.10
+    port: 3306
+  - hostgroup: "{{ proxysql_reader_hostgroup }}"
+    address: 192.168.57.11
+    port: 3306
+
+# Тот же пользователь/пароль, что converge.yml заводит на mysql-writer (реплицируется на
+# mysql-reader через GTID) — см. group_vars/mysql_primary.yml, molecule_app_user/_password.
+proxysql_mysql_users:
+  - username: appuser
+    password: molecule-app-password
+    default_hostgroup: "{{ proxysql_writer_hostgroup }}"

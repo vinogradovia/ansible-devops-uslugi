@@ -1,18 +1,11 @@
 ---
 
-- name: Check if pve-exporter user exit
-  ansible.builtin.user:
-    name: "{{ monitoring_agent_pve_exporter_systemd_name }}"
-  check_mode: true
-  changed_when: false
-  register: monitoring_agent_pve_exporter_user_status
-
 - name: Add the user for pve-exporter
   ansible.builtin.user:
     name: "{{ monitoring_agent_pve_exporter_systemd_name }}"
     create_home: false
     shell: /bin/false
-    state: "{{ 'present' if monitoring_agent_pve_exporter_enabled or monitoring_agent_pve_exporter_user_status.state | default('') == 'present' else 'absent' }}"
+    state: "{{ 'present' if monitoring_agent_pve_exporter_enabled else 'absent' }}"
 
 - name: Install pve-exporter
   when: monitoring_agent_pve_exporter_enabled

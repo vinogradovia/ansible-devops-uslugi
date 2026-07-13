@@ -1,0 +1,37 @@
+---
+# Adopt vs fresh install (ADR §2). На primary MySQL обычно уже установлен и работает с боевыми
+# данными — роль не должна его переустанавливать, только донастроить репликацию. На read-реплике
+# и DR-реплике сервис обычно отсутствует (fresh install).
+
+- name: Gather service facts
+  ansible.builtin.service_facts:
+
+- name: Check mysqld binary version (if service is present)
+  when: "'mysql.service' in ansible_facts.services or 'mysqld.service' in ansible_facts.services"
+  ansible.builtin.command: mysqld --version
+  register: mysql_replication_mysqld_version_check
+  changed_when: false
+  check_mode: false
+
+- name: Set adopt/fresh-install facts
+  # ВАЖНО: встроенный тест Ansible `succeeded`/`success` — это буквально `not failed`, он НЕ
+  # исключает skipped-таски (найдено реальным прогоном molecule, ADR §10: на репликах, где
+  # предыдущая таска штатно скипается, `is succeeded` всё равно был True, а `.stdout` не
+  # существовал). Правильный признак "проверка реально выполнилась" — наличие `.stdout`.
+  ansible.builtin.set_fact:
+    mysql_replication_existing_instance: "{{ mysql_replication_mysqld_version_check.stdout is defined }}"
+    # Пример вывода: "mysqld  Ver 8.0.39-0ubuntu0.24.04.1 for Linux on x86_64 ((Ubuntu))"
+    # Извлекаем "8.0.39" — реализуется точным парсингом при реализации задачи, здесь зафиксирован
+    # факт, который READM обязан задокументировать: discovered version пробрасывается репликам
+    # через hostvars[groups['mysql_primary'][0]].mysql_replication_discovered_version.
+    mysql_replication_discovered_version: >-
+      {{ (mysql_replication_mysqld_version_check.stdout | regex_search('Ver ([0-9.]+)', '\1') | first | default(''))
+         if mysql_replication_mysqld_version_check.stdout is defined
+         else '' }}
+
+- name: Report detection result
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'Adopt: existing MySQL ' ~ mysql_replication_discovered_version ~ ' detected, will not reinstall.'
+         if mysql_replication_existing_instance
+         else 'No existing MySQL instance detected, will install target version.' }}

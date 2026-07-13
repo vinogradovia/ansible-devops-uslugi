@@ -1,0 +1,10 @@
+---
+mysql_replication_role: dr_replica
+mysql_replication_server_id: 3
+mysql_replication_primary_host: 192.168.56.10
+mysql_replication_repl_password: molecule-test-repl-password
+
+# Бэкапы (xtrabackup + S3 через rclone) намеренно выключены в этом сценарии — требуют реального
+# S3-совместимого эндпоинта, вне scope молекулы (ADR §10 покрывает только репликацию). Ручная
+# проверка бэкапов — см. roles/mysql_replication/README.md.
+mysql_replication_backup_enabled: false

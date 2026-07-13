@@ -1,0 +1,46 @@
+---
+# Подключение реплики к primary "звездой" — обе реплики напрямую от primary, не цепочкой
+# (ADR §4). Источник (SOURCE_HOST) — приватный/туннельный адрес primary внутри уже
+# существующей межДЦ-сети (ADR §5), не публичный IP.
+
+- name: Set read_only / super_read_only live (persists via drop-in cnf on next restart too)
+  ansible.mysql.mysql_variables:
+    login_unix_socket: /var/run/mysqld/mysqld.sock
+    variable: "{{ item }}"
+    value: "ON"
+  loop:
+    - read_only
+    - super_read_only
+
+- name: Check current replication status
+  ansible.mysql.mysql_replication:
+    login_unix_socket: /var/run/mysqld/mysqld.sock
+    mode: getreplica
+  register: mysql_replication_replica_status
+  changed_when: false
+
+- name: Point replica at primary (GTID auto-position)
+  when: mysql_replication_replica_status.Is_Replica is not defined or not mysql_replication_replica_status.Is_Replica
+  ansible.mysql.mysql_replication:
+    login_unix_socket: /var/run/mysqld/mysqld.sock
+    mode: changeprimary
+    primary_host: "{{ mysql_replication_primary_host }}"
+    primary_port: "{{ mysql_replication_primary_port }}"
+    primary_user: "{{ mysql_replication_repl_user }}"
+    primary_password: "{{ mysql_replication_repl_password }}"
+    primary_auto_position: true
+    # Шифрование — на уровне транспорта (существующий VPN), не MySQL SSL (ADR §5).
+    primary_ssl: false
+
+- name: Start replication
+  # Без этого when модуль mode: startreplica репортит changed при каждом прогоне независимо от
+  # текущего состояния (START REPLICA на уже реплицирующем хосте — безвредный no-op на стороне
+  # MySQL, но сам модуль этого не проверяет) — найдено реальным прогоном molecule, ADR §10:
+  # ломало idempotence-шаг.
+  when: >-
+    not (mysql_replication_replica_status.Is_Replica | default(false))
+    or mysql_replication_replica_status.Replica_IO_Running | default('No') != 'Yes'
+    or mysql_replication_replica_status.Replica_SQL_Running | default('No') != 'Yes'
+  ansible.mysql.mysql_replication:
+    login_unix_socket: /var/run/mysqld/mysqld.sock
+    mode: startreplica

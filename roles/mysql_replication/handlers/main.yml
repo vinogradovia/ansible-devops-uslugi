@@ -1,0 +1,30 @@
+---
+# handlers file for mysql_replication
+
+# Гейт на mysql_replication_allow_restart (ADR §2) применяется ТОЛЬКО к adopt-хосту — на боевом
+# primary, который роль не переустанавливала, конфигурация, требующая рестарта (server_id/GTID/
+# binlog), не должна применяться вне согласованного окна: defaults/main.yml держит
+# mysql_replication_allow_restart в false, без явного -e mysql_replication_allow_restart=true
+# рестарт не выполнится.
+#
+# На fresh-install хосте (read_replica/dr_replica) гейт не нужен и вреден: пакет mysql-server
+# сам стартует сервис в postinst-скрипте ДО того, как наш drop-in конфиг ляжет на диск (apt
+# ставит и запускает сервис раньше tasks/configure-replication.yml), поэтому GTID_MODE=ON из
+# конфига не подхватывается без рестарта — а хост только что создан этой же ролью и не может
+# содержать боевые данные, значит рестарт всегда безопасен. Найдено реальным прогоном molecule
+# (ADR §10): без этого условия `CHANGE REPLICATION SOURCE ... SOURCE_AUTO_POSITION=1` падает с
+# "cannot be executed because @@GLOBAL.GTID_MODE = OFF".
+- name: Restart MySQL
+  when: (mysql_replication_allow_restart | bool) or not mysql_replication_existing_instance
+  ansible.builtin.systemd:
+    name: "{{ mysql_replication_service_name }}"
+    state: restarted
+
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart mysql-backup.timer
+  ansible.builtin.systemd:
+    name: mysql-backup.timer
+    state: restarted

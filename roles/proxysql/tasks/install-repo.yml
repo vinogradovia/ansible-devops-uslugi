@@ -1,0 +1,65 @@
+---
+# Официальный репозиторий repo.proxysql.com, signed-by keyring — тот же паттерн, что и
+# roles/docker/tasks/install-repo.yml и roles/mysql_replication/tasks/install-mysql.yml, НЕ
+# apt_key.
+
+- name: "[repo] Установить пакеты, необходимые для подключения репозитория"
+  ansible.builtin.apt:
+    name:
+      - curl
+      - ca-certificates
+      - gnupg
+    state: present
+    update_cache: true
+
+- name: "[repo] Создать каталог для apt keyring'ов"
+  ansible.builtin.file:
+    path: "{{ proxysql_apt_keyring_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: "[repo] Скачать GPG-ключ repo.proxysql.com"
+  ansible.builtin.get_url:
+    url: "https://repo.proxysql.com/ProxySQL/repo_pub_key"
+    dest: "{{ proxysql_apt_keyring_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: "[repo] Подключить репозиторий repo.proxysql.com ({{ proxysql_repo_release }})"
+  # repo.proxysql.com — плоский (flat) apt-репозиторий: Release/Packages лежат прямо в
+  # .../{{ proxysql_repo_release }}/{{ ansible_distribution_release }}/, без структуры
+  # dists/<suite>/<component>/, которую предполагает обычный формат "deb URI suite component".
+  # Найдено реальным прогоном molecule (ADR §10): со стандартным форматом apt падал с
+  # "does not have a Release file". Flat-репозиторий синтаксис — "deb URI ./" без компонента,
+  # каталог с релизом целиком часть URI.
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [signed-by={{ proxysql_apt_keyring_path }}]
+      https://repo.proxysql.com/ProxySQL/{{ proxysql_repo_release }}/{{ ansible_distribution_release }}/
+      ./
+    state: present
+    filename: proxysql
+    update_cache: true
+
+- name: "[repo] Установить пакет {{ proxysql_package_name }}"
+  # repo.proxysql.com иногда отдаёт .deb (~23 МБ) очень медленно (~200 КБ/с) — apt успевает
+  # упасть по таймауту раньше, чем докачает (найдено реальным прогоном molecule, ADR §10).
+  # Ретраи дешевле, чем поднимать Acquire::http::Timeout глобально через apt.conf.
+  ansible.builtin.apt:
+    name: "{{ proxysql_package_name }}"
+    state: present
+  register: proxysql_install_result
+  retries: 3
+  delay: 10
+  until: proxysql_install_result is success
+
+# Сервис намеренно НЕ запускается здесь (в отличие от, например, roles/docker) — пакет proxysql
+# сам его не стартует (в отличие от mysql-server, ADR §2), а первый запуск должен произойти
+# ТОЛЬКО после того, как tasks/configure.yml отрендерит наш /etc/proxysql.cnf с реальными
+# admin_credentials. ProxySQL применяет admin_credentials из конфига лишь на пустом datadir —
+# если бы сервис стартовал раньше (с пакетным дефолтным конфигом), admin-креды намертво
+# зафиксировались бы дефолтными, и последующий рестарт их бы уже не поменял. Найдено реальным
+# прогоном molecule (ADR §10): "Access denied for user 'admin'@'127.0.0.1'" на всех sync-*.yml.

@@ -1,0 +1,21 @@
+---
+# Fail-fast на обязательные переменные без дефолтов — тот же паттерн, что и в
+# roles/mysql_replication (см. ADR §9) и roles/reverse_proxy_npm (ADR-0001 §5).
+
+- name: Assert admin/monitor credentials are set
+  ansible.builtin.assert:
+    that:
+      - proxysql_admin_password | length > 0
+      - proxysql_monitor_password | length > 0
+    fail_msg: >-
+      proxysql_admin_password и proxysql_monitor_password обязательны, без дефолта — задать
+      через Ansible Vault (ADR §9).
+
+- name: Assert backend servers are declared
+  ansible.builtin.assert:
+    that:
+      - proxysql_backend_servers | length > 0
+    fail_msg: >-
+      proxysql_backend_servers пуст — ProxySQL без backend-серверов бесполезен. Обычно
+      заполняется плейбуком-оркестратором из hostvars групп mysql_primary/mysql_read_replica
+      (см. README).

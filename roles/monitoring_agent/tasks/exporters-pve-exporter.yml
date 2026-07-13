@@ -23,12 +23,13 @@
 
     - name: Render pve.yml for pve-exporter
       register: monitoring_agent_pve_exporter_pve_yml_stat
+      no_log: true
       ansible.builtin.template:
         src: exporters/pve-exporter/pve.yml.j2
         dest: "{{ monitoring_agent_pve_exporter_config_dir }}/pve.yml"
         owner: root
         group: root
-        mode: '0644'
+        mode: '0600'
 
 - name: Include systemd-pve-exporter tasks
   when: monitoring_agent_orchestrator == "systemd"

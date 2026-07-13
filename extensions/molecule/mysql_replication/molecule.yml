@@ -1,0 +1,84 @@
+---
+# Единственный сценарий коллекции на driver: vagrant (провайдер libvirt), не docker — см.
+# docs/adr/0004-mysql-ha-replication-role.md §10. Причина: проверка настоящей репликации между
+# несколькими systemd-инстансами MySQL с устойчивым состоянием диска требует полноценных ВМ, а
+# не контейнеров (то же обоснование, что и отказ от Docker-in-Docker в ADR-0002 §8). Настройка
+# окружения (Vagrant + vagrant-libvirt) — см. roles/mysql_replication/README.md.
+#
+# Как и nginx_multidomain/reverse_proxy_npm, изолирован: create поднимает одноразовые ВМ,
+# destroy их полностью уничтожает. ansible.executor.args.ansible_playbook обнуляется, чтобы не
+# подмешивать статический inventory monitoring_servers/monitoring_agents из ../config.yml —
+# vagrant-driver сам строит inventory из смонтированных instance_conf (create.yml).
+driver:
+  name: vagrant
+  provider:
+    name: libvirt
+  default_box: generic/debian12
+
+platforms:
+  # Приватная сеть 192.168.56.0/24 — статические адреса нужны, чтобы group_vars/*.yml мог
+  # захардкодить mysql_replication_primary_host, не выясняя динамический IP через facts.
+  #
+  # box параметризован через MOLECULE_BOX (тот же приём, что и MOLECULE_DOCKER_COMMAND в
+  # nginx_multidomain/reverse_proxy_npm) — одна и та же тройка платформ прогоняется
+  # ПОСЛЕДОВАТЕЛЬНО под разными дистрибутивами: сначала обычный `molecule test`
+  # (Debian 12 по умолчанию), затем отдельным запуском `MOLECULE_BOX=cloud-image/ubuntu-24.04
+  # molecule test -s mysql_replication` — каждый прогон полностью самостоятелен
+  # (create...destroy), в моменте существует только один набор из трёх ВМ, а не шесть сразу.
+  # Ubuntu 26.04 (Resolute Racoon) не поддерживается: repo.mysql.com ещё не публикует под него
+  # пакеты (нет каталога `resolute` в https://repo.mysql.com/apt/ubuntu/dists/) — внешнее
+  # ограничение, не баг роли.
+  - name: mysql-primary
+    box: "${MOLECULE_BOX:-generic/debian12}"
+    memory: 1024
+    cpus: 1
+    interfaces:
+      - auto_config: true
+        network_name: private_network
+        type: static
+        ip: 192.168.56.10
+    groups:
+      - mysql_primary
+
+  - name: mysql-read-replica
+    box: "${MOLECULE_BOX:-generic/debian12}"
+    memory: 1024
+    cpus: 1
+    interfaces:
+      - auto_config: true
+        network_name: private_network
+        type: static
+        ip: 192.168.56.11
+    groups:
+      - mysql_read_replica
+
+  - name: mysql-dr-replica
+    box: "${MOLECULE_BOX:-generic/debian12}"
+    memory: 1024
+    cpus: 1
+    interfaces:
+      - auto_config: true
+        network_name: private_network
+        type: static
+        ip: 192.168.56.12
+    groups:
+      - mysql_dr_replica
+
+scenario:
+  test_sequence:
+    - dependency
+    - destroy
+    - syntax
+    - create
+    - prepare
+    - converge
+    - idempotence
+    - verify
+    - destroy
+
+shared_state: false
+
+ansible:
+  executor:
+    args:
+      ansible_playbook: []

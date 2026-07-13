@@ -1,0 +1,61 @@
+---
+# tasks file for mysql_replication
+#
+# Порядок веток см. docs/adr/0004-mysql-ha-replication-role.md. Требование к структуре
+# плейбука-оркестратора: play на группе mysql_primary должен отработать (минимум — собрать
+# факты и discovery версии) ДО play на mysql_read_replica/mysql_dr_replica, т.к. реплики
+# читают версию/адрес primary через hostvars (см. README, "Discovery версии").
+
+- name: Assert required variables are set
+  ansible.builtin.include_tasks:
+    file: assert-required-vars.yml
+
+# Требуется всем task-файлам роли, использующим ansible.mysql.* (mysql_user/mysql_variables/
+# mysql_replication/mysql_query) — эти модули выполняются на управляемом хосте и сами нуждаются
+# в Python MySQL-коннекторе там же (найдено реальным прогоном molecule, ADR §10: "A MySQL module
+# is required" без этого шага).
+- name: Install Python MySQL client (required by ansible.mysql.* modules)
+  ansible.builtin.apt:
+    name: python3-pymysql
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Detect existing MySQL instance (adopt vs fresh install, ADR §2)
+  ansible.builtin.include_tasks:
+    file: detect-existing-instance.yml
+
+- name: Install MySQL from official repository (fresh install path only)
+  when: not mysql_replication_existing_instance
+  ansible.builtin.include_tasks:
+    file: install-mysql.yml
+
+- name: Configure replication-related settings (server_id, GTID, binlog)
+  ansible.builtin.include_tasks:
+    file: configure-replication.yml
+
+- name: Create replication user (primary only)
+  when: mysql_replication_role == 'primary'
+  ansible.builtin.include_tasks:
+    file: replication-user.yml
+
+- name: Point replica at primary and enforce read_only (replicas only)
+  when: mysql_replication_role in ['read_replica', 'dr_replica']
+  ansible.builtin.include_tasks:
+    file: configure-replica.yml
+
+- name: Configure physical backups (only on the designated backup source)
+  when:
+    - mysql_replication_backup_enabled
+    - mysql_replication_role == mysql_replication_backup_source_role
+  ansible.builtin.include_tasks:
+    file: backup.yml
+
+# Ручная операция (ADR §7) — никогда не выполняется в обычном прогоне. Запускается оператором
+# явно: ansible-playbook ... --tags mysql_replication_promote --limit <dr-replica-host>
+- name: Promote DR-replica to writable primary (manual operation only)
+  ansible.builtin.include_tasks:
+    file: promote.yml
+  tags:
+    - mysql_replication_promote
+    - never

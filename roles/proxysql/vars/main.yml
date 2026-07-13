@@ -1,0 +1,4 @@
+---
+# vars file for proxysql
+# Пусто намеренно: все переменные роли — в defaults/main.yml, переопределяемые
+# через inventory/group_vars/host_vars/extra-vars.

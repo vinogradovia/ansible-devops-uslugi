@@ -1,5 +1,5 @@
 ---
-- name: Deploy DNS server with in.moon.ru zone
+- name: Deploy DNS server with in.example.com zone
   hosts: infra_dns
   gather_facts: true
   become: true

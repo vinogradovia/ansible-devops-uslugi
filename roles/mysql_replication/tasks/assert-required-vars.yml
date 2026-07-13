@@ -1,0 +1,53 @@
+---
+# Fail-fast на обязательные переменные без дефолтов — тот же паттерн, что уже используется для
+# reverse_proxy_npm_admin_password (см. docs/adr/0001-reverse-proxy-npm-role.md §5).
+
+- name: Assert mysql_replication_role is valid
+  ansible.builtin.assert:
+    that:
+      - mysql_replication_role in ['primary', 'read_replica', 'dr_replica']
+    fail_msg: >-
+      mysql_replication_role must be one of: primary, read_replica, dr_replica
+      (got: {{ mysql_replication_role }})
+
+- name: Assert mysql_replication_server_id is set
+  ansible.builtin.assert:
+    that:
+      - mysql_replication_server_id | string | length > 0
+    fail_msg: >-
+      mysql_replication_server_id is required and must be unique per host — set it explicitly
+      in host_vars, it has no default (see ADR §4).
+
+- name: Assert replication user password is set (primary)
+  when: mysql_replication_role == 'primary'
+  ansible.builtin.assert:
+    that:
+      - mysql_replication_repl_password | length > 0
+    fail_msg: >-
+      mysql_replication_repl_password is required on the primary — set it via Ansible Vault
+      (see ADR §9), it has no default.
+
+- name: Assert primary connection details are set (replicas)
+  when: mysql_replication_role in ['read_replica', 'dr_replica']
+  ansible.builtin.assert:
+    that:
+      - mysql_replication_primary_host | length > 0
+      - mysql_replication_repl_password | length > 0
+    fail_msg: >-
+      mysql_replication_primary_host and mysql_replication_repl_password are required on
+      replicas (the latter is the same credential provisioned on the primary — see ADR §4, §9).
+
+- name: Assert S3 backup credentials are set (backup source host)
+  when:
+    - mysql_replication_backup_enabled
+    - mysql_replication_role == mysql_replication_backup_source_role
+  ansible.builtin.assert:
+    that:
+      - mysql_replication_backup_s3_endpoint | length > 0
+      - mysql_replication_backup_s3_bucket | length > 0
+      - mysql_replication_backup_s3_access_key | length > 0
+      - mysql_replication_backup_s3_secret_key | length > 0
+      - mysql_replication_rclone_checksum | length > 0
+    fail_msg: >-
+      mysql_replication_backup_enabled=true requires S3 endpoint/bucket/credentials
+      (Vault, see ADR §9) and a pinned rclone checksum (see ADR §8, ROADMAP P1 №13).

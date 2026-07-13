@@ -1,0 +1,31 @@
+[project]
+name = "ansible-devops-uslugi"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Ivan Vinogradov",email = "vinogradovia@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "ansible-core (>=2.20,<2.21)"
+]
+
+[tool.poetry]
+package-mode = false
+
+[dependency-groups]
+dev = [
+    "molecule (>=26.3.0,<27.0.0)",
+    "ansible-dev-tools (>=26.2.0,<27.0.0)",
+    "molecule-plugins[docker] (>=25.8.0,<26.0.0)",
+    # vagrant/libvirt — только для extensions/molecule/mysql_replication (ADR-0004 §10).
+    # Требует Vagrant + плагин vagrant-libvirt на хосте, где запускается molecule — см.
+    # roles/mysql_replication/README.md, "Локальное тестирование".
+    "molecule-plugins[vagrant] (>=25.8.0,<26.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
