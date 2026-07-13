@@ -1,0 +1,38 @@
+---
+
+## Various Alloy settings. For backwards compatibility with the grafana-agent
+## chart, this field may also be called "agent". Naming this field "agent" is
+## deprecated and will be removed in a future release.
+alloy:
+  configMap:
+    # -- Create a new ConfigMap for the config file.
+    create: true
+    # -- Content to assign to the new ConfigMap.  This is passed into `tpl` allowing for templating from values.
+    content: |
+      prometheus.exporter.redis "redis" {
+        redis_addr     = "10.20.30.12:6379"
+        redis_password = sys.env("REDIS_PASSWORD")
+      }
+
+      prometheus.scrape "redis" {
+        targets    = prometheus.exporter.redis.redis.targets
+        forward_to = [prometheus.remote_write.vm.receiver]
+      }
+
+      prometheus.remote_write "vm" {
+        endpoint {
+          url = "http://vmsingle-vm-victoria-metrics-k8s-stack:8428/api/v1/write"
+        }
+      }
+
+  extraEnv:
+    - name: REDIS_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: grafana-alloy-redis
+          key: password
+
+  mounts:
+    varlog: false
+    dockercontainers: false
+    extra: []

@@ -1,0 +1,55 @@
+---
+repositories: []
+registries: []
+  # - host: ghcr.io
+  #   username: k8s
+  #   password: k8s
+
+releases:
+  # - name: storage-classes
+  #   namespace: default
+  #   chart: nixys/nxs-universal-chart
+  #   version: 2.8.3
+  - name: vm
+    namespace: monitoring
+    chart: vm/victoria-metrics-k8s-stack
+    version: 0.69.0
+    # grafana-operator должен быть готов раньше — этот релиз через extra-objects.yaml/встроенную
+    # grafana-интеграцию чарта создаёт Grafana CR (helmwave по умолчанию деплоит релизы
+    # параллельно; без depends_on это гонка на CRD grafana.integreatly.org, см. находку у loki
+    # ниже — здесь она пока не проявлялась только по случайному порядку/времени сборки чартов).
+    depends_on:
+      - name: grafana-operator
+    values:
+      - vmsingle.yaml
+      - grafana.yaml
+      - alertmanager.yaml
+      - extra-objects.yaml
+
+  - name: grafana-alloy
+    namespace: monitoring
+    chart: grafana/alloy
+    version: 1.6.0
+
+  - name: grafana-alloy-blackbox
+    namespace: monitoring
+    chart: grafana/alloy
+    version: 1.6.0
+
+  - name: grafana-alloy-redis
+    namespace: monitoring
+    chart: grafana/alloy
+    version: 1.6.0
+
+  - name: grafana-operator
+    namespace: monitoring
+    chart: oci://ghcr.io/grafana/helm-charts/grafana-operator
+    version: 5.22.0
+
+  - name: loki
+    namespace: monitoring
+    chart: grafana/loki
+    version: 6.54.0
+    # Датасорсы Loki/Loki-infra (мультитенантность, X-Scope-OrgID) уже заведены в
+    # grafana-operator/values.yaml (extraObjects) — этот релиз своих GrafanaDatasource не создаёт,
+    # поэтому depends_on: grafana-operator ему не нужен (нет собственной зависимости от его CRD).
