@@ -1,0 +1,203 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: false
+  vars:
+    # loki_read/loki_write/loki_backend/loki_gateway/s3 не задают container_name в
+    # compose-monitoring-server.yml.j2 (в отличие от vm_single_node/grafana) — docker compose
+    # называет их по умолчанию "<project>-<service>-1", а project — это basename каталога
+    # project_src (community.docker.docker_compose_v2 не передаёт свой project_name, см.
+    # tasks/monitoring-server.docker.yml).
+    molecule_compose_project: "{{ (monitoring_server_config_dir | default('/opt/monitoring-server')) | basename }}"
+  tasks:
+    # --- Контейнеры должны существовать и быть running (ADR-0007 §5) --------------------------
+    - name: Собрать информацию о контейнерах monitoring-server/monitoring-agent
+      community.docker.docker_container_info:
+        name: "{{ molecule_container_item }}"
+      register: molecule_containers
+      loop:
+        - vm_single_node
+        - grafana
+        - "{{ molecule_compose_project }}-loki_read-1"
+        - "{{ molecule_compose_project }}-loki_write-1"
+        - "{{ molecule_compose_project }}-loki_backend-1"
+        - "{{ molecule_compose_project }}-loki_gateway-1"
+        - "{{ molecule_compose_project }}-s3-1"
+        - node_exporter
+      loop_control:
+        loop_var: molecule_container_item
+
+    - name: Все контейнеры должны существовать и быть running
+      ansible.builtin.assert:
+        that:
+          - molecule_containers_item.exists
+          - molecule_containers_item.container.State.Status == 'running'
+        fail_msg: "{{ molecule_containers_item.molecule_container_item }}: {{ molecule_containers_item.container.State | default('нет контейнера') }}"
+        quiet: true
+      loop: "{{ molecule_containers.results }}"
+      loop_control:
+        loop_var: molecule_containers_item
+        label: "{{ molecule_containers_item.molecule_container_item }}"
+
+    # --- compose.yml не должен быть мирочитаемым (содержит пароль Grafana и ключи MinIO) -------
+    - name: "stat compose.yml"
+      ansible.builtin.stat:
+        path: "{{ monitoring_server_config_dir | default('/opt/monitoring-server') }}/compose.yml"
+      register: molecule_compose_stat
+
+    - name: "compose.yml должен иметь mode 0600"
+      ansible.builtin.assert:
+        that:
+          - molecule_compose_stat.stat.mode == '0600'
+        quiet: true
+
+    # --- VictoriaMetrics: сервис жив и реально видит скрейпленный self-monitoring таргет -------
+    - name: "VictoriaMetrics health"
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:8428/health"
+        status_code:
+          - 200
+        return_content: true
+      register: molecule_vm_health
+      until: molecule_vm_health.status == 200
+      retries: 10
+      delay: 3
+      changed_when: false
+
+    - name: "VictoriaMetrics должен ответить OK"
+      ansible.builtin.assert:
+        that:
+          - "'OK' in molecule_vm_health.content"
+        quiet: true
+
+    - name: Дождаться первого успешного scrape node-exporter (self-monitoring)
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:8428/api/v1/targets"
+        return_content: true
+      register: molecule_vm_targets
+      until: >-
+        (molecule_vm_targets.json.data.activeTargets
+         | selectattr('labels.job', 'equalto', 'node-exporter')
+         | selectattr('health', 'equalto', 'up')
+         | list | length) > 0
+      retries: 20
+      delay: 5
+      changed_when: false
+
+    # --- Grafana: доступна, датасорсы и дашборд-группа провижинятся ----------------------------
+    - name: "Grafana health"
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:3000/api/health"
+        status_code:
+          - 200
+        return_content: true
+      register: molecule_grafana_health
+      until: molecule_grafana_health.status == 200
+      retries: 15
+      delay: 5
+      changed_when: false
+
+    - name: "Grafana должна быть в состоянии ok"
+      ansible.builtin.assert:
+        that:
+          - (molecule_grafana_health.content | from_json).database == 'ok'
+        quiet: true
+
+    - name: Получить список datasources
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:3000/api/datasources"
+        url_username: admin
+        url_password: "{{ monitoring_server_grafana_security_admin_password }}"
+        force_basic_auth: true
+        status_code:
+          - 200
+        return_content: true
+      register: molecule_grafana_datasources
+      no_log: true
+      changed_when: false
+
+    - name: "Datasources VictoriaMetrics и Loki должны быть настроены (ADR-0007 §5)"
+      ansible.builtin.assert:
+        that:
+          - (molecule_grafana_datasources.json | selectattr('name', 'equalto', 'VictoriaMetrics') | list | length) == 1
+          - (molecule_grafana_datasources.json | selectattr('name', 'equalto', 'Loki') | list | length) == 1
+        quiet: true
+
+    - name: Получить список дашбордов
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:3000/api/search?type=dash-db"
+        url_username: admin
+        url_password: "{{ monitoring_server_grafana_security_admin_password }}"
+        force_basic_auth: true
+        status_code:
+          - 200
+        return_content: true
+      register: molecule_grafana_dashboards
+      no_log: true
+      changed_when: false
+
+    - name: "Дашборды группы nginx (monitoring_server_grafana_dashboards_group_install) должны быть провижинены"
+      ansible.builtin.assert:
+        that:
+          - (molecule_grafana_dashboards.json | selectattr('uid', 'equalto', '16P-l3iGk') | list | length) == 1
+          - (molecule_grafana_dashboards.json | selectattr('uid', 'equalto', 'JfOTY2Pnk') | list | length) == 1
+          - (molecule_grafana_dashboards.json | selectattr('uid', 'equalto', 'MsjffzSZz') | list | length) == 1
+        fail_msg: "{{ molecule_grafana_dashboards.json | map(attribute='uid') | list }}"
+        quiet: true
+
+    # --- Grafana Loki: gateway маршрутизирует на read/write (ADR-0007 §5) ----------------------
+    - name: "Loki gateway должен отвечать OK на /"
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:3100/"
+        status_code:
+          - 200
+        return_content: true
+      register: molecule_loki_gateway_root
+      until: molecule_loki_gateway_root.status == 200
+      retries: 15
+      delay: 5
+      changed_when: false
+
+    - name: "Loki gateway (/) должен вернуть OK"
+      ansible.builtin.assert:
+        that:
+          - "'OK' in molecule_loki_gateway_root.content"
+        quiet: true
+
+    - name: "Loki (через gateway) должен ответить на /loki/api/v1/labels"
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:3100/loki/api/v1/labels"
+        headers:
+          X-Scope-OrgID: tenant1
+        status_code:
+          - 200
+      changed_when: false
+
+    # --- Локальный MinIO (S3-бэкенд Loki) должен быть жив (ADR-0007 §2.5/§5) -------------------
+    - name: "MinIO health"
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:9000/minio/health/live"
+        status_code:
+          - 200
+      register: molecule_minio_health
+      until: molecule_minio_health.status == 200
+      retries: 10
+      delay: 3
+      changed_when: false
+
+    # --- node-exporter (monitoring_agent, network_mode: host) должен отдавать метрики ----------
+    - name: "node-exporter должен отдавать /metrics"
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:9100/metrics"
+        status_code:
+          - 200
+        return_content: true
+      register: molecule_node_exporter_metrics
+      changed_when: false
+
+    - name: "/metrics node-exporter должен содержать node_exporter_build_info"
+      ansible.builtin.assert:
+        that:
+          - "'node_exporter_build_info' in molecule_node_exporter_metrics.content"
+        quiet: true

@@ -22,7 +22,13 @@ dev = [
     # vagrant/libvirt — только для extensions/molecule/mysql_replication (ADR-0004 §10).
     # Требует Vagrant + плагин vagrant-libvirt на хосте, где запускается molecule — см.
     # roles/mysql_replication/README.md, "Локальное тестирование".
-    "molecule-plugins[vagrant] (>=25.8.0,<26.0.0)"
+    "molecule-plugins[vagrant] (>=25.8.0,<26.0.0)",
+    # Python-клиент, без которого модули коллекции kubernetes.core (kubernetes.core.k8s и т.д.)
+    # не работают — используются в roles/monitoring_server/tasks/monitoring-server.k3s.yml
+    # (delegate_to: localhost). Без него monitoring_server_orchestrator: k3s падает на первой же
+    # такой задаче с "No module named 'kubernetes'" на control-хосте — см.
+    # extensions/molecule/monitoring_server_k3s/.
+    "kubernetes (>=32.0.0,<33.0.0)"
 ]
 
 

@@ -1,0 +1,17 @@
+---
+- name: Converge
+  hosts: all
+  become: true
+  collections:
+    - devops.uslugi
+  tasks:
+    # Порядок не принципиален функционально (агент и сервер не зависят друг от друга при
+    # провижининге), но сначала агент — так node-exporter уже слушает :9100 к моменту, когда
+    # monitoring_server рендерит и стартует свой scrape_config/compose.
+    - name: Прогнать роль monitoring_agent (переменные — см. group_vars/all.yml)
+      ansible.builtin.import_role:
+        name: monitoring_agent
+
+    - name: Прогнать роль monitoring_server (переменные — см. group_vars/all.yml)
+      ansible.builtin.import_role:
+        name: monitoring_server
