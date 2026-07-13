@@ -1,0 +1,116 @@
+---
+# Физические бэкапы (xtrabackup/mariabackup) + выгрузка в S3 через rclone + ретеншн (ADR §8).
+# Выполняется только на хосте mysql_replication_backup_source_role (по умолчанию dr_replica) —
+# см. условие в tasks/main.yml.
+
+- name: "[repo] Установить пакеты, необходимые для подключения репозитория Percona"
+  ansible.builtin.apt:
+    name:
+      - curl
+      - ca-certificates
+      - gnupg
+    state: present
+    update_cache: true
+
+- name: "[repo] Создать каталог для apt keyring'ов"
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: "[repo] Скачать GPG-ключ repo.percona.com"
+  ansible.builtin.get_url:
+    url: "https://repo.percona.com/percona/apt/percona-release.gpg"
+    dest: /etc/apt/keyrings/percona.asc
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: "[repo] Подключить репозиторий repo.percona.com"
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [signed-by=/etc/apt/keyrings/percona.asc]
+      https://repo.percona.com/percona/apt {{ ansible_distribution_release }} main
+    state: present
+    filename: percona
+    update_cache: true
+
+- name: Install backup tool ({{ mysql_replication_backup_tool }})
+  ansible.builtin.apt:
+    name: "{{ 'percona-xtrabackup-80' if mysql_replication_backup_tool == 'xtrabackup' else 'mariadb-backup' }}"
+    state: present
+
+- name: Download rclone
+  ansible.builtin.get_url:
+    url: "https://downloads.rclone.org/v{{ mysql_replication_rclone_version }}/rclone-v{{ mysql_replication_rclone_version }}-linux-amd64.zip"
+    checksum: "{{ mysql_replication_rclone_checksum }}"
+    dest: /usr/local/src/
+    tmp_dest: /usr/local/src/
+    owner: root
+    group: root
+    mode: '0644'
+  register: mysql_replication_rclone_download
+
+- name: Unarchive rclone binary
+  ansible.builtin.unarchive:
+    remote_src: true
+    src: "{{ mysql_replication_rclone_download.dest }}"
+    include:
+      - "*/rclone"
+    extra_opts:
+      - "--strip-component=1"
+      - "--wildcards"
+    dest: "{{ mysql_replication_rclone_install_path | dirname }}"
+    mode: '0755'
+
+- name: Create backup directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+  loop:
+    - "{{ mysql_replication_backup_dir }}"
+    - "{{ mysql_replication_backup_metrics_textfile_path | dirname }}"
+
+- name: Render rclone config (S3-совместимый эндпоинт Selectel)
+  ansible.builtin.template:
+    src: rclone.conf.j2
+    dest: /root/.config/rclone/rclone.conf
+    owner: root
+    group: root
+    mode: '0600'
+
+- name: Render backup script
+  ansible.builtin.template:
+    src: backup-mysql.sh.j2
+    dest: /usr/local/sbin/mysql-backup.sh
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Render systemd service/timer for daily backup
+  ansible.builtin.template:
+    src: "systemd/{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop:
+    - mysql-backup.service
+    - mysql-backup.timer
+  notify:
+    - Reload systemd daemon
+    - Restart mysql-backup.timer
+
+- name: Force handlers to run now
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable mysql-backup.timer
+  ansible.builtin.systemd:
+    name: mysql-backup.timer
+    enabled: true
+    state: started

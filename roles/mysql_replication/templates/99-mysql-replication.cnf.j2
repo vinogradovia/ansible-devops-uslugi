@@ -1,0 +1,19 @@
+# {{ ansible_managed }}
+#
+# server_id/GTID/binlog для репликации (ADR §4). Применимо и к adopt-, и к fresh-install-хостам.
+# Правка этого файла на уже работающем MySQL требует рестарта службы — см.
+# mysql_replication_allow_restart (ADR §2) и handlers/main.yml.
+
+[mysqld]
+server_id = {{ mysql_replication_server_id }}
+
+gtid_mode = {{ mysql_replication_gtid_mode }}
+enforce_gtid_consistency = {{ mysql_replication_enforce_gtid_consistency }}
+
+log_bin = {{ mysql_replication_log_bin }}
+binlog_format = {{ mysql_replication_binlog_format }}
+
+{% if mysql_replication_role in ['read_replica', 'dr_replica'] %}
+read_only = ON
+super_read_only = ON
+{% endif %}

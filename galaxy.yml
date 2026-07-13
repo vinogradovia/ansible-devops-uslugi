@@ -17,6 +17,13 @@ dependencies:
   community.general: ">=12.2.0"
   community.docker: ">=5.0.0"
   kubernetes.core: ">=6.2.0"
+  # ansible.mysql — mysql_user/mysql_variables/mysql_replication/mysql_query, используются
+  # ролями mysql_replication и proxysql (docs/adr/0004-mysql-ha-replication-role.md) для
+  # управления репликационным пользователем, read_only, CHANGE REPLICATION SOURCE и
+  # admin-интерфейсом ProxySQL. Каноническая коллекция для этих модулей начиная с
+  # community.mysql 5.0 (модули там теперь redirect-заглушки, см. community.mysql
+  # meta/runtime.yml) — используем ansible.mysql напрямую, без промежуточного deprecation-слоя.
+  ansible.mysql: ">=5.0.0"
   # xanmanning.k3s — обязательная зависимость roles/monitoring_server для k3s-оркестратора,
   # но это standalone-роль, а не коллекция: поле dependencies принимает только namespace.name
   # коллекций, поэтому её здесь объявить нельзя. Зависимость зафиксирована в requirements.yml

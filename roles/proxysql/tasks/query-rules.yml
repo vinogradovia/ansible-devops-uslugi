@@ -1,0 +1,41 @@
+---
+# Query rules (ADR §6) — весь SELECT-трафик уходит в reader-hostgroup, всё остальное — на
+# default_hostgroup пользователя (обычно writer, см. sync-mysql-users.yml). Та же
+# replace-всё-целиком идемпотентность, что и в sync-backend-servers.yml.
+
+- name: Remove existing query rules
+  ansible.mysql.mysql_query:
+    login_host: 127.0.0.1
+    login_port: "{{ proxysql_admin_listen_port }}"
+    login_user: "{{ proxysql_admin_user }}"
+    login_password: "{{ proxysql_admin_password }}"
+    query: "DELETE FROM mysql_query_rules"
+
+- name: Insert desired query rules
+  ansible.mysql.mysql_query:
+    login_host: 127.0.0.1
+    login_port: "{{ proxysql_admin_listen_port }}"
+    login_user: "{{ proxysql_admin_user }}"
+    login_password: "{{ proxysql_admin_password }}"
+    query: >-
+      INSERT INTO mysql_query_rules
+        (rule_id, active, match_pattern, destination_hostgroup, apply)
+      VALUES (%s, %s, %s, %s, %s)
+    positional_args:
+      - "{{ item.rule_id }}"
+      - "{{ item.active }}"
+      - "{{ item.match_pattern }}"
+      - "{{ item.destination_hostgroup }}"
+      - "{{ item.apply }}"
+  loop: "{{ proxysql_query_rules }}"
+
+- name: Load query rules to runtime and persist to disk
+  ansible.mysql.mysql_query:
+    login_host: 127.0.0.1
+    login_port: "{{ proxysql_admin_listen_port }}"
+    login_user: "{{ proxysql_admin_user }}"
+    login_password: "{{ proxysql_admin_password }}"
+    query: "{{ item }}"
+  loop:
+    - "LOAD MYSQL QUERY RULES TO RUNTIME"
+    - "SAVE MYSQL QUERY RULES TO DISK"

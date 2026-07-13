@@ -1,0 +1,61 @@
+---
+# Порядок плеев: primary → read-реплика → proxysql. Приложенческий и monitor-пользователи
+# заводятся здесь же (не роль mysql_replication — это фикстура сценария, не забота роли, см.
+# roles/proxysql/README.md, "Пример"), на primary, сразу после роли, и реплицируются на
+# read-реплику через обычную GTID-репликацию (роль в play 2 её и поднимает).
+
+- name: Converge (primary)
+  hosts: mysql_primary
+  become: true
+  tasks:
+    - name: Прогнать роль mysql_replication
+      ansible.builtin.import_role:
+        name: devops.uslugi.mysql_replication
+
+    # changed_when: false — CREATE ... IF NOT EXISTS реально идемпотентны, а не просто
+    # объявлены такими; принудительный changed_when: true (как было раньше) валил
+    # idempotence-шаг molecule на пустом месте.
+    - name: Создать тестовую схему/таблицу для проверки маршрутизации ProxySQL
+      ansible.builtin.command: >
+        mysql -e "CREATE DATABASE IF NOT EXISTS molecule_test;
+        CREATE TABLE IF NOT EXISTS molecule_test.probe (id INT PRIMARY KEY AUTO_INCREMENT, marker VARCHAR(64));"
+      changed_when: false
+
+    - name: Завести приложенческого пользователя (реплицируется на read-реплику)
+      ansible.builtin.command: >
+        mysql -e "CREATE USER IF NOT EXISTS '{{ molecule_app_user }}'@'%' IDENTIFIED BY '{{ molecule_app_password }}';
+        GRANT ALL PRIVILEGES ON molecule_test.* TO '{{ molecule_app_user }}'@'%';"
+      changed_when: false
+
+    - name: Завести пользователя для health-check'ов ProxySQL (реплицируется на read-реплику)
+      ansible.builtin.command: >
+        mysql -e "CREATE USER IF NOT EXISTS '{{ molecule_monitor_user }}'@'%' IDENTIFIED BY '{{ molecule_monitor_password }}';
+        GRANT REPLICATION CLIENT ON *.* TO '{{ molecule_monitor_user }}'@'%';"
+      changed_when: false
+
+- name: Converge (read-реплика)
+  hosts: mysql_read_replica
+  become: true
+  tasks:
+    - name: Прогнать роль mysql_replication
+      ansible.builtin.import_role:
+        name: devops.uslugi.mysql_replication
+
+    - name: Дождаться, пока пользователи, заведённые на primary, реплицируются сюда
+      ansible.builtin.command: >
+        mysql -N -B -e "SELECT COUNT(*) FROM mysql.user WHERE user IN
+        ('{{ hostvars[groups['mysql_primary'][0]].molecule_app_user }}',
+         '{{ hostvars[groups['mysql_primary'][0]].molecule_monitor_user }}');"
+      register: molecule_replicated_users
+      until: molecule_replicated_users.stdout | trim == '2'
+      retries: 15
+      delay: 2
+      changed_when: false
+
+- name: Converge (ProxySQL)
+  hosts: proxysql_hosts
+  become: true
+  tasks:
+    - name: Прогнать роль proxysql
+      ansible.builtin.import_role:
+        name: devops.uslugi.proxysql

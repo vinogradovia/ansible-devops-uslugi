@@ -1,0 +1,16 @@
+---
+# Репликационный пользователь на primary — минимальные права (ADR §4). Используется обеими
+# репликами (read_replica, dr_replica) для CHANGE REPLICATION SOURCE (configure-replica.yml).
+#
+# Аутентификация к самому MySQL — через unix_socket root (login_unix_socket: true), как это
+# принято для локального administrative-доступа на Debian/Ubuntu пакетах MySQL (плагин
+# auth_socket для root@localhost по умолчанию).
+
+- name: Create replication user with REPLICATION SLAVE/CLIENT privileges
+  ansible.mysql.mysql_user:
+    login_unix_socket: /var/run/mysqld/mysqld.sock
+    name: "{{ mysql_replication_repl_user }}"
+    host: "{{ mysql_replication_repl_user_host }}"
+    password: "{{ mysql_replication_repl_password }}"
+    priv: "*.*:REPLICATION SLAVE,REPLICATION CLIENT"
+    state: present

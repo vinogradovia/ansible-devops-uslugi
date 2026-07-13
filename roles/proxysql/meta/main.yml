@@ -1,0 +1,11 @@
+---
+galaxy_info:
+  author: Ivan Vinogradov <vinogradovia@gmail.com>
+  description: deploy ProxySQL as the unified MySQL connection point (writer/reader hostgroups)
+  license: WTFPL
+  min_ansible_version: "2.2"
+  galaxy_tags:
+    - mysql
+    - proxysql
+    - proxy
+dependencies: []

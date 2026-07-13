@@ -1,0 +1,13 @@
+---
+# Переменные роли mysql_replication для converge/verify этого сценария (не боевые значения —
+# это одноразовые ВМ, уничтожаемые на destroy).
+
+mysql_replication_role: primary
+mysql_replication_server_id: 1
+
+# В отличие от продовых дефолтов (ADR §2, mysql_replication_allow_restart: false) — здесь
+# рестарт разрешён всегда: это тестовая ВМ, а не боевая база, "согласованное окно" неприменимо.
+mysql_replication_allow_restart: true
+
+# Общий репликационный пароль на все три хоста сценария — тестовое значение, не секрет.
+mysql_replication_repl_password: molecule-test-repl-password

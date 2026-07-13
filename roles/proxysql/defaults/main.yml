@@ -1,0 +1,64 @@
+---
+# defaults file for proxysql
+#
+# Единая точка подключения для MySQL (ADR §6, docs/adr/0004-mysql-ha-replication-role.md):
+# DNS (db-write/db-read) указывает на эти хосты, ProxySQL сам решает, на какой backend-сервер
+# MySQL маршрутизировать запрос. Устанавливается нативным пакетом (apt, официальный репозиторий
+# ProxySQL) на отдельных выделенных хостах — не через docker (ADR §6) и не на самих серверах
+# MySQL.
+
+# --- Установка (apt, signed-by keyring — тот же паттерн, что и roles/docker) ---
+proxysql_apt_keyring_path: /etc/apt/keyrings/proxysql.asc
+proxysql_repo_release: proxysql-2.6.x
+proxysql_package_name: proxysql
+
+proxysql_service_name: proxysql
+proxysql_config_path: /etc/proxysql.cnf
+proxysql_datadir: /var/lib/proxysql
+
+# --- Admin-интерфейс (порт 6032, mysql-протокол) ---
+proxysql_admin_listen_port: 6032
+proxysql_admin_user: admin
+# Без дефолта — обязателен через Ansible Vault (тот же fail-fast паттерн, что и
+# mysql_replication_repl_password, ADR §9).
+proxysql_admin_password: ""
+
+# --- Клиентский listener (порт, на который приложения шлют трафик через db-write/db-read) ---
+proxysql_mysql_listen_port: 6033
+
+# --- Monitor-пользователь (ProxySQL проверяет здоровье backend-серверов им) ---
+proxysql_monitor_user: proxysql_monitor
+proxysql_monitor_password: ""
+
+# --- Hostgroups (ADR §6) ---
+proxysql_writer_hostgroup: 10
+proxysql_reader_hostgroup: 20
+
+# Backend-серверы MySQL. Обычно заполняется плейбуком-оркестратором из hostvars групп
+# mysql_primary/mysql_read_replica, а не руками — см. README, пример. DR-реплика НЕ включается
+# сюда в обычном режиме (ТЗ прямо запрещает боевое чтение на ней, ADR §6) — попадает в
+# writer-hostgroup только вручную в рамках promote (см. roles/mysql_replication, tasks/promote.yml
+# и docs/runbooks/mysql-failover.md).
+#
+# Пример:
+# proxysql_backend_servers:
+#   - { hostgroup: "{{ proxysql_writer_hostgroup }}", address: 10.20.30.10, port: 3306 }
+#   - { hostgroup: "{{ proxysql_reader_hostgroup }}", address: 10.20.30.11, port: 3306 }
+proxysql_backend_servers: []
+
+# --- Query rules — весь SELECT на reader-hostgroup, всё остальное неявно (default_hostgroup
+# пользователя) идёт на writer (ADR §6) ---
+proxysql_query_rules:
+  - rule_id: 1
+    active: 1
+    match_pattern: "^SELECT"
+    destination_hostgroup: "{{ proxysql_reader_hostgroup }}"
+    apply: 1
+
+# Приложенческие пользователи MySQL, под которыми ProxySQL авторизует клиентов и которым
+# назначает default_hostgroup (обычно writer — конкретный SELECT-трафик уводится query rules
+# выше, а не по пользователю). Пароль — тот же, что заведён в MySQL для этого пользователя.
+# Пример:
+# proxysql_mysql_users:
+#   - { username: app, password: "{{ vault_app_mysql_password }}", default_hostgroup: "{{ proxysql_writer_hostgroup }}" }
+proxysql_mysql_users: []
