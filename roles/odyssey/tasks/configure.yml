@@ -1,0 +1,42 @@
+---
+# Odyssey перечитывает конфиг только при рестарте (handlers/main.yml) — рендер + явный
+# enable/start ниже гарантируют, что после первого прогона сервис реально поднят с нашим
+# конфигом, а не с пакетным дефолтом.
+
+- name: Ensure Odyssey config directory exists
+  ansible.builtin.file:
+    path: "{{ odyssey_config_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Render odyssey.conf
+  # group: {{ odyssey_service_name }} (не root) — пакет создаёт системного пользователя/группу
+  # odyssey (sysusers.d), юнит запускает процесс как User=odyssey Group=odyssey (Type=notify).
+  # Найдено реальным прогоном molecule: при group: root непривилегированный процесс не мог
+  # прочитать файл ("failed to open config file"), ExecStartPre=odyssey --test падал ещё до
+  # старта — тот же класс бага, что и с proxysql.cnf в roles/proxysql/tasks/configure.yml.
+  ansible.builtin.template:
+    src: odyssey.conf.j2
+    dest: "{{ odyssey_config_path }}"
+    owner: root
+    group: "{{ odyssey_service_name }}"
+    mode: '0640'
+  notify: Restart Odyssey
+
+- name: Force notified handlers (Restart Odyssey) to run now, not at the end of the play
+  ansible.builtin.meta: flush_handlers
+
+- name: Включить и запустить сервис {{ odyssey_service_name }}
+  ansible.builtin.systemd:
+    name: "{{ odyssey_service_name }}"
+    enabled: true
+    state: started
+
+- name: Дождаться, пока listener реально примет соединение
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ odyssey_listen_port }}"
+    delay: 1
+    timeout: 15

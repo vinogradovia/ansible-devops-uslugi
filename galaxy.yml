@@ -24,6 +24,13 @@ dependencies:
   # community.mysql 5.0 (модули там теперь redirect-заглушки, см. community.mysql
   # meta/runtime.yml) — используем ansible.mysql напрямую, без промежуточного deprecation-слоя.
   ansible.mysql: ">=5.0.0"
+  # community.postgresql — postgresql_user/postgresql_db/postgresql_query/postgresql_pg_hba/
+  # postgresql_info, используются ролью postgresql_replication (docs/adr/0005-postgresql-ha-
+  # replication-role.md) для управления репликационным/repmgr-пользователями и pg_hba.conf.
+  # В отличие от MySQL, физическая репликация PostgreSQL не управляется через SQL-модули
+  # (CHANGE MASTER-аналога нет) — она обвязана через repmgr (command-модуль), эта коллекция
+  # нужна только для управления ролями/базами/pg_hba, а не самой репликацией.
+  community.postgresql: ">=3.0.0"
   # xanmanning.k3s — обязательная зависимость roles/monitoring_server для k3s-оркестратора,
   # но это standalone-роль, а не коллекция: поле dependencies принимает только namespace.name
   # коллекций, поэтому её здесь объявить нельзя. Зависимость зафиксирована в requirements.yml

@@ -162,6 +162,11 @@
       ansible.builtin.include_tasks:
         file: systemd-mysqld-exporter.yml
 
+    - name: Include systemd-postgres-exporter tasks
+      when: monitoring_agent_postgres_exporter_enabled
+      ansible.builtin.include_tasks:
+        file: systemd-postgres-exporter.yml
+
 # New Style of Exporters Definotions
 # pve_exporter
 - name: Include pve-exporter tasks

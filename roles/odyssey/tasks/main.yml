@@ -1,0 +1,16 @@
+---
+# tasks file for odyssey
+#
+# Решения — см. docs/adr/0005-postgresql-ha-replication-role.md §6.
+
+- name: Assert required variables are set
+  ansible.builtin.include_tasks:
+    file: assert-required-vars.yml
+
+- name: Install Odyssey from PGDG
+  ansible.builtin.include_tasks:
+    file: install-repo.yml
+
+- name: Render configuration and (re)start service
+  ansible.builtin.include_tasks:
+    file: configure.yml

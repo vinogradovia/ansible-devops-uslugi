@@ -1,0 +1,19 @@
+---
+# Переменные роли odyssey для converge/verify этого сценария. Лежат в group_vars/, не в vars:
+# playbook'ов — тот же паттерн, что и extensions/molecule/reverse_proxy_npm/group_vars/all.yml.
+#
+# Backend-хосты — имена fixture-контейнеров PostgreSQL (prepare.yml), резолвятся внутри общей
+# docker-сети odyssey_molecule_net (см. molecule.yml) через Docker embedded DNS.
+odyssey_write_backend_host: odyssey-fixture-write
+odyssey_write_backend_port: 5432
+odyssey_read_backend_host: odyssey-fixture-read
+odyssey_read_backend_port: 5432
+
+odyssey_backend_user: molecule_app
+odyssey_backend_password: "Molecule_Test_ChangeMe!23"
+
+# Явно (не полагаясь на дефолт роли) — prepare.yml/verify.yml не подключают роль odyssey и поэтому
+# не видят её roles/odyssey/defaults/main.yml, а ссылаются на эти переменные напрямую.
+odyssey_write_database_name: db-write
+odyssey_read_database_name: db-read
+odyssey_listen_port: 6432

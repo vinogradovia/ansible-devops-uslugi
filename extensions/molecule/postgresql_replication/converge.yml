@@ -1,0 +1,24 @@
+---
+# Порядок плеев обязателен (см. roles/postgresql_replication/README.md, "Discovery версии",
+# ADR §2): primary отрабатывает первым — на нём роль работает в adopt-режиме (см. prepare.yml,
+# версия 16) и обнаруживает версию уже установленного PostgreSQL, которую нужно передать репликам
+# для fresh install той же версии (а не дефолтной версии роли — 17).
+
+- name: Converge (primary)
+  hosts: postgresql_primary
+  become: true
+  tasks:
+    - name: Прогнать роль postgresql_replication (adopt существующего PostgreSQL, см. prepare.yml)
+      ansible.builtin.import_role:
+        name: devops.uslugi.postgresql_replication
+
+- name: Converge (реплики)
+  hosts: postgresql_read_replica:postgresql_dr_replica
+  become: true
+  vars:
+    postgresql_replication_target_version: >-
+      {{ hostvars[groups['postgresql_primary'][0]].postgresql_replication_discovered_version }}
+  tasks:
+    - name: Прогнать роль postgresql_replication (fresh install целевой версии + clone от primary)
+      ansible.builtin.import_role:
+        name: devops.uslugi.postgresql_replication

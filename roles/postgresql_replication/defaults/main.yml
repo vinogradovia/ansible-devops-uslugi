@@ -1,0 +1,150 @@
+---
+# defaults file for postgresql_replication
+#
+# Роль отказоустойчивости PostgreSQL: adopt существующего primary ИЛИ fresh install на репликах,
+# физическая streaming-репликация под управлением repmgr (звезда — обе реплики напрямую от
+# primary), доступ на чтение обеспечивается штатным recovery-режимом PostgreSQL (отдельного
+# read_only-флага, в отличие от MySQL, не требуется), физические бэкапы (pgBackRest) в S3. Решения
+# и обоснование — см. docs/adr/0005-postgresql-ha-replication-role.md.
+
+# primary | read_replica | dr_replica — определяет ветвление задач роли (ADR §3). Задаётся в
+# group_vars соответствующей inventory-группы (postgresql_primary / postgresql_read_replica /
+# postgresql_dr_replica), а не поштучно в hostvars.
+postgresql_replication_role: primary
+
+# --- Установка / adopt (ADR §2) ---
+
+# Только Debian/Ubuntu (apt), как и весь остальной scope коллекции (ADR §2, см. также
+# docs/adr/0002-docker-role.md §4).
+postgresql_replication_apt_keyring_path: /etc/apt/keyrings/postgresql.asc
+
+# Версия PostgreSQL для fresh install (read-реплика/DR-реплика, либо primary, если он тоже
+# ставится с нуля). НЕ используется на primary в adopt-режиме — там роль обнаруживает уже
+# установленную версию в runtime и ничего не переустанавливает (см. detect-existing-instance.yml).
+# Если оставить пустым, playbook должен передать версию, обнаруженную на primary, через
+# hostvars[groups['postgresql_primary'][0]].postgresql_replication_discovered_version (см. README,
+# "Discovery версии" и ADR §2).
+postgresql_replication_version: "17"
+postgresql_replication_target_version: ""
+
+# Кластер Debian-пакетирования PostgreSQL (postgresql-common) — по умолчанию "main", менять не
+# нужно, если на хосте не используется несколько параллельных кластеров одной версии.
+postgresql_replication_cluster_name: main
+
+postgresql_replication_config_dir: >-
+  /etc/postgresql/{{ postgresql_replication_effective_version }}/{{ postgresql_replication_cluster_name }}
+postgresql_replication_datadir: >-
+  /var/lib/postgresql/{{ postgresql_replication_effective_version }}/{{ postgresql_replication_cluster_name }}
+postgresql_replication_service_name: >-
+  postgresql@{{ postgresql_replication_effective_version }}-{{ postgresql_replication_cluster_name }}
+
+# Правка wal_level/max_wal_senders/shared_preload_libraries (repmgr) и т.п. на уже работающем
+# (adopt) PostgreSQL требует рестарта службы. Рестарт НЕ выполняется автоматически без явного
+# подтверждения оператора — боевая база меняется только в согласованное окно (тот же паттерн, что
+# и в mysql_replication, ADR §2, — рестарт боевого primary без согласованного окна недопустим).
+postgresql_replication_allow_restart: false
+
+# --- Репликация / repmgr (ADR §4) ---
+
+# Обязателен, уникален на каждом хосте кластера — без дефолта, роль падает через assert, если не
+# задан (см. tasks/assert-required-vars.yml). Аналог mysql_replication_server_id.
+postgresql_replication_node_id: ""
+postgresql_replication_node_name: "{{ inventory_hostname }}"
+
+# Адрес, по которому ЭТОТ узел доступен остальным узлам кластера (repmgr conninfo, ADR §5 — тот же
+# принцип, что и primary_host: должен указывать на приватный/туннельный адрес внутри уже
+# существующей межДЦ-сети, не на публичный IP). По умолчанию — ansible_host, переопределить, если
+# анонсируемый адрес отличается (например, приватный IP в отдельной VPN-сети).
+postgresql_replication_advertise_host: "{{ ansible_host | default(ansible_default_ipv4.address) }}"
+
+# Репликационный пользователь — заводится на primary, используется обеими репликами для
+# физической streaming-репликации. Пароль без дефолта, обязателен через Ansible Vault на уровне
+# inventory (ADR §9).
+postgresql_replication_repl_user: repl
+postgresql_replication_repl_password: ""
+
+# repmgr требует отдельного SUPERUSER-пользователя и отдельной базы для своих служебных таблиц
+# (ADR §4). Пароль без дефолта.
+postgresql_replication_repmgr_user: repmgr
+postgresql_replication_repmgr_password: ""
+postgresql_replication_repmgr_db: repmgr
+
+# wal_level/max_wal_senders/max_replication_slots — с запасом на обе реплики + служебные
+# repmgr/pgBackRest-соединения (ADR §4).
+postgresql_replication_max_wal_senders: 10
+postgresql_replication_max_replication_slots: 10
+
+# Streaming-репликация подключается по сети — Debian-дефолт postgresql.conf ('localhost') этого
+# не позволяет, роль его расширяет (ADR §5 — сама сеть уже ограничена межДЦ VPN/приватной сетью,
+# не публичным интерфейсом без файрвола).
+postgresql_replication_listen_addresses: "*"
+
+# CIDR, с которого разрешено подключаться репликационному/repmgr-пользователю (pg_hba.conf). По
+# умолчанию — весь мир, сузить до подсети приватной/туннельной сети (ADR §5), как только она
+# известна.
+postgresql_replication_pg_hba_address: "0.0.0.0/0"
+
+# Порт, на котором PostgreSQL слушает на ЭТОМ хосте (одинаковый на всех узлах кластера в типичной
+# инсталляции). Используется в repmgr.conf/pgbackrest.conf для локального подключения — не путать
+# с postgresql_replication_primary_port ниже (порт primary, используется репликами для
+# подключения К primary, которое обычно совпадает с этим же значением, но концептуально другое).
+postgresql_replication_port: 5432
+
+# Адрес primary внутри уже существующей приватной/туннельной сети между ДЦ (ADR §5 — роль НЕ
+# поднимает VPN и не проверяет, что это приватный адрес, а не публичный IP). Обязателен на
+# read_replica/dr_replica.
+postgresql_replication_primary_host: ""
+postgresql_replication_primary_port: 5432
+
+# --- Физические бэкапы pgBackRest (ADR §8) ---
+
+postgresql_replication_backup_enabled: false
+
+# primary | read_replica | dr_replica — на каком хосте реально снимается бэкап. По умолчанию
+# DR-реплика: она и так не обслуживает боевое чтение единолично (обслуживает как fallback, ADR
+# §3/§8), снятие бэкапа не создаёт дополнительной нагрузки ни на primary, ни на read-реплику.
+postgresql_replication_backup_source_role: dr_replica
+
+postgresql_replication_pgbackrest_stanza: main
+postgresql_replication_backup_time: "02:30:00"
+
+# Ретеншн — через нативные политики pgBackRest (repo1-retention-full/diff), а не через префиксы
+# объектов вручную, как для MySQL/rclone (ADR §8). full — число full-бэкапов, diff — число
+# diff-бэкапов между full-бэкапами.
+postgresql_replication_backup_retention_full: 2
+postgresql_replication_backup_retention_diff: 6
+
+# Доставка в S3-совместимое хранилище (Selectel object storage) через встроенный S3-driver
+# pgBackRest (repo1-type=s3) — не через rclone, как в mysql_replication (ADR §8, у pgBackRest уже
+# есть нативная интеграция с S3-совместимыми хранилищами). Без дефолта, обязательны через Vault.
+postgresql_replication_backup_s3_endpoint: ""
+postgresql_replication_backup_s3_bucket: ""
+postgresql_replication_backup_s3_region: ru-1
+postgresql_replication_backup_s3_access_key: ""
+postgresql_replication_backup_s3_secret_key: ""
+
+# Метрика успешности бэкапа для алерта "бэкап не создался" — пишется в textfile-коллектор
+# node_exporter (ADR §8). Путь должен совпадать с
+# monitoring_agent_node_exporter_textfile_directory на этом же хосте — композиция на уровне
+# инвентаря/плейбука, роль postgresql_replication не тянет monitoring_agent зависимостью (ADR
+# §11).
+postgresql_replication_backup_metrics_textfile_path: /var/lib/node_exporter/textfile_collector/postgresql_backup.prom
+
+# Фактическая версия, используемая всеми путями роли (fresh install и adopt). Приоритет:
+# 1) adopt (postgresql_replication_existing_instance=true, обнаружено detect-existing-
+#    instance.yml) — ВСЕГДА обнаруженная версия, а не дефолт роли, иначе install-repmgr-
+#    pgbackrest.yml поставит repmgr/pgBackRest не той мажорной версии, что реально установленный
+#    PostgreSQL (найдено реальным прогоном molecule: primary адаптировал PostgreSQL 16, но без
+#    этого приоритета repmgr ставился под дефолтную версию роли — 17 — и wal_level/pg_hba.conf
+#    рендерились по пути /etc/postgresql/17/..., которого не существует).
+# 2) fresh install — postgresql_replication_target_version, если он задан (проброшен от primary
+#    через hostvars — путь для реплик), иначе postgresql_replication_version (дефолт fresh install
+#    на самом primary). НЕ переопределяйте эту переменную напрямую — переопределяйте
+#    target_version/version.
+postgresql_replication_effective_version: >-
+  {{ postgresql_replication_discovered_version
+     if (postgresql_replication_existing_instance | default(false))
+        and (postgresql_replication_discovered_version | default('') | length > 0)
+     else (postgresql_replication_target_version
+           if postgresql_replication_target_version | length > 0
+           else postgresql_replication_version) }}

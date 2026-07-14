@@ -1,0 +1,12 @@
+---
+# repmgr и pgBackRest — оба из PGDG (тот же репозиторий, что и сам PostgreSQL, ADR §1/§8).
+# Устанавливаются всегда, независимо от adopt/fresh install PostgreSQL — это новые компоненты для
+# роли, которых на adopt-хосте с уже работающим PostgreSQL ещё нет.
+
+- name: "Установить postgresql-repmgr и pgBackRest (версия: {{ postgresql_replication_effective_version }})"
+  ansible.builtin.apt:
+    name:
+      - "postgresql-{{ postgresql_replication_effective_version }}-repmgr"
+      - pgbackrest
+    state: present
+    update_cache: true

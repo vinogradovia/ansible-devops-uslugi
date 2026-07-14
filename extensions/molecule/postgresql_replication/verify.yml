@@ -1,0 +1,204 @@
+---
+- name: Verify (primary)
+  hosts: postgresql_primary
+  become: true
+  gather_facts: false
+  tasks:
+    # --- Adopt не должен переустанавливать PostgreSQL (ADR §2) — данные, созданные ДО роли
+    # (prepare.yml), должны пережить converge без потерь. -------------------------------------
+    - name: Проверить, что "боевые" данные пережили adopt
+      become: true
+      become_user: postgres
+      ansible.builtin.command: >
+        psql -tc "SELECT note FROM marker WHERE id=1;" -d molecule_preexisting
+      register: molecule_adopt_marker
+      changed_when: false
+
+    - name: Adopt не должен был переустановить PostgreSQL
+      ansible.builtin.assert:
+        that:
+          - molecule_adopt_marker.stdout | trim == 'adopted-not-reinstalled'
+        fail_msg: >-
+          Данные, созданные до роли, не найдены после converge — похоже, роль переустановила
+          PostgreSQL вместо adopt (см. tasks/detect-existing-instance.yml).
+        quiet: true
+
+    # --- wal_level/shared_preload_libraries/archive_mode (ADR §4/§8) --------------------------
+    - name: Прочитать настройки репликации на primary
+      become: true
+      become_user: postgres
+      ansible.builtin.command: >
+        psql -tc "SHOW wal_level;"
+      register: molecule_primary_wal_level
+      changed_when: false
+
+    - name: Прочитать shared_preload_libraries
+      become: true
+      become_user: postgres
+      ansible.builtin.command: >
+        psql -tc "SHOW shared_preload_libraries;"
+      register: molecule_primary_preload
+      changed_when: false
+
+    - name: Прочитать archive_mode (должен быть off на primary — backup_source_role=dr_replica)
+      become: true
+      become_user: postgres
+      ansible.builtin.command: >
+        psql -tc "SHOW archive_mode;"
+      register: molecule_primary_archive_mode
+      changed_when: false
+
+    - name: Настройки primary должны соответствовать роли
+      ansible.builtin.assert:
+        that:
+          - molecule_primary_wal_level.stdout | trim == 'replica'
+          - "'repmgr' in molecule_primary_preload.stdout"
+          - molecule_primary_archive_mode.stdout | trim == 'off'
+        fail_msg: >-
+          wal_level={{ molecule_primary_wal_level.stdout }}
+          shared_preload_libraries={{ molecule_primary_preload.stdout }}
+          archive_mode={{ molecule_primary_archive_mode.stdout }}
+        quiet: true
+
+    # --- Репликационный/repmgr пользователи (ADR §4) -------------------------------------------
+    - name: Проверить наличие репликационного и repmgr пользователей
+      become: true
+      become_user: postgres
+      ansible.builtin.command: >
+        psql -tc "SELECT rolname FROM pg_roles WHERE rolname IN ('repl','repmgr') ORDER BY rolname;"
+      register: molecule_primary_roles
+      changed_when: false
+
+    - name: Оба пользователя должны быть заведены
+      ansible.builtin.assert:
+        that:
+          - "'repl' in molecule_primary_roles.stdout"
+          - "'repmgr' in molecule_primary_roles.stdout"
+        fail_msg: "{{ molecule_primary_roles.stdout }}"
+        quiet: true
+
+    # --- Кластер repmgr должен видеть все три узла (ADR §10 — "verify проверяет repmgr cluster
+    # show") -------------------------------------------------------------------------------------
+    - name: Repmgr cluster show
+      become: true
+      become_user: postgres
+      ansible.builtin.command: repmgr -f /etc/repmgr.conf cluster show
+      environment:
+        PGPASSWORD: "{{ postgresql_replication_repmgr_password }}"
+      register: molecule_cluster_show
+      changed_when: false
+
+    - name: Кластер должен состоять из трёх узлов без failed/unreachable
+      ansible.builtin.assert:
+        that:
+          - "'primary' in molecule_cluster_show.stdout"
+          - molecule_cluster_show.stdout.count('standby') == 2
+          - "'failed' not in molecule_cluster_show.stdout"
+          - "'unreachable' not in molecule_cluster_show.stdout"
+        fail_msg: "{{ molecule_cluster_show.stdout }}"
+        quiet: true
+
+    # --- Функциональная проверка репликации: пишем тестовую строку -----------------------------
+    - name: Сгенерировать уникальный маркер для проверки репликации
+      ansible.builtin.set_fact:
+        molecule_test_marker: "{{ lookup('pipe', 'date +%s%N') }}"
+
+    - name: Создать тестовую схему/таблицу
+      become: true
+      become_user: postgres
+      changed_when: true
+      ansible.builtin.command: >
+        psql -tc "SELECT 1 FROM pg_database WHERE datname = 'molecule_test'"
+      register: molecule_test_db_check
+      failed_when: false
+
+    - name: Создать БД molecule_test, если её ещё нет
+      when: molecule_test_db_check.stdout | trim != '1'
+      become: true
+      become_user: postgres
+      changed_when: true
+      ansible.builtin.command: psql -c "CREATE DATABASE molecule_test;"
+
+    - name: Создать таблицу probe
+      become: true
+      become_user: postgres
+      changed_when: true
+      ansible.builtin.command: >
+        psql -d molecule_test -c "
+        CREATE TABLE IF NOT EXISTS probe (id SERIAL PRIMARY KEY, marker VARCHAR(64));"
+
+    - name: Записать маркер на primary
+      become: true
+      become_user: postgres
+      changed_when: true
+      ansible.builtin.command: >
+        psql -d molecule_test -c "INSERT INTO probe (marker) VALUES ('{{ molecule_test_marker }}');"
+
+- name: Verify (реплики)
+  hosts: postgresql_read_replica:postgresql_dr_replica
+  become: true
+  gather_facts: false
+  vars:
+    molecule_test_marker: "{{ hostvars[groups['postgresql_primary'][0]].molecule_test_marker }}"
+  tasks:
+    # --- Реплика должна быть в recovery-режиме (ADR §4 — read-only обеспечивается штатным
+    # recovery-режимом PostgreSQL, отдельного флага не требуется) ------------------------------
+    - name: Проверить pg_is_in_recovery()
+      become: true
+      become_user: postgres
+      ansible.builtin.command: >
+        psql -tc "SELECT pg_is_in_recovery();"
+      register: molecule_replica_recovery
+      changed_when: false
+
+    - name: Реплика должна быть в recovery-режиме
+      ansible.builtin.assert:
+        that:
+          - molecule_replica_recovery.stdout | trim == 't'
+        quiet: true
+
+    # --- Отставание репликации (аналог Seconds_Behind_Source в MySQL) --------------------------
+    - name: Прочитать отставание репликации
+      become: true
+      become_user: postgres
+      ansible.builtin.command: >
+        psql -tc "SELECT COALESCE(EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp())), 0);"
+      register: molecule_replica_lag
+      changed_when: false
+
+    - name: Отставание должно быть небольшим
+      ansible.builtin.assert:
+        that:
+          - (molecule_replica_lag.stdout | trim | float) < 30
+        fail_msg: "lag={{ molecule_replica_lag.stdout }}"
+        quiet: true
+
+    # --- Запись на реплику должна быть отклонена штатным recovery-режимом ----------------------
+    - name: Попытка записи на реплику
+      become: true
+      become_user: postgres
+      ansible.builtin.command: >
+        psql -d molecule_test -c "INSERT INTO probe (marker) VALUES ('should-be-rejected');"
+      register: molecule_write_attempt
+      failed_when: false
+      changed_when: false
+
+    - name: Запись на реплику должна завершиться ошибкой read-only транзакции
+      ansible.builtin.assert:
+        that:
+          - molecule_write_attempt.rc != 0
+          - "'read-only' in molecule_write_attempt.stderr | lower"
+        fail_msg: "{{ molecule_write_attempt.stderr }}"
+        quiet: true
+
+    # --- Тестовая запись с primary должна дойти "за секунды" ------------------------------------
+    - name: Дождаться появления тестовой записи, реплицированной с primary
+      become: true
+      become_user: postgres
+      ansible.builtin.command: >
+        psql -tc "SELECT COUNT(*) FROM probe WHERE marker='{{ molecule_test_marker }}';" -d molecule_test
+      register: molecule_probe_count
+      until: molecule_probe_count.stdout | trim == '1'
+      retries: 15
+      delay: 2
+      changed_when: false

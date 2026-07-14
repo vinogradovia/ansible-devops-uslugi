@@ -47,6 +47,12 @@
     enabled: "{{ monitoring_agent_mysqld_exporter_enabled }}"
     state: restarted
 
+- name: Restart service postgres-exporter
+  ansible.builtin.systemd:
+    name: "{{ monitoring_agent_postgres_exporter_systemd_name }}"
+    enabled: "{{ monitoring_agent_postgres_exporter_enabled }}"
+    state: restarted
+
 - name: Restart service {{ monitoring_agent_pve_exporter_systemd_name }}
   ansible.builtin.systemd:
     name: "{{ monitoring_agent_pve_exporter_systemd_name }}"

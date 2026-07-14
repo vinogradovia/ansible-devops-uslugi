@@ -1,0 +1,60 @@
+groups:
+
+- name: PostgresExporter
+
+
+  rules:
+
+    # 1m delay allows a restart without triggering an alert.
+    - alert: PostgresDown
+      expr: 'pg_up == 0'
+      for: 1m
+      labels:
+        severity: critical
+      annotations:
+        summary: PostgreSQL down (instance {{ $labels.instance }})
+        description: "PostgreSQL instance is down on {{ $labels.instance }}\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+
+    # Порог 300s — идентичен mysql_replication_lag (docs/adr/0005-postgresql-ha-replication-role.md
+    # §8: нет оснований для другого значения при сопоставимой нагрузке). pg_replication_lag_seconds
+    # — встроенная метрика postgres_exporter (0 на primary, реальный лаг на реплике).
+    - alert: PostgresReplicationLagTooHigh
+      expr: 'pg_replication_lag_seconds > 300'
+      for: 2m
+      labels:
+        severity: warning
+      annotations:
+        summary: PostgreSQL replication lag too high (instance {{ $labels.instance }})
+        description: "Replication lag on {{ $labels.instance }} is above 300 seconds\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+
+    # На primary отсутствие строк pg_stat_replication ожидаемо только если реплик вообще не
+    # должно быть — если для этого инстанса ожидается хотя бы одна реплика (postgresql_primary с
+    # непустой postgresql_read_replica/postgresql_dr_replica, ADR §3), пропажа серии на 5 минут
+    # означает разрыв репликации. Область применения (какие instance должны иметь реплики) —
+    # ответственность оператора при подключении этих правил (см. README, "Вне скоупа").
+    - alert: PostgresReplicationBroken
+      expr: 'absent_over_time(pg_stat_replication_pg_wal_lsn_diff[5m])'
+      for: 0m
+      labels:
+        severity: critical
+      annotations:
+        summary: PostgreSQL replication appears broken (instance {{ $labels.instance }})
+        description: "No pg_stat_replication rows reported by {{ $labels.instance }} for 5 minutes — check whether a replica lost connection to the primary.\n  LABELS = {{ $labels }}"
+
+    - alert: PostgresRestarted
+      expr: 'time() - pg_postmaster_start_time_seconds < 60'
+      for: 0m
+      labels:
+        severity: info
+      annotations:
+        summary: PostgreSQL restarted (instance {{ $labels.instance }})
+        description: "PostgreSQL has just been restarted, less than one minute ago on {{ $labels.instance }}.\n  LABELS = {{ $labels }}"
+
+    - alert: PostgresTooManyConnections(>80%)
+      expr: 'sum(pg_stat_activity_count) by (instance) / pg_settings_max_connections * 100 > 80'
+      for: 2m
+      labels:
+        severity: warning
+      annotations:
+        summary: PostgreSQL too many connections (> 80%) (instance {{ $labels.instance }})
+        description: "More than 80% of PostgreSQL connections are in use on {{ $labels.instance }}\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"

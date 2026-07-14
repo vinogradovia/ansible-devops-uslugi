@@ -1,0 +1,60 @@
+---
+# Fail-fast на обязательные переменные без дефолтов — тот же паттерн, что уже используется в
+# mysql_replication/tasks/assert-required-vars.yml (ADR §9).
+
+- name: Assert postgresql_replication_role is valid
+  ansible.builtin.assert:
+    that:
+      - postgresql_replication_role in ['primary', 'read_replica', 'dr_replica']
+    fail_msg: >-
+      postgresql_replication_role must be one of: primary, read_replica, dr_replica
+      (got: {{ postgresql_replication_role }})
+
+- name: Assert postgresql_replication_node_id is set
+  ansible.builtin.assert:
+    that:
+      - postgresql_replication_node_id | string | length > 0
+    fail_msg: >-
+      postgresql_replication_node_id is required and must be unique per host — set it explicitly
+      in host_vars, it has no default (repmgr requires a unique integer node_id per cluster node).
+
+- name: Assert repmgr password is set
+  ansible.builtin.assert:
+    that:
+      - postgresql_replication_repmgr_password | length > 0
+    fail_msg: >-
+      postgresql_replication_repmgr_password is required on every node — set it via Ansible Vault
+      (see ADR §9), it has no default.
+
+- name: Assert replication user password is set (primary)
+  when: postgresql_replication_role == 'primary'
+  ansible.builtin.assert:
+    that:
+      - postgresql_replication_repl_password | length > 0
+    fail_msg: >-
+      postgresql_replication_repl_password is required on the primary — set it via Ansible Vault
+      (see ADR §9), it has no default.
+
+- name: Assert primary connection details are set (replicas)
+  when: postgresql_replication_role in ['read_replica', 'dr_replica']
+  ansible.builtin.assert:
+    that:
+      - postgresql_replication_primary_host | length > 0
+      - postgresql_replication_repl_password | length > 0
+    fail_msg: >-
+      postgresql_replication_primary_host and postgresql_replication_repl_password are required
+      on replicas (the latter is the same credential provisioned on the primary — see ADR §4, §9).
+
+- name: Assert S3 backup credentials are set (backup source host)
+  when:
+    - postgresql_replication_backup_enabled
+    - postgresql_replication_role == postgresql_replication_backup_source_role
+  ansible.builtin.assert:
+    that:
+      - postgresql_replication_backup_s3_endpoint | length > 0
+      - postgresql_replication_backup_s3_bucket | length > 0
+      - postgresql_replication_backup_s3_access_key | length > 0
+      - postgresql_replication_backup_s3_secret_key | length > 0
+    fail_msg: >-
+      postgresql_replication_backup_enabled=true requires S3 endpoint/bucket/credentials
+      (Vault, see ADR §9).

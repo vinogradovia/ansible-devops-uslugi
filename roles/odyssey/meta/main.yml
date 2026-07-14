@@ -1,0 +1,11 @@
+---
+galaxy_info:
+  author: Ivan Vinogradov <vinogradovia@gmail.com>
+  description: Yandex Odyssey connection pooler for PostgreSQL — declarative db-write/db-read routes to primary/read-source backends
+  license: WTFPL
+  min_ansible_version: "2.2"
+  galaxy_tags:
+    - postgresql
+    - pooler
+    - database
+dependencies: []

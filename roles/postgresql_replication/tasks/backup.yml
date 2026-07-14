@@ -1,0 +1,72 @@
+---
+# Физические бэкапы через pgBackRest, доставка в S3 встроенным S3-driver, ретеншн — нативные
+# политики pgBackRest (ADR §8). Выполняется только на хосте
+# postgresql_replication_backup_source_role (по умолчанию dr_replica) — см. условие в
+# tasks/main.yml.
+
+- name: Create log directory for pgBackRest
+  ansible.builtin.file:
+    path: /var/log/pgbackrest
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0750'
+
+- name: Create textfile_collector directory for backup metric
+  ansible.builtin.file:
+    path: "{{ postgresql_replication_backup_metrics_textfile_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Render pgbackrest.conf
+  ansible.builtin.template:
+    src: pgbackrest.conf.j2
+    dest: /etc/pgbackrest.conf
+    owner: postgres
+    group: postgres
+    mode: '0640'
+
+# pgbackrest stanza-create безопасно перезапускать (idempotent по документации pgBackRest — если
+# stanza уже создана и конфигурация не поменялась, команда не делает ничего разрушительного).
+# changed_when не анализирует stdout — тот же прагматичный паттерн, что и Helmwave up в
+# monitoring_server (roles/monitoring_server/tasks/monitoring-server.k3s.yml, ADR-0007 §11):
+# всегда changed=true на уровне ansible-задачи.
+- name: Create the pgBackRest stanza (safe to re-run)
+  become: true
+  become_user: postgres
+  ansible.builtin.command: >-
+    pgbackrest --stanza={{ postgresql_replication_pgbackrest_stanza }} stanza-create
+  changed_when: true
+
+- name: Render backup script
+  ansible.builtin.template:
+    src: backup-postgresql.sh.j2
+    dest: /usr/local/sbin/postgresql-backup.sh
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Render systemd service/timer for daily backup
+  ansible.builtin.template:
+    src: "systemd/{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop:
+    - postgresql-backup.service
+    - postgresql-backup.timer
+  notify:
+    - Reload systemd daemon
+    - Restart postgresql-backup.timer
+
+- name: Force handlers to run now
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable postgresql-backup.timer
+  ansible.builtin.systemd:
+    name: postgresql-backup.timer
+    enabled: true
+    state: started

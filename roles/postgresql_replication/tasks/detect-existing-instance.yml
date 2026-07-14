@@ -1,0 +1,44 @@
+---
+# Adopt vs fresh install (ADR §2). На primary PostgreSQL обычно уже установлен и работает с
+# боевыми данными — роль не должна его переустанавливать, только донастроить репликацию. На
+# read-реплике и DR-реплике сервис обычно отсутствует (fresh install).
+#
+# В отличие от MySQL (один бинарник `mysqld --version`), Debian-пакетирование PostgreSQL
+# (postgresql-common) поддерживает несколько параллельных версий/кластеров на одном хосте —
+# источник истины про "что реально сконфигурировано и работает" — `pg_lsclusters`, а не версия
+# бинарника.
+
+- name: Gather service facts
+  ansible.builtin.service_facts:
+
+- name: Check for an existing PostgreSQL cluster (pg_lsclusters, if postgresql-common is present)
+  when: "'postgresql.service' in ansible_facts.services"
+  ansible.builtin.command: pg_lsclusters --no-header
+  register: postgresql_replication_lsclusters_check
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Set adopt/fresh-install facts
+  # Тот же нюанс, что и в mysql_replication/tasks/detect-existing-instance.yml: встроенный тест
+  # Ansible `succeeded` — это буквально `not failed`, он НЕ исключает skipped-таски. Правильный
+  # признак "проверка реально выполнилась и что-то нашла" — наличие `.stdout` и непустой вывод.
+  ansible.builtin.set_fact:
+    postgresql_replication_existing_instance: >-
+      {{ postgresql_replication_lsclusters_check.stdout is defined
+         and postgresql_replication_lsclusters_check.stdout | length > 0 }}
+    # Пример строки pg_lsclusters: "17  main  5432 online postgres /var/lib/postgresql/17/main ...".
+    # Первая колонка — Ver. Проброс репликам — через
+    # hostvars[groups['postgresql_primary'][0]].postgresql_replication_discovered_version.
+    postgresql_replication_discovered_version: >-
+      {{ postgresql_replication_lsclusters_check.stdout_lines[0].split()[0]
+         if (postgresql_replication_lsclusters_check.stdout is defined
+             and postgresql_replication_lsclusters_check.stdout | length > 0)
+         else '' }}
+
+- name: Report detection result
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'Adopt: existing PostgreSQL cluster (version ' ~ postgresql_replication_discovered_version ~ ') detected, will not reinstall.'
+         if postgresql_replication_existing_instance
+         else 'No existing PostgreSQL cluster detected, will install target version.' }}

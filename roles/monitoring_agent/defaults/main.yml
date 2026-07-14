@@ -152,6 +152,30 @@ monitoring_agent_mysqld_exporter_binary_download_url: https://github.com/prometh
 monitoring_agent_mysqld_exporter_binary_checksum: sha256:46e8f45654352bdd42d162b2b4a68f00055d45acc168f9c068235b9e3acc39c1
 monitoring_agent_mysqld_exporter_binary_install_path: /usr/sbin/mysqld_exporter
 
+# postgres_exporter — образец структуры переменных для нового экспортёра
+# (prometheus-community/postgres_exporter), см. AGENTS.md и mysqld_exporter выше. Используется
+# docs/adr/0005-postgresql-ha-replication-role.md §8 (postgresql_replication/odyssey) для
+# pg_replication_lag_seconds и т.п. Только systemd-режим (как и mysqld_exporter — без
+# docker-варианта).
+monitoring_agent_postgres_exporter_enabled: false
+# Порт, на котором сам экспортёр отдаёт метрики (:9187) — не путать с pg_port ниже (порт
+# PostgreSQL, к которому экспортёр подключается за метриками).
+monitoring_agent_postgres_exporter_port: '9187'
+monitoring_agent_postgres_exporter_host: "127.0.0.1"
+monitoring_agent_postgres_exporter_pg_port: 5432
+monitoring_agent_postgres_exporter_database: postgres
+# Отдельный exporter-пользователь с минимальными правами (роль pg_monitor, встроенная в
+# PostgreSQL) — НЕ repmgr/repl-пользователи из postgresql_replication (ADR §4, разделение по
+# назначению). Заведение этого пользователя на серверах PostgreSQL — забота
+# оператора/плейбука-оркестратора, не роли monitoring_agent (тот же принцип композиции, что и в
+# ADR §11).
+monitoring_agent_postgres_exporter_user: "postgres-exporter"
+monitoring_agent_postgres_exporter_password: ""
+monitoring_agent_postgres_exporter_systemd_name: postgres_exporter
+monitoring_agent_postgres_exporter_binary_download_url: https://github.com/prometheus-community/postgres_exporter/releases/download/v0.20.1/postgres_exporter-0.20.1.linux-amd64.tar.gz
+monitoring_agent_postgres_exporter_binary_checksum: sha256:89d4f7e7920cad48fdc3133f789556ef5253c330a9f5fdace3bdb6344c0a8b5a
+monitoring_agent_postgres_exporter_binary_install_path: /usr/sbin/postgres_exporter
+
 # pve_exporter
 monitoring_agent_pve_exporter_enabled: false
 monitoring_agent_pve_exporter_config_dir: "{{ monitoring_agent_config_dir }}/{{ monitoring_agent_pve_exporter_systemd_name }}"
