@@ -69,6 +69,7 @@ services:
   loki_read:
     image: {{ monitoring_server_grafana_loki_image }}
     command: "-config.file=/etc/loki/config.yaml -target=read"
+    restart: unless-stopped
     ports:
       - 3101:3100
       - 7946
@@ -92,6 +93,7 @@ services:
   loki_write:
     image: {{ monitoring_server_grafana_loki_image }}
     command: "-config.file=/etc/loki/config.yaml -target=write"
+    restart: unless-stopped
     ports:
       - 3102:3100
       - 7946
@@ -125,6 +127,7 @@ services:
 
   loki_backend:
     image: {{ monitoring_server_grafana_loki_image }}
+    restart: unless-stopped
     volumes:
       - {{ monitoring_server_config_dir }}/loki/loki-config.yaml:/etc/loki/config.yaml
     ports:
@@ -138,6 +141,7 @@ services:
 
   loki_gateway:
     image: {{ monitoring_server_grafana_loki_gateway_image }}
+    restart: unless-stopped
     depends_on:
       - loki_read
       - loki_write
@@ -211,6 +215,7 @@ services:
 {% if monitoring_server_local_storage_s3_enabled %}
   s3:
     image: {{ monitoring_server_local_storage_s3_image }}
+    restart: unless-stopped
     entrypoint:
       - sh
       - -euc

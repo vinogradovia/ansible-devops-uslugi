@@ -10,6 +10,20 @@ monitoring_server_helmwave_dir: "{{ role_path | dirname | dirname }}/helm"
 monitoring_server_helmwave_tmp: "{{ monitoring_server_helmwave_dir }}/tmp"
 monitoring_server_kubernetes_namespace: monitoring
 
+# helmwave up (см. docs/adr/0007-monitoring-server-role.md §6) — читает
+# {{ monitoring_server_helmwave_dir }}/envs/{{ monitoring_server_helmwave_k8s_cluster }}.yaml.
+# Дефолт "k3s-monitoring" соответствует единственному env-файлу, который сейчас есть в helm/envs/ —
+# пользователи коллекции с собственным helm/ должны переопределить под имя своего env-файла.
+monitoring_server_helmwave_k8s_cluster: k3s-monitoring
+# --yml/--templater нужны, только если monitoring_server_helmwave_dir использует шаблонизированный
+# helmwave.yml.tpl (gomplate: requiredEnv/readFile/fromYaml) — если у пользователя коллекции лежит
+# только статический helmwave.yml, выставьте monitoring_server_helmwave_auto_yml: false.
+monitoring_server_helmwave_auto_yml: true
+monitoring_server_helmwave_templater: gomplate
+# Пусто — helmwave up ставит все releases из env-файла. Ограничить можно списком тегов
+# (см. helm/helmwave.yml — у каждого release уже есть теги name/namespace-name).
+monitoring_server_helmwave_tags: []
+
 monitoring_server_docker_proxy_network_external: true
 monitoring_server_docker_proxy_network_name: proxy
 monitoring_server_docker_logging_defaults:

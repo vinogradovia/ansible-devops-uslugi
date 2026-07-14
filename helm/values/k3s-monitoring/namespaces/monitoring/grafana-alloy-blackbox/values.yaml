@@ -1,0 +1,142 @@
+---
+
+blackbox_data:
+  moon_ru_sites:
+    - admin.example.com
+    - www.example.com
+    - abakan.example.com
+    # - adygeja.example.com
+    # - arkhangelsk.example.com
+    # - barnaul.example.com
+    # - bashkortostan.example.com
+    # - belgorod.example.com
+    # - blagoveschensk.example.com
+    # - bratsk.example.com
+    # - bryansk.example.com
+    # - buryatia.example.com
+    # - chechnya.example.com
+    # - chel.example.com
+    # - chelny.example.com
+    # - cherkessk.example.com
+    # - chita.example.com
+    # - chuvashia.example.com
+    - ekb.example.com
+    # - irkutsk.example.com
+    # - ivanovo.example.com
+    # - kaliningrad.example.com
+    # - kaluga.example.com
+    # - karaganda.example.com
+    # - karelia.example.com
+    # - kazaxstan.example.com
+    # - kbr.example.com
+    # - kemerovo.example.com
+    # - khabarovsk.example.com
+    # - kirov.example.com
+    # - komi.example.com
+    # - komsomolsk-na-amure.example.com
+    # - kostroma.example.com
+    # - krasnodar.example.com
+    # - krasnoyarsk.example.com
+    # - krym.example.com
+    # - kurgan.example.com
+    # - kursk.example.com
+    # - lipetsk.example.com
+    # - magnitogorsk.example.com
+    # - makhachkala.example.com
+    # - mordovija.example.com
+    # - murmansk.example.com
+    # - neryungri.example.com
+    # - nnov.example.com
+    # - novgorod.example.com
+    # - novorossijsk.example.com
+    # - novosib.example.com
+    # - omsk.example.com
+    # - orel.example.com
+    # - orenburg.example.com
+    # - pavlodar.example.com
+    # - perm.example.com
+    # - petropavlovsk.example.com
+    # - pskov.example.com
+    # - rnd.example.com
+    # - ryazan.example.com
+    # - sahalin.example.com
+    # - samara.example.com
+    # - saratov.example.com
+    # - sevosetia.example.com
+    # - smolensk.example.com
+    # - sochi.example.com
+    # - spb.example.com
+    # - stavropol.example.com
+    # - sterlitamak.example.com
+    # - tambov.example.com
+    # - tatarstan.example.com
+    # - tula.example.com
+    - tver.example.com
+    # - tyumen.example.com
+    # - udmurtia.example.com
+    # - ulianovsk.example.com
+    # - vladimir.example.com
+    # - vladivostok.example.com
+    # - volgodonsk.example.com
+    # - volgograd.example.com
+    # - vologda.example.com
+    # - voronezh.example.com
+    # - yaroslavl.example.com
+
+## Various Alloy settings. For backwards compatibility with the grafana-agent
+## chart, this field may also be called "agent". Naming this field "agent" is
+## deprecated and will be removed in a future release.
+alloy:
+  configMap:
+    # -- Create a new ConfigMap for the config file.
+    create: true
+    # -- Content to assign to the new ConfigMap.  This is passed into `tpl` allowing for templating from values.
+    content: |
+      prometheus.exporter.blackbox "moon_sites" {
+        config = "{ modules: { http_2xx: { prober: http, timeout: 5s } } }"
+
+        {{- range $.Values.blackbox_data.moon_ru_sites }}
+        target {
+          name    = {{ . | quote }}
+          address = "https://{{ . }}"
+          module  = "http_2xx"
+        }
+        {{- end }}
+      }
+
+      discovery.relabel "moon_sites" {
+        targets = prometheus.exporter.blackbox.moon_sites.targets
+
+        rule {
+          source_labels = ["__param_target"]
+          target_label = "instance"
+        }
+      }
+
+      // Configure a prometheus.scrape component to collect blackbox metrics.
+      prometheus.scrape "moon_sites" {
+        targets    = discovery.relabel.moon_sites.output
+        forward_to = [prometheus.remote_write.vm.receiver]
+      }
+
+      prometheus.remote_write "vm" {
+        endpoint {
+          url = "http://vmsingle-vm-victoria-metrics-k8s-stack:8428/api/v1/write"
+
+          // basic_auth {
+          //   username = USERNAME
+          //   password = PASSWORD
+          // }
+        }
+      }
+
+  mounts:
+    # -- Mount /var/log from the host into the container for log collection.
+    varlog: true
+    # -- Mount /var/lib/docker/containers from the host into the container for log
+    # collection.
+    dockercontainers: true
+
+    # -- Extra volume mounts to add into the Grafana Alloy container. Does not
+    # affect the watch container.
+    extra: []
