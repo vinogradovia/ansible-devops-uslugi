@@ -232,8 +232,14 @@ group_vars/postgresql_primary/vault.yml`).
 проверять на ВМ, чем в контейнерах. Сценарий поднимает минимум три ВМ
 (primary/read_replica/dr_replica), converge прогоняет обе ветки (primary/adopt и replica/fresh
 install), verify проверяет `repmgr cluster show` и реальную репликацию (запись на primary,
-чтение на репликах). Зависимость `molecule-plugins[vagrant]` в `pyproject.toml` — уже добавлена
-для `mysql_replication`, переиспользуется без изменений.
+чтение на репликах), а последним шагом — ручной promote (§7): assert в `tasks/promote.yml`
+отклоняет попытку на primary, а на DR-реплике promote реально выполняется (`repmgr standby
+promote` через `include_role`/`tasks_from: promote`, в обход тегов `postgresql_replication_promote
++ never` — тот же эффект, что `--tags postgresql_replication_promote --limit <host>` у оператора,
+без проверки самого механизма тегов) и проверяется выходом из recovery-режима и успешной записью.
+Выполняется последним, т.к. необратимо меняет состояние ВМ перед `destroy`. Зависимость
+`molecule-plugins[vagrant]` в `pyproject.toml` — уже добавлена для `mysql_replication`,
+переиспользуется без изменений.
 
 Отдельный сценарий для `odyssey` — `driver: docker` (как `nginx_multidomain`/`reverse_proxy_npm`),
 так как это одиночный stateless-сервис без требований к устойчивому диску/нескольким узлам.

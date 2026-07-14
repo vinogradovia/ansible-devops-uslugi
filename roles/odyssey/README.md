@@ -75,6 +75,8 @@ GRANT ALL PRIVILEGES ON DATABASE myapp TO app;
 
 ## Пример
 
+Готовый плейбук-заготовка — `examples/playbooks/odyssey.yml`.
+
 ```yaml
 - hosts: odyssey_hosts
   vars:

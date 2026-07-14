@@ -25,6 +25,9 @@
 Задавайте `postgresql_replication_role` в `group_vars` соответствующей группы, а не поштучно в
 hostvars.
 
+Готовый пример плейбука-оркестратора (тот же состав плеев, что и ниже в этом разделе) —
+`examples/playbooks/postgresql-replicas.yml`.
+
 ## Discovery версии (важно для порядка плеев)
 
 На primary роль **не переустанавливает** PostgreSQL (adopt-режим, ADR §2) — вместо этого читает
@@ -97,6 +100,11 @@ ansible-playbook -i inventory.yml postgresql-replicas.yml \
 
 Это только техническая часть — полная письменная инструкция на русском (переключение, обратное
 переключение, восстановление из копии) — `docs/runbooks/postgresql-failover.md` (ADR §7).
+
+Molecule-сценарий (см. ниже) покрывает эту логику последним шагом `verify.yml`: убеждается, что
+promote на primary отклоняется assert'ом, и реально промоутит DR-реплику (`repmgr standby
+promote` напрямую через `tasks_from: promote`, в обход тегов), проверяя выход из recovery-режима
+и запись после promote.
 
 ## Бэкапы
 

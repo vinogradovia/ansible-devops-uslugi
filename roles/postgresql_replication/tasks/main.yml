@@ -72,9 +72,18 @@
 
 # Ручная операция (ADR §7) — никогда не выполняется в обычном прогоне. Запускается оператором
 # явно: ansible-playbook ... --tags postgresql_replication_promote --limit <dr-replica-host>
+#
+# apply.tags обязателен: tags на include_tasks (динамический include, в отличие от import_tasks)
+# по умолчанию применяются ТОЛЬКО к самой задаче include, а не к задачам внутри promote.yml — без
+# apply они молча отфильтровываются при запуске с --tags postgresql_replication_promote (сам
+# include матчится и разворачивается, но ни assert, ни repmgr standby promote внутри не выполняются
+# — воспроизведено и подтверждено на минимальном примере, никаких изменений на хосте).
 - name: Promote replica to writable primary (manual operation only)
   ansible.builtin.include_tasks:
     file: promote.yml
+    apply:
+      tags:
+        - postgresql_replication_promote
   tags:
     - postgresql_replication_promote
     - never

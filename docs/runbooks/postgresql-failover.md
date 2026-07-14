@@ -43,7 +43,8 @@ Ansible-прогон** на группы `postgresql_primary`/`postgresql_read_r
 - SSH/VPN-доступ к хостам `postgresql_primary`, `postgresql_read_replica`, `postgresql_dr_replica`,
   Odyssey — тот же межДЦ-туннель, через который идёт репликация.
 - Знать актуальные имена ваших плейбуков-оркестраторов (ниже используются условные имена
-  `postgresql-replicas.yml` и `odyssey.yml` — замените на реальные).
+  `postgresql-replicas.yml` и `odyssey.yml` — примеры-заготовки с таким содержимым см.
+  `examples/playbooks/`, адаптируйте под свой inventory).
 
 ---
 
