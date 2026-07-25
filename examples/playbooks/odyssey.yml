@@ -1,0 +1,47 @@
+---
+# Пример плейбука-оркестратора для роли devops.uslugi.odyssey.
+#
+# На это имя (odyssey.yml) ссылаются docs/runbooks/postgresql-failover.md и
+# roles/odyssey/README.md как на условное — этот файл даёт им реальное содержимое, но перед
+# боевым использованием адаптируйте под свой inventory.
+#
+# Запускать ПОСЛЕ postgresql-replicas.yml (см. examples/playbooks/postgresql-replicas.yml) —
+# backend-хосты вычисляются из hostvars/groups серверов PostgreSQL, которые должны существовать
+# в inventory на момент прогона.
+#
+# odyssey_backend_user/_password (учётная запись, под которой Odyssey ходит на backend и
+# аутентифицирует клиентов db-write/db-read) — без дефолта, задавайте через
+# group_vars/odyssey_hosts/vault.yml (ADR-0005 §9):
+#
+#   group_vars/odyssey_hosts/vault.yml (ansible-vault encrypt):
+#     odyssey_backend_user: app
+#     odyssey_backend_password: ...
+#
+# Эта роль не создаёт саму учётную запись на серверах PostgreSQL (ADR §11, композиция на уровне
+# инвентаря/плейбука) — см. roles/odyssey/README.md, «Учётная запись на backend'ах», пример
+# CREATE USER/GRANT.
+#
+# Read-источник (db-read) — read-реплика, если группа postgresql_read_replica непустая, иначе
+# fallback на DR-реплику (ADR §6). Это определяется составом inventory на момент прогона, не
+# живым переключением внутри Odyssey — см. roles/odyssey/README.md.
+#
+# Штатный прогон:
+#   ansible-playbook -i inventory.yml odyssey.yml
+#
+# Переключение backend'а при аварийном promote (docs/runbooks/postgresql-failover.md, раздел 2,
+# шаг 4) — явный override через -e поверх вычисленных по умолчанию значений:
+#   ansible-playbook -i inventory.yml odyssey.yml \
+#       -e "odyssey_write_backend_host=<ip_replica>" \
+#       -e "odyssey_read_backend_host=<ip_replica>"
+
+- name: Odyssey — единая точка подключения к PostgreSQL (db-write/db-read)
+  hosts: odyssey_hosts
+  become: true
+  vars:
+    odyssey_write_backend_host: "{{ hostvars[groups['postgresql_primary'][0]].ansible_host }}"
+    odyssey_read_backend_host: >-
+      {{ hostvars[groups['postgresql_read_replica'][0]].ansible_host
+         if groups['postgresql_read_replica'] | default([]) | length > 0
+         else hostvars[groups['postgresql_dr_replica'][0]].ansible_host }}
+  roles:
+    - devops.uslugi.odyssey
