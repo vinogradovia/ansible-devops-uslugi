@@ -152,23 +152,58 @@ ansible-playbook -i inventory.yml odyssey.yml \
 
 ### Шаг 1. Убедиться, что старый primary снова здоров
 
-PostgreSQL запущен, сеть/VPN до него работает, диск не переполнен:
+PostgreSQL запускается, сеть/VPN до него работает, диск не переполнен — это только проверка
+здоровья, ниже (шаг 2) службу придётся остановить снова перед `node rejoin`:
 
 ```bash
 ssh <ip_old_primary> 'sudo systemctl start postgresql@<version>-main'
 ```
 
-### Шаг 2. Присоединить старый primary как standby к новому primary
+### Шаг 2. Остановить PostgreSQL перед rejoin
+
+`repmgr node rejoin --force-rewind` внутри вызывает `pg_rewind`, а тот **требует, чтобы целевой
+сервер был корректно остановлен** — если PostgreSQL всё ещё запущен (состояние control-файла
+"in production"), команда откажет с ошибкой:
+
+```
+ERROR: database is still running in state "in production"
+HINT: "repmgr node rejoin" cannot be executed on a running node
+```
+
+Остановите службу перед следующим шагом:
 
 ```bash
-ssh <ip_old_primary> 'sudo -u postgres repmgr -f /etc/repmgr.conf node rejoin -d "host=<ip_new_primary> user=repmgr dbname=repmgr" --force-rewind --verbose'
+ssh <ip_old_primary> 'sudo systemctl stop postgresql@<version>-main'
 ```
+
+### Шаг 3. Присоединить старый primary как standby к новому primary
+
+Пароль обязателен через переменную окружения `PGPASSWORD`, не только через `password=` в `-d` —
+`node rejoin` открывает отдельное, replication-протокольное подключение (для
+`pg_rewind`/синхронизации) уже из ранее установленного соединения, а не заново из строки `-d`, и
+пароль туда не попадает, даже если он есть в `-d`. Тот же принцип, что и в `tasks/configure-
+replica.yml` роли (`standby clone` тоже replication-подключение под капотом, поэтому там пароль
+всегда передаётся через `environment: PGPASSWORD`, а не через conninfo). Без `PGPASSWORD` команда
+падает не сразу, а именно на этом отдельном подключении:
+```
+ERROR: connection to database failed
+DETAIL:
+connection to server at "<ip_new_primary>", port 5432 failed: fe_sendauth: no password supplied
+ERROR: unable to establish a replication connection to the rejoin target node
+```
+
+```bash
+ssh <ip_old_primary> 'sudo -u postgres env PGPASSWORD="<repmgr_password>" repmgr -f /etc/repmgr.conf node rejoin -d "host=<ip_new_primary> user=repmgr dbname=repmgr" --force-rewind --verbose'
+```
+
+Службу PostgreSQL запускать вручную после этой команды не нужно — при успешном rejoin `repmgr`
+сам запускает её в конце (в выводе будет строка `NOTICE: starting server ...`).
 
 Это делается вручную (не через `ansible-playbook`), т.к. задачи роли `postgresql_replication`
 рассчитаны на штатную топологию (роль хоста в inventory статически либо `primary`, либо реплика —
 см. ADR §7) — тот же принцип, что и в `mysql_replication`.
 
-### Шаг 3. Дождаться полной синхронизации
+### Шаг 4. Дождаться полной синхронизации
 
 ```bash
 sudo -u postgres repmgr -f /etc/repmgr.conf cluster show
@@ -176,9 +211,9 @@ sudo -u postgres repmgr -f /etc/repmgr.conf cluster show
 
 Ждите, пока старый primary отобразится как `standby` в состоянии `running`, без отставания
 (`SELECT now() - pg_last_xact_replay_timestamp();` на нём же, как в разделе 2, шаг 2). **Не
-переходите к шагу 4, пока отставание не станет пренебрежимо малым.**
+переходите к шагу 5, пока отставание не станет пренебрежимо малым.**
 
-### Шаг 4. Короткая пауза записи и собственно переключение
+### Шаг 5. Короткая пауза записи и собственно переключение
 
 В согласованное окно:
 
@@ -195,7 +230,7 @@ sudo -u postgres repmgr -f /etc/repmgr.conf cluster show
      -e "odyssey_read_backend_host=<ip_read_replica_or_dr>"
    ```
 
-### Шаг 5. Вернуть аварийную реплику в режим ожидания
+### Шаг 6. Вернуть аварийную реплику в режим ожидания
 
 Реплика, которая временно была writer'ом (из раздела 2), должна снова стать обычной репликой
 исходного primary (её `postgresql_replication_role` в inventory и так осталась `read_replica`/
@@ -207,7 +242,7 @@ clone` заново от нового primary:
 ansible-playbook -i inventory.yml postgresql-replicas.yml --limit <replica-host-that-was-promoted>
 ```
 
-### Шаг 6. Проверить и зафиксировать
+### Шаг 7. Проверить и зафиксировать
 
 - Тестовая запись снова проходит.
 - Чтение идёт на read-реплику (или DR, если read-реплики нет), запись — на primary (по логам
