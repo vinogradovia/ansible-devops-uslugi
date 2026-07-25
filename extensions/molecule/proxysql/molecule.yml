@@ -1,0 +1,83 @@
+---
+# driver: vagrant/libvirt — тот же паттерн, что extensions/molecule/mysql_replication/molecule.yml
+# (см. её комментарии и docs/adr/0004-mysql-ha-replication-role.md §10 для обоснования выбора
+# vagrant вместо docker). Настройка окружения — см. roles/mysql_replication/README.md,
+# "Локальное тестирование".
+#
+# Топология: два backend-сервера MySQL, поднятые ролью mysql_replication (primary + read-реплика
+# в реальной GTID-репликации, не заглушки) + сам ProxySQL. Так сценарий проверяет не только
+# установку ProxySQL как таковую, но и реальную маршрутизацию SELECT/запись между двумя живыми
+# backend'ами — см. verify.yml. DR-реплика намеренно не поднимается — она не участвует в
+# ProxySQL в обычном режиме (ADR §6).
+#
+# box параметризован через MOLECULE_BOX (тот же приём, что и в mysql_replication) — прогонять
+# для нескольких дистрибутивов нужно последовательно, не одновременно.
+driver:
+  name: vagrant
+  provider:
+    name: libvirt
+  default_box: generic/debian12
+
+platforms:
+  # Приватная сеть 192.168.57.0/24 — отдельная от 192.168.56.0/24 в mysql_replication, хотя
+  # сценарии и не запускаются одновременно.
+  - name: mysql-writer
+    box: "${MOLECULE_BOX:-generic/debian12}"
+    memory: 1024
+    cpus: 1
+    interfaces:
+      - auto_config: true
+        network_name: private_network
+        type: static
+        ip: 192.168.57.10
+    groups:
+      - mysql_primary
+
+  - name: mysql-reader
+    box: "${MOLECULE_BOX:-generic/debian12}"
+    memory: 1024
+    cpus: 1
+    interfaces:
+      - auto_config: true
+        network_name: private_network
+        type: static
+        ip: 192.168.57.11
+    groups:
+      - mysql_read_replica
+
+  - name: proxysql-host
+    box: "${MOLECULE_BOX:-generic/debian12}"
+    memory: 512
+    cpus: 1
+    interfaces:
+      - auto_config: true
+        network_name: private_network
+        type: static
+        ip: 192.168.57.12
+    groups:
+      - proxysql_hosts
+
+scenario:
+  # Без idempotence (в отличие от mysql_replication) — tasks/sync-*.yml роли proxysql
+  # декларативно пересоздают строки (DELETE managed hostgroups + INSERT желаемого состояния,
+  # ADR §6) вместо точечного diff-а: конечное состояние идемпотентно и стабильно (это и
+  # проверяет verify.yml — реальная маршрутизация SELECT/запись), но сам Ansible-модуль
+  # DELETE+INSERT всегда репортит changed, независимо от того, отличались ли данные. Найдено
+  # реальным прогоном molecule: idempotence-шаг падал не из-за бага, а из-за этого
+  # architectural trade-off, зафиксированного в ADR ещё до кода.
+  test_sequence:
+    - dependency
+    - destroy
+    - syntax
+    - create
+    - prepare
+    - converge
+    - verify
+    - destroy
+
+shared_state: false
+
+ansible:
+  executor:
+    args:
+      ansible_playbook: []

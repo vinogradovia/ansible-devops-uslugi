@@ -15,6 +15,7 @@
     - name: Download redis-exporter
       ansible.builtin.get_url:
         url: "{{ monitoring_agent_redis_exporter_binary_download_url }}"
+        checksum: "{{ monitoring_agent_redis_exporter_binary_checksum }}"
         dest: "{{ monitoring_agent_dist_dir }}"
         tmp_dest: "{{ monitoring_agent_dist_dir }}"
         owner: root
@@ -44,7 +45,8 @@
         dest: "{{ monitoring_agent_systemd_unit_dir }}/{{ monitoring_agent_redis_exporter_systemd_name }}.service"
         owner: root
         group: root
-        mode: '0644'
+        mode: '0600'
+      no_log: true
 
     - name: State service redis-exporter
       ansible.builtin.systemd:

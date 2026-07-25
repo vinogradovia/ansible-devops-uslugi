@@ -1,0 +1,30 @@
+---
+# Приложенческие пользователи, под которыми ProxySQL авторизует клиентов (ADR §6). Пароль — тот
+# же, что уже заведён на стороне MySQL для этого пользователя (не создаётся этой ролью).
+
+- name: Upsert MySQL users
+  ansible.mysql.mysql_query:
+    login_host: 127.0.0.1
+    login_port: "{{ proxysql_admin_listen_port }}"
+    login_user: "{{ proxysql_admin_user }}"
+    login_password: "{{ proxysql_admin_password }}"
+    query: >-
+      REPLACE INTO mysql_users (username, password, default_hostgroup, active)
+      VALUES (%s, %s, %s, 1)
+    positional_args:
+      - "{{ item.username }}"
+      - "{{ item.password }}"
+      - "{{ item.default_hostgroup }}"
+  loop: "{{ proxysql_mysql_users }}"
+  no_log: true
+
+- name: Load users to runtime and persist to disk
+  ansible.mysql.mysql_query:
+    login_host: 127.0.0.1
+    login_port: "{{ proxysql_admin_listen_port }}"
+    login_user: "{{ proxysql_admin_user }}"
+    login_password: "{{ proxysql_admin_password }}"
+    query: "{{ item }}"
+  loop:
+    - "LOAD MYSQL USERS TO RUNTIME"
+    - "SAVE MYSQL USERS TO DISK"

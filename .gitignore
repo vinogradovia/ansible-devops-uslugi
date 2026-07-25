@@ -1,4 +1,10 @@
 .vscode
 .ansible
 .vscode
-helm/
+
+# helm/ — пример helmwave-конфигурации (docs/adr/0007-monitoring-server-role.md §6) отслеживается
+# целиком (envs/, values/, helmwave.yml(.tpl), localrepo/), кроме локального
+# build/vendor-кэша и рабочих артефактов самой роли/helmwave/Claude Code:
+helm/.claude/
+helm/.helmwave/
+helm/tmp/

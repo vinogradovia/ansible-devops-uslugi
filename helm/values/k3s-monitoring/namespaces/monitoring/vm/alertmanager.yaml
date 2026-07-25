@@ -1,0 +1,343 @@
+---
+alertmanager:
+  # -- Create VMAlertmanager CR
+  enabled: true
+  # -- VMAlertmanager labels
+  labels: {}
+  # -- VMAlertmanager annotations
+  annotations: {}
+  # -- (object) Full spec for VMAlertmanager CRD. Allowed values described [here](https://docs.victoriametrics.com/operator/api/#vmalertmanagerspec)
+  spec:
+    replicaCount: 1
+    port: "9093"
+    selectAllByDefault: true
+    image:
+      tag: v0.28.1
+    externalURL: ""
+    routePrefix: /
+
+    # -- (string) If this one defined, it will be used for alertmanager configuration and config parameter will be ignored
+    configSecret: ""
+  # --
+  # @raw
+  # enable storing .Values.alertmanager.config in VMAlertmanagerConfig instead of k8s Secret.
+  # Note: VMAlertmanagerConfig and plain VMAlertmanager config structures are not equal.
+  # If you're migrating existing config, please make sure that `.Values.alertmanager.config`:
+  # - with `useManagedConfig: false` has structure described [here](https://prometheus.io/docs/alerting/latest/configuration/).
+  # - with `useManagedConfig: true` has structure described [here](https://docs.victoriametrics.com/operator/api/#vmalertmanagerconfig).
+  useManagedConfig: true
+  # -- (object) VMAlertmanager configuration
+  config:
+    route:
+      group_by: ['alertname', 'cluster', 'severity']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      receiver: 'default'
+
+      routes:
+        - matchers:
+            - severity = critical
+          receiver: 'critical'
+          group_wait: 10s
+          repeat_interval: 30m
+          continue: true
+
+        - matchers:
+            - severity = warning
+          receiver: 'warning'
+          group_wait: 1m
+          repeat_interval: 2h
+          continue: true
+
+        - matchers:
+            - severity = info
+          receiver: 'info'
+          group_wait: 5m
+          repeat_interval: 6h
+          continue: true
+
+        - matchers:
+            - severity = critical
+          receiver: 'critical-4test'
+          group_wait: 10s
+          repeat_interval: 30m
+          continue: true
+
+        - matchers:
+            - severity = warning
+          receiver: 'warning-4test'
+          group_wait: 1m
+          repeat_interval: 2h
+          continue: true
+
+        - matchers:
+            - severity = info
+          receiver: 'info-4test'
+          group_wait: 5m
+          repeat_interval: 6h
+          continue: true
+
+    #
+    # inhibit_rules:
+    #   - target_matchers:
+    #       - severity=~"warning|info"
+    #     source_matchers:
+    #       - severity=critical
+    #     equal:
+    #       - cluster
+    #       - namespace
+    #       - alertname
+    #   - target_matchers:
+    #       - severity=info
+    #     source_matchers:
+    #       - severity=warning
+    #     equal:
+    #       - cluster
+    #       - namespace
+    #       - alertname
+    #   - target_matchers:
+    #       - severity=info
+    #     source_matchers:
+    #       - alertname=InfoInhibitor
+    #     equal:
+    #       - cluster
+    #       - namespace
+
+    receivers:
+
+      - name: 'critical'
+        telegram_configs:
+          - bot_token:
+              name: vm-alertmanager-telegram-critical
+              key: bot_token
+            chat_id: -1002854729524
+            parse_mode: 'HTML'
+            disable_notifications: false
+            message: '{{ template "telegram.critical.title" . }}{{ template "telegram.critical.body" . }}'
+
+      - name: 'warning'
+        telegram_configs:
+          - bot_token:
+              name: vm-alertmanager-telegram-critical
+              key: bot_token
+            chat_id: -1002854729524
+            parse_mode: 'HTML'
+            disable_notifications: true
+            message: '{{ template "telegram.warning.title" . }}{{ template "telegram.warning.body" . }}'
+
+      - name: 'info'
+        telegram_configs:
+          - bot_token:
+              name: vm-alertmanager-telegram-critical
+              key: bot_token
+            chat_id: -1002854729524
+            parse_mode: 'HTML'
+            disable_notifications: true
+            message: '{{ template "telegram.info.title" . }}{{ template "telegram.info.body" . }}'
+
+      - name: 'default'
+        telegram_configs:
+          - bot_token:
+              name: vm-alertmanager-telegram-critical
+              key: bot_token
+            chat_id: -1002854729524
+            parse_mode: 'HTML'
+            disable_notifications: false
+            message: '{{ template "telegram.default.title" . }}{{ template "telegram.default.body" . }}'
+
+      - name: critical-4test
+        telegram_configs:
+          - bot_token:
+              name: vm-alertmanager-telegram-default
+              key: bot_token
+            chat_id: -5250169691
+            parse_mode: 'HTML'
+            disable_notifications: false
+            message: '{{ template "telegram.critical.title" . }}{{ template "telegram.critical.body" . }}'
+
+      - name: warning-4test
+        telegram_configs:
+          - bot_token:
+              name: vm-alertmanager-telegram-default
+              key: bot_token
+            chat_id: -5250169691
+            parse_mode: 'HTML'
+            disable_notifications: true
+            message: '{{ template "telegram.warning.title" . }}{{ template "telegram.warning.body" . }}'
+
+      - name: info-4test
+        telegram_configs:
+          - bot_token:
+              name: vm-alertmanager-telegram-default
+              key: bot_token
+            chat_id: -5250169691
+            parse_mode: 'HTML'
+            disable_notifications: true
+            message: '{{ template "telegram.info.title" . }}{{ template "telegram.info.body" . }}'
+
+      - name: default-4test
+        telegram_configs:
+          - bot_token:
+              name: vm-alertmanager-telegram-default
+              key: bot_token
+            chat_id: -5250169691
+            parse_mode: 'HTML'
+            disable_notifications: false
+            message: '{{ template "telegram.default.title" . }}{{ template "telegram.default.body" . }}'
+
+      - name: blackhole
+  # -- Better alert templates for [slack source](https://gist.github.com/milesbxf/e2744fc90e9c41b47aa47925f8ff6512)
+  monzoTemplate:
+    enabled: true
+
+  # -- (object) Extra alert templates
+  templateFiles:
+    telegram.tmpl: |
+      {{ define "telegram.critical.title" }}
+      🔥 <b>CRITICAL ALERT</b>
+
+      <b>Cluster:</b> {{ .CommonLabels.cluster }}
+      <b>Alert:</b> {{ .CommonLabels.alertname }}
+      {{- if .CommonLabels.job }}
+      <b>Service:</b> {{ .CommonLabels.job }}
+      {{- end }}
+      {{- if .CommonLabels.instance }}
+      <b>Instance:</b> {{ .CommonLabels.instance }}
+      {{- end }}
+      {{ end }}
+
+      {{ define "telegram.critical.body" }}
+      <b>Message:</b> {{ .CommonAnnotations.summary }}
+
+      <b>Time:</b> {{ (index .Alerts 0).StartsAt | tz "Europe/Moscow" | date "2006-01-02 15:04:05 MSK" }}
+      {{- if (index .Alerts 0).GeneratorURL }}
+      <a href="{{ (index .Alerts 0).GeneratorURL }}">📊 View Graph</a>
+      {{- end }}
+
+      {{- if gt (len .Alerts) 1 }}
+      <i>... and {{ (len .Alerts) }} more alerts.</i>
+      {{- end }}
+      {{ end }}
+
+      {{ define "telegram.warning.title" }}
+      📈 <b>WARNING</b>
+
+      <b>Cluster:</b> {{ .CommonLabels.cluster }}
+      <b>Alert:</b> {{ .CommonLabels.alertname }}
+      <b>Service:</b> {{ .CommonLabels.job }}
+      {{ end }}
+
+      {{ define "telegram.warning.body" }}
+      <b>Message:</b> {{ .CommonAnnotations.summary }}
+
+      {{ range .Alerts -}}
+      - {{ .Annotations.summary }}
+        Labels: instance={{ .Labels.instance }}
+        StartsAt: {{ .StartsAt | tz "Europe/Moscow" | date "2006-01-02 15:04:05 MSK" }}
+      {{ if .GeneratorURL }}
+      <a href="{{ .GeneratorURL }}">Graph</a>
+      {{ end }}
+      {{ end }}
+      {{ end }}
+
+      {{ define "telegram.info.title" }}
+      🧻<b>INFO</b>
+
+      <b>Cluster:</b> {{ .CommonLabels.cluster }}
+      <b>Alert:</b> {{ .CommonLabels.alertname }}
+      {{ end }}
+
+      {{ define "telegram.info.body" }}
+      <b>Message:</b> {{ .CommonAnnotations.summary }}
+      {{ range .Alerts }}
+      - {{ .Annotations.summary }}
+        Labels: instance={{ .Labels.instance }}
+        StartsAt: {{ .StartsAt | tz "Europe/Moscow" | date "2006-01-02 15:04:05 MSK" }}
+      {{ if .GeneratorURL }}
+      <a href="{{ .GeneratorURL }}">Details</a>
+      {{ end }}
+      {{ end }}
+      {{ end }}
+
+      {{ define "telegram.default.title" }}
+      <b>ALERT</b>
+
+      <b>Cluster:</b> {{ .CommonLabels.cluster }}
+      <b>Alert:</b> {{ .CommonLabels.alertname }}
+      <b>Service:</b> {{ .CommonLabels.job }}
+      <b>Instance:</b> {{ .CommonLabels.instance }}
+      {{ end }}
+
+      {{ define "telegram.default.body" }}
+      <b>Message:</b> {{ .CommonAnnotations.summary }}
+
+      {{ range .Alerts }}
+      - {{ .Annotations.summary }}
+        Labels: instance={{ .Labels.instance }}
+        StartsAt: {{ .StartsAt | tz "Europe/Moscow" | date "2006-01-02 15:04:05 MSK" }}
+      {{ if .GeneratorURL }}
+      <a href="{{ .GeneratorURL }}">Graph</a>
+      {{ end }}
+      {{ end }}
+      {{ end }}
+    # template_1.tmpl: |-
+    #   {{ define "hello" -}}
+    #   hello, Victoria!
+    #   {{- end }}
+    # template_2.tmpl: ""
+
+  # -- (object) VMAlertmanager ingress configuration
+  ingress:
+    enabled: true
+    # For Kubernetes >= 1.18 you should specify the ingress-controller via the field ingressClassName
+    # See https://kubernetes.io/blog/2020/04/02/improvements-to-the-ingress-api-in-kubernetes-1.18/#specifying-the-class-of-an-ingress
+    # ingressClassName: nginx
+    # Values can be templated
+    annotations:
+      {}
+      # kubernetes.io/ingress.class: nginx
+      # kubernetes.io/tls-acme: "true"
+    labels: {}
+    path: '{{ .Values.alertmanager.spec.routePrefix | default "/" }}'
+    pathType: Prefix
+
+    hosts:
+      - alertmanager.in.example.com
+    # -- Extra paths to prepend to every host configuration. This is useful when working with annotation based services.
+    extraPaths: []
+    # - path: /*
+    #   pathType: Prefix
+    #   backend:
+    #     service:
+    #       name: ssl-redirect
+    #       port:
+    #         name: service
+    tls: []
+    #  - secretName: alertmanager-ingress-tls
+    #    hosts:
+    #      - alertmanager.domain.com
+
+  # -- (object) VMAlertmanager route configuration
+  route:
+    # -- Enable deployment of HTTPRoute for alertmanager component
+    enabled: false
+    # -- HTTPRoute annotations
+    annotations: {}
+    # -- HTTPRoute extra labels
+    labels: {}
+    # -- HTTPGateway objects refs
+    parentRefs: []
+    # -- Array of hostnames
+    hostnames: []
+    # -- Extra rules to prepend to route. This is useful when working with annotation based services.
+    extraRules: []
+    # -- Route port
+    port: '{{ .Values.alertmanager.spec.port }}'
+    # -- Filters for a default rule in HTTPRoute
+    filters: []
+    # -- Matches for a default rule in HTTPRoute
+    matches:
+      - path:
+          type: PathPrefix
+          value: '{{ .Values.alertmanager.spec.routePrefix | default "/" }}'

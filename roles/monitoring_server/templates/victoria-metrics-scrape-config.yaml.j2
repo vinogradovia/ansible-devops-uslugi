@@ -53,3 +53,15 @@ scrape_configs:
       - files:
           - prom_client_targets.json
 {% endif %}
+{% if monitoring_server_victoria_metrics_scrape_mysqld_exporter %}
+  - job_name: mysqld-exporter
+    file_sd_configs:
+      - files:
+          - mysqld_exporter_targets.json
+{% endif %}
+{% if monitoring_server_victoria_metrics_scrape_pve_exporter %}
+  - job_name: pve-exporter
+    file_sd_configs:
+      - files:
+          - pve_exporter_targets.json
+{% endif %}

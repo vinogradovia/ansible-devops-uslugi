@@ -1,0 +1,253 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: true
+  vars:
+    # Роль сама удаляет свою копию kubeconfig в конце converge (tasks/main.yml, "Remove fetched
+    # k3s kubeconfig") — verify.yml получает собственную копию тем же способом, что и роль
+    # (Fetch + патч server IP), а не полагается на файл, оставшийся от converge.
+    monitoring_server_helmwave_dir: "{{ playbook_dir }}/../../../helm"
+    # helm/kubernetes.core (delegate_to: localhost) — тот же прокси-нюанс, что и в самой роли
+    # (roles/monitoring_server/tasks/monitoring-server.k3s.yml, задача "Helmwave up"): если на
+    # control-хосте настроен HTTP(S)_PROXY для доступа в интернет, запрос к kube-apiserver кластера
+    # (приватный адрес) уйдёт через прокси и не достучится — таймаут вместо ответа. На уровне play
+    # environment: не работает (ansible_facts ещё не свёрнут в ожидаемую структуру на момент
+    # обработки ключевого слова play-level environment) — задаём per-task ниже.
+    molecule_no_proxy_env:
+      NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+      no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+    # 11 из 12 подов namespace monitoring — grafana-alloy-redis намеренно не входит:
+    # helm/values/.../grafana-alloy-redis/values.yaml ссылается на Secret "grafana-alloy-redis",
+    # которого нет ни в одном values-файле helm/ — relates к ROADMAP backlog №34
+    # (embedded-экспортёр grafana-alloy ещё не подключён в самой роли), не к monitoring_server.
+    molecule_expected_running_pods:
+      - {label: grafana-alloy, regex: '^grafana-alloy-[a-z0-9]+$'}
+      - {label: grafana-alloy-blackbox, regex: '^grafana-alloy-blackbox-'}
+      - {label: grafana (Grafana CR), regex: '^grafana-deployment-'}
+      - {label: grafana-operator, regex: '^grafana-operator-'}
+      - {label: vm-kube-state-metrics, regex: '^vm-kube-state-metrics-'}
+      - {label: vm-prometheus-node-exporter, regex: '^vm-prometheus-node-exporter-'}
+      - {label: vm-victoria-metrics-operator, regex: '^vm-victoria-metrics-operator-'}
+      - {label: vmagent, regex: '^vmagent-'}
+      - {label: vmalert, regex: '^vmalert-'}
+      - {label: vmalertmanager, regex: '^vmalertmanager-'}
+      - {label: vmsingle, regex: '^vmsingle-'}
+      - {label: loki (singleBinary), regex: '^loki-[0-9]+$'}
+      - {label: loki-minio, regex: '^loki-minio-[0-9]+$'}
+      - {label: loki-gateway, regex: '^loki-gateway-'}
+  tasks:
+    # --- kubeconfig для control-хоста (тот же приём, что monitoring-server.k3s.yml) -------------
+    - name: Fetch k3s kubeconfig
+      ansible.builtin.fetch:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: "{{ monitoring_server_helmwave_dir }}/tmp/"
+      register: molecule_k3s_context
+
+    - name: Патчить server IP в скачанном kubeconfig
+      delegate_to: localhost
+      become: false
+      changed_when: false
+      ansible.builtin.lineinfile:
+        dest: "{{ molecule_k3s_context.dest }}"
+        regexp: '    server: https://127.0.0.1:6443'
+        line: '    server: https://{{ ansible_facts["default_ipv4"]["address"] }}:6443'
+
+    # --- Helm-релизы (ADR-0007 §6) — все 6 должны быть deployed -------------------------------
+    - name: Собрать статус helm-релизов
+      delegate_to: localhost
+      become: false
+      environment: "{{ molecule_no_proxy_env }}"
+      kubernetes.core.helm_info:
+        kubeconfig: "{{ molecule_k3s_context.dest }}"
+        release_namespace: monitoring
+        release_name: "{{ molecule_helm_release_item }}"
+      register: molecule_helm_releases
+      loop:
+        - vm
+        - grafana-alloy
+        - grafana-alloy-blackbox
+        - grafana-alloy-redis
+        - grafana-operator
+        - loki
+      loop_control:
+        loop_var: molecule_helm_release_item
+
+    - name: "Все 6 helm-релизов должны быть deployed"
+      ansible.builtin.assert:
+        that:
+          - molecule_helm_releases_item.status.status == 'deployed'
+        fail_msg: "{{ molecule_helm_releases_item.molecule_helm_release_item }}: {{ molecule_helm_releases_item.status | default('release not found') }}"
+        quiet: true
+      loop: "{{ molecule_helm_releases.results }}"
+      loop_control:
+        loop_var: molecule_helm_releases_item
+        label: "{{ molecule_helm_releases_item.molecule_helm_release_item }}"
+
+    # --- namespace/Secret, которые создаёт сама роль (не helm) ---------------------------------
+    - name: "Namespace monitoring должен существовать"
+      delegate_to: localhost
+      become: false
+      environment: "{{ molecule_no_proxy_env }}"
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ molecule_k3s_context.dest }}"
+        api_version: v1
+        kind: Namespace
+        name: monitoring
+      register: molecule_k3s_namespace
+      failed_when: molecule_k3s_namespace.resources | length != 1
+
+    - name: "Secret grafana-admin-credentials-custom должен существовать"
+      delegate_to: localhost
+      become: false
+      environment: "{{ molecule_no_proxy_env }}"
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ molecule_k3s_context.dest }}"
+        api_version: v1
+        kind: Secret
+        namespace: monitoring
+        name: grafana-admin-credentials-custom
+      register: molecule_k3s_secret
+      failed_when: molecule_k3s_secret.resources | length != 1
+
+    # --- Поды: 11 контроллеров должны быть Running (retries — Helm wait:true уже ждал готовности
+    # при "helmwave up", но vmagent донастраивается уже ПОСЛЕ него, см. ADR-0007 §6 — ему нужны
+    # ConfigMap vm-filesd-*, которые роль создаёт следующим шагом; даём время на перемонтирование).
+    - name: Дождаться подов namespace monitoring
+      delegate_to: localhost
+      become: false
+      environment: "{{ molecule_no_proxy_env }}"
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ molecule_k3s_context.dest }}"
+        api_version: v1
+        kind: Pod
+        namespace: monitoring
+      register: molecule_k3s_pods
+      until: >-
+        molecule_k3s_pods.resources
+        | selectattr('metadata.name', 'match', molecule_pod_check_item.regex)
+        | selectattr('status.phase', 'equalto', 'Running')
+        | list | length > 0
+      retries: 20
+      delay: 15
+      loop: "{{ molecule_expected_running_pods }}"
+      loop_control:
+        loop_var: molecule_pod_check_item
+        label: "{{ molecule_pod_check_item.label }}"
+
+    # --- CRD, которые создаёт сама роль поверх операторов, поставленных Helmwave up ------------
+    - name: "GrafanaFolder addons/nginx должны существовать (нужны для folderRef дашбордов)"
+      delegate_to: localhost
+      become: false
+      environment: "{{ molecule_no_proxy_env }}"
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ molecule_k3s_context.dest }}"
+        api_version: grafana.integreatly.org/v1beta1
+        kind: GrafanaFolder
+        namespace: monitoring
+      register: molecule_k3s_folders
+      failed_when: >-
+        (molecule_k3s_folders.resources | map(attribute='metadata.name') | list | sort)
+        != ['addons', 'nginx']
+
+    - name: "3 GrafanaDashboard группы nginx должны быть провижинены (ADR-0007 §8)"
+      delegate_to: localhost
+      become: false
+      environment: "{{ molecule_no_proxy_env }}"
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ molecule_k3s_context.dest }}"
+        api_version: grafana.integreatly.org/v1beta1
+        kind: GrafanaDashboard
+        namespace: monitoring
+      register: molecule_k3s_dashboards
+      failed_when: >-
+        (molecule_k3s_dashboards.resources
+         | map(attribute='metadata.name') | select('match', '^nginx-') | list | length) != 3
+
+    - name: "VMRule для node/cadvisor/ipa/nginx/mysqld/pve/redis/blackbox/nodejs-exporter должны существовать (ADR-0007 §7)"
+      delegate_to: localhost
+      become: false
+      environment: "{{ molecule_no_proxy_env }}"
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ molecule_k3s_context.dest }}"
+        api_version: operator.victoriametrics.com/v1beta1
+        kind: VMRule
+        namespace: monitoring
+      register: molecule_k3s_vmrules
+      failed_when: >-
+        (molecule_k3s_vmrules.resources
+         | map(attribute='metadata.name') | select('match', '^vm-exporters-') | list | length) < 9
+
+    - name: "GrafanaDatasource loki должен существовать (helm/values/.../grafana-operator/values.yaml)"
+      delegate_to: localhost
+      become: false
+      environment: "{{ molecule_no_proxy_env }}"
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ molecule_k3s_context.dest }}"
+        api_version: grafana.integreatly.org/v1beta1
+        kind: GrafanaDatasource
+        namespace: monitoring
+        name: loki
+      register: molecule_k3s_loki_datasource
+      failed_when: molecule_k3s_loki_datasource.resources | length != 1
+
+    # --- Loki: реальный push+query через gateway Ingress (встроенный в k3s Traefik), а не только
+    # что поды подняты — тот же принцип, что и scrape-проверка node-exporter в docker-сценарии.
+    # Host-заголовок подставляется вручную (как в nginx_multidomain/reverse_proxy_npm) — у ВМ нет
+    # настоящего DNS на logs.in.example.com (helm/values/.../loki/values.yaml).
+    - name: Отправить тестовую запись в Loki через gateway Ingress
+      ansible.builtin.uri:
+        url: "http://127.0.0.1/loki/api/v1/push"
+        method: POST
+        headers:
+          Host: logs.in.example.com
+          X-Scope-OrgID: tenant1
+        body_format: json
+        body:
+          streams:
+            - stream:
+                job: molecule-verify
+              values:
+                - ["{{ ansible_date_time.epoch }}000000000", "molecule loki smoke test"]
+        status_code:
+          - 204
+      changed_when: false
+
+    - name: Дождаться, что тестовая запись реально запрашивается обратно из Loki
+      vars:
+        # Собираем URL явной конкатенацией через "~", а не folded scalar (>-) — folded scalar
+        # схлопывает переносы строк в ПРОБЕЛЫ, из-за чего "&start="/"&end=" ранее попадали в query
+        # string с лишним пробелом перед ними (реально пойманная ошибка на этом самом прогоне).
+        molecule_loki_query_url: >-
+          {{
+            'http://127.0.0.1/loki/api/v1/query_range?query='
+            ~ ('{job="molecule-verify"}' | urlencode)
+            ~ '&start=' ~ (ansible_date_time.epoch | int - 300) ~ '000000000'
+            ~ '&end=' ~ (ansible_date_time.epoch | int + 300) ~ '000000000'
+          }}
+      ansible.builtin.uri:
+        url: "{{ molecule_loki_query_url }}"
+        headers:
+          Host: logs.in.example.com
+          X-Scope-OrgID: tenant1
+        return_content: true
+        status_code:
+          - 200
+      register: molecule_loki_query
+      until: >-
+        (molecule_loki_query.json.data.result
+         | map(attribute='values') | list | flatten(1)
+         | selectattr('1', 'equalto', 'molecule loki smoke test') | list | length) > 0
+      retries: 15
+      delay: 5
+      changed_when: false
+
+    # --- Прибраться: не оставлять fetch-копию kubeconfig (ADR-0007 §10.4 — ровно та проблема,
+    # которую этот шаг и предотвращает) -------------------------------------------------------
+    - name: Удалить fetch-копию kubeconfig
+      delegate_to: localhost
+      become: false
+      changed_when: false
+      ansible.builtin.file:
+        path: "{{ (molecule_k3s_context.dest | dirname | dirname | dirname | dirname) }}"
+        state: absent

@@ -1,19 +1,9 @@
 ---
 # handlers file for monitoring-agent
 
-- name: Restart Docker daemon
-  ansible.builtin.service:
-    name: docker
-    state: restarted
-
 - name: Reload systemd daemon
   ansible.builtin.systemd:
     daemon_reload: true
-
-- name: State service node-exporter.socket
-  ansible.builtin.systemd:
-    name: "{{ monitoring_agent_node_exporter_systemd_name }}.socket"
-    enabled: "{{ monitoring_agent_node_exporter_enabled }}"
 
 - name: Restart service node-exporter
   ansible.builtin.systemd:
@@ -26,11 +16,6 @@
     name: "{{ monitoring_agent_redis_exporter_systemd_name }}"
     enabled: "{{ monitoring_agent_redis_exporter_enabled }}"
     state: restarted
-
-- name: State service nginx-exporter.socket
-  ansible.builtin.systemd:
-    name: "{{ monitoring_agent_nginx_exporter_systemd_name }}.socket"
-    enabled: "{{ monitoring_agent_nginx_exporter_enabled }}"
 
 - name: Restart service nginx-exporter
   ansible.builtin.systemd:

@@ -1,5 +1,15 @@
 # Ansible Collection - devops.uslugi
 
+## Требования
+
+Роль `monitoring_server` при `monitoring_server_orchestrator: k3s` зависит от standalone-роли
+`xanmanning.k3s`. Она не является коллекцией, поэтому не может быть объявлена зависимостью в
+`galaxy.yml` (это поле принимает только `namespace.name` коллекций) — ставится отдельно:
+
+```bash
+ansible-galaxy install -r requirements.yml
+```
+
 ## Linter
 
 ```bash

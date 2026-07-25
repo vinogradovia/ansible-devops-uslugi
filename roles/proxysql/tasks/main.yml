@@ -1,0 +1,40 @@
+---
+# tasks file for proxysql
+#
+# Решения — см. docs/adr/0004-mysql-ha-replication-role.md §6.
+
+- name: Assert required variables are set
+  ansible.builtin.include_tasks:
+    file: assert-required-vars.yml
+
+# Требуется sync-*.yml (ansible.mysql.mysql_query против admin-интерфейса ProxySQL) — модуль
+# выполняется на управляемом хосте и сам нуждается в Python MySQL-коннекторе там же (тот же
+# вывод, что и в roles/mysql_replication, найдено реальным прогоном molecule этой роли — см.
+# ADR §10).
+- name: Install Python MySQL client (required by ansible.mysql.* modules)
+  ansible.builtin.apt:
+    name: python3-pymysql
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install ProxySQL from official repository
+  ansible.builtin.include_tasks:
+    file: install-repo.yml
+
+- name: Render bootstrap configuration
+  ansible.builtin.include_tasks:
+    file: configure.yml
+
+- name: Sync backend servers (writer/reader hostgroups) via admin interface
+  ansible.builtin.include_tasks:
+    file: sync-backend-servers.yml
+
+- name: Sync query rules via admin interface
+  ansible.builtin.include_tasks:
+    file: query-rules.yml
+
+- name: Sync MySQL users via admin interface
+  when: proxysql_mysql_users | length > 0
+  ansible.builtin.include_tasks:
+    file: sync-mysql-users.yml

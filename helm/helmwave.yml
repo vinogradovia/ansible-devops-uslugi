@@ -1,0 +1,150 @@
+---
+project: monitoring
+version: "0.42.4"
+
+repositories:
+  - name: vm
+    url: https://victoriametrics.github.io/helm-charts/
+  - name: grafana
+    url: https://grafana.github.io/helm-charts
+
+registries:
+  - host: ghcr.io
+
+.options: &options
+  create_namespace: true
+  wait: true
+  timeout: 15m
+  max_history: 10
+  strict: true
+  pending_release_strategy: rollback
+
+releases:
+  - name: vm
+    namespace: monitoring
+    chart:
+      name: vm/victoria-metrics-k8s-stack
+      version: 0.69.0
+    <<: *options
+    values:
+      - src: values/releases_common/vm.yaml
+        strict: true
+        delimiter_left: "[["
+        delimiter_right: "]]"
+      - src: values/k3s-monitoring/namespaces/monitoring/vm/values.yaml
+        strict: false
+        delimiter_left: "[["
+        delimiter_right: "]]"
+
+      - src: values/k3s-monitoring/namespaces/monitoring/vm/vmsingle.yaml
+        strict: true
+        delimiter_left: "[["
+        delimiter_right: "]]"
+      - src: values/k3s-monitoring/namespaces/monitoring/vm/grafana.yaml
+        strict: true
+        delimiter_left: "[["
+        delimiter_right: "]]"
+      - src: values/k3s-monitoring/namespaces/monitoring/vm/alertmanager.yaml
+        strict: true
+        delimiter_left: "[["
+        delimiter_right: "]]"
+      - src: values/k3s-monitoring/namespaces/monitoring/vm/extra-objects.yaml
+        strict: true
+        delimiter_left: "[["
+        delimiter_right: "]]"
+
+    tags:
+      - vm
+      - monitoring/vm
+    depends_on:
+      - name: grafana-operator
+  - name: grafana-alloy
+    namespace: monitoring
+    chart:
+      name: grafana/alloy
+      version: 1.6.0
+    <<: *options
+    values:
+      - src: values/releases_common/grafana-alloy.yaml
+        strict: true
+        delimiter_left: "[["
+        delimiter_right: "]]"
+      - src: values/k3s-monitoring/namespaces/monitoring/grafana-alloy/values.yaml
+        strict: false
+        delimiter_left: "[["
+        delimiter_right: "]]"
+    tags:
+      - grafana-alloy
+      - monitoring/grafana-alloy
+  - name: grafana-alloy-blackbox
+    namespace: monitoring
+    chart:
+      name: grafana/alloy
+      version: 1.6.0
+    <<: *options
+    values:
+      - src: values/releases_common/grafana-alloy-blackbox.yaml
+        strict: true
+        delimiter_left: "[["
+        delimiter_right: "]]"
+      - src: values/k3s-monitoring/namespaces/monitoring/grafana-alloy-blackbox/values.yaml
+        strict: false
+        delimiter_left: "[["
+        delimiter_right: "]]"
+    tags:
+      - grafana-alloy-blackbox
+      - monitoring/grafana-alloy-blackbox
+  - name: grafana-alloy-redis
+    namespace: monitoring
+    chart:
+      name: grafana/alloy
+      version: 1.6.0
+    <<: *options
+    values:
+      - src: values/releases_common/grafana-alloy-redis.yaml
+        strict: true
+        delimiter_left: "[["
+        delimiter_right: "]]"
+      - src: values/k3s-monitoring/namespaces/monitoring/grafana-alloy-redis/values.yaml
+        strict: false
+        delimiter_left: "[["
+        delimiter_right: "]]"
+    tags:
+      - grafana-alloy-redis
+      - monitoring/grafana-alloy-redis
+  - name: grafana-operator
+    namespace: monitoring
+    chart:
+      name: oci://ghcr.io/grafana/helm-charts/grafana-operator
+      version: 5.22.0
+    <<: *options
+    values:
+      - src: values/releases_common/grafana-operator.yaml
+        strict: true
+        delimiter_left: "[["
+        delimiter_right: "]]"
+      - src: values/k3s-monitoring/namespaces/monitoring/grafana-operator/values.yaml
+        strict: false
+        delimiter_left: "[["
+        delimiter_right: "]]"
+    tags:
+      - grafana-operator
+      - monitoring/grafana-operator
+  - name: loki
+    namespace: monitoring
+    chart:
+      name: grafana/loki
+      version: 6.54.0
+    <<: *options
+    values:
+      - src: values/releases_common/loki.yaml
+        strict: true
+        delimiter_left: "[["
+        delimiter_right: "]]"
+      - src: values/k3s-monitoring/namespaces/monitoring/loki/values.yaml
+        strict: false
+        delimiter_left: "[["
+        delimiter_right: "]]"
+    tags:
+      - loki
+      - monitoring/loki

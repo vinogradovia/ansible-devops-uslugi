@@ -1,0 +1,109 @@
+---
+# defaults file for mysql_replication
+#
+# Роль отказоустойчивости MySQL: adopt существующего primary ИЛИ fresh install на репликах,
+# GTID-репликация "звездой" (обе реплики напрямую от primary), read_only на репликах, физические
+# бэкапы (xtrabackup/mariabackup) в S3. Решения и обоснование — см.
+# docs/adr/0004-mysql-ha-replication-role.md.
+
+# primary | read_replica | dr_replica — определяет ветвление задач роли (ADR §3). Задаётся в
+# group_vars соответствующей inventory-группы (mysql_primary / mysql_read_replica /
+# mysql_dr_replica), а не поштучно в hostvars.
+mysql_replication_role: primary
+
+# --- Установка / adopt (ADR §2) ---
+
+# Только Debian/Ubuntu (apt), как и весь остальной scope коллекции (ADR §2, см. также
+# docs/adr/0002-docker-role.md §4).
+mysql_replication_apt_keyring_path: /etc/apt/keyrings/mysql.asc
+mysql_replication_repo_component: mysql-8.0
+
+# Версия MySQL для fresh install (read-реплика/DR-реплика). НЕ используется на primary в
+# adopt-режиме — там роль обнаруживает уже установленную версию в runtime и ничего не
+# переустанавливает (см. detect-existing-instance.yml). Если оставить пустым, playbook должен
+# передать версию, обнаруженную на primary, через
+# hostvars[groups['mysql_primary'][0]].mysql_replication_discovered_version (см. README,
+# "Discovery версии" и ADR §2).
+mysql_replication_target_version: ""
+
+mysql_replication_packages:
+  - mysql-server
+  - mysql-client
+
+mysql_replication_service_name: mysql
+mysql_replication_config_dir: /etc/mysql/mysql.conf.d
+mysql_replication_datadir: /var/lib/mysql
+
+# Правка server_id/GTID/binlog на уже работающем (adopt) MySQL требует рестарта службы. Рестарт
+# НЕ выполняется автоматически без явного подтверждения оператора — боевая база меняется только
+# в согласованное окно (см. ТЗ, раздел "Процесс"). Выставлять в true только на время окна.
+mysql_replication_allow_restart: false
+
+# --- Репликация (ADR §4) ---
+
+# Обязателен, уникален на каждом хосте — без дефолта, роль падает через assert, если не задан
+# (см. tasks/assert-required-vars.yml).
+mysql_replication_server_id: ""
+
+mysql_replication_gtid_mode: "ON"
+mysql_replication_enforce_gtid_consistency: "ON"
+mysql_replication_binlog_format: "ROW"
+mysql_replication_log_bin: "{{ mysql_replication_datadir }}/mysql-bin"
+
+# Репликационный пользователь — заводится на primary, используется обеими репликами. Пароль без
+# дефолта, обязателен через Ansible Vault на уровне inventory (ADR §9).
+mysql_replication_repl_user: repl
+mysql_replication_repl_password: ""
+# CIDR/хост-маска, с которой разрешено подключаться репликационному пользователю. По умолчанию
+# '%' — сузить до подсети приватной/туннельной сети (ADR §5), как только она известна.
+mysql_replication_repl_user_host: "%"
+
+# Адрес primary внутри уже существующей приватной/туннельной сети между ДЦ (ADR §5 — роль НЕ
+# поднимает VPN и не проверяет, что это приватный адрес, а не публичный IP). Обязателен на
+# read_replica/dr_replica.
+mysql_replication_primary_host: ""
+mysql_replication_primary_port: 3306
+
+# --- read_only / super_read_only (ADR §4) ---
+
+mysql_replication_read_only: "{{ mysql_replication_role in ['read_replica', 'dr_replica'] }}"
+
+# --- Физические бэкапы (ADR §8) ---
+
+mysql_replication_backup_enabled: false
+
+# primary | read_replica | dr_replica — на каком хосте реально снимается бэкап. По умолчанию
+# DR-реплика: она и так не обслуживает боевое чтение, снятие бэкапа не создаёт дополнительной
+# нагрузки ни на primary, ни на read-реплику (ADR §8).
+mysql_replication_backup_source_role: dr_replica
+
+# xtrabackup | mariabackup — выбирается по СУБД/версии на этапе реализации.
+mysql_replication_backup_tool: xtrabackup
+mysql_replication_backup_dir: /var/backups/mysql
+mysql_replication_backup_time: "02:30:00"
+
+# Ретеншн — три уровня, настраиваемые (ADR §8, явный ответ на уточняющий вопрос).
+mysql_replication_backup_retention_daily: 14
+mysql_replication_backup_retention_weekly: 4
+mysql_replication_backup_retention_monthly: 6
+
+# Доставка в S3-совместимое хранилище (Selectel object storage) через rclone — статический
+# бинарник с проверкой checksum, тот же паттерн, что и у бинарников экспортеров в
+# monitoring_agent (ADR §8). Шифрование бэкапов at rest — не требуется (явный ответ на
+# уточняющий вопрос).
+mysql_replication_backup_s3_endpoint: ""
+mysql_replication_backup_s3_bucket: ""
+mysql_replication_backup_s3_access_key: ""
+mysql_replication_backup_s3_secret_key: ""
+
+mysql_replication_rclone_version: "1.68.2"
+# sha256:... — обязательно указать при бампе версии (см. ROADMAP.md, P1 №13 — прецедент
+# отсутствия checksum-проверки при скачивании бинарников, здесь не повторяем).
+mysql_replication_rclone_checksum: ""
+mysql_replication_rclone_install_path: /usr/local/bin/rclone
+
+# Метрика успешности бэкапа для алерта "бэкап не создался" — пишется в textfile-коллектор
+# node_exporter (ADR §8). Путь должен совпадать с
+# monitoring_agent_node_exporter_textfile_directory на этом же хосте — композиция на уровне
+# инвентаря/плейбука, роль mysql_replication не тянет monitoring_agent зависимостью (ADR §11).
+mysql_replication_backup_metrics_textfile_path: /var/lib/node_exporter/textfile_collector/mysql_backup.prom

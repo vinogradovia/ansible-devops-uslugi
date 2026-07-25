@@ -1,0 +1,292 @@
+
+image:
+  # -- grafana operator image registry
+  registry: ghcr.io
+  # -- grafana operator image repository
+  repository: grafana/grafana-operator
+  # -- The image pull policy to use in grafana operator container
+  pullPolicy: IfNotPresent
+  # -- Overrides the image tag whose default is the chart appVersion.
+  tag: "v5.22.0"
+
+dashboard:
+  # -- Whether to create a ConfigMap containing a dashboard monitoring the operator metrics.
+  # Consider enabling this if you are enabling the ServiceMonitor.
+  # Optionally, a GrafanaDashboard CR can be manually created pointing to the Grafana.com dashboard ID 22785
+  # https://grafana.com/grafana/dashboards/22785-grafana-operator/
+  # The Grafana.com dashboard is maintained by the community and does not necessarily match the JSON definition in this repository.
+  enabled: true
+  # -- Annotations to add to the Grafana dashboard ConfigMap
+  annotations: {}
+  # -- Labels to add to the Grafana dashboard ConfigMap
+  labels: {}
+
+# -- Array of extra K8s objects to deploy
+extraObjects:
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: grafana-ldap-config
+    data:
+      ldap.toml: |
+        verbose_logging = true
+        [[ print "[[" ]]servers[[ print "]]" ]]
+        host = "sl-ldap-01.in.example.com"
+        port = 389
+        use_ssl = true
+        start_tls = true
+        ssl_skip_verify = false
+        root_ca_cert = "/etc/grafana-ldap-configmaps/ldap-ca.crt"
+        bind_dn = "uid=grafana-client,cn=users,cn=accounts,dc=in,dc=example,dc=com"
+        bind_password = 'CHANGEME_LDAP_BIND_PASSWORD'
+        search_filter = "(uid=%s)"
+        search_base_dns = ["cn=users,cn=accounts,dc=in,dc=example,dc=com"]
+        group_search_base_dns = ["cn=groups,cn=accounts,dc=in,dc=example,dc=com"]
+        [servers.attributes]
+        name = "givenName"
+        surname = "sn"
+        username = "uid"
+        member_of = "memberOf"
+        email =  "mail"
+        [[ print "[[" ]]servers.group_mappings[[ print "]]" ]]
+        group_dn = "cn=admins,cn=groups,cn=accounts,dc=in,dc=example,dc=com"
+        org_role = "Admin"
+        grafana_admin = true
+        [[ print "[[" ]]servers.group_mappings[[ print "]]" ]]
+        group_dn = "cn=dev,cn=groups,cn=accounts,dc=in,dc=example,dc=com"
+        org_role = "Editor"
+        [[ print "[[" ]]servers.group_mappings[[ print "]]" ]]
+        group_dn = "*"
+        org_role = "Viewer"
+      ldap-ca.crt: |
+        -----BEGIN CERTIFICATE-----
+        MIIFQDCCA6igAwIBAgIQJ15IqozRXjHLJ8nz34XmIzANBgkqhkiG9w0BAQsFADA1
+        MRMwEQYDVQQKDApJTi5NT09OLlJVMR4wHAYDVQQDDBVDZXJ0aWZpY2F0ZSBBdXRo
+        b3JpdHkwHhcNMjUwODI1MDg0OTQ0WhcNMjcwODI2MDg0OTQ0WjA1MRMwEQYDVQQK
+        DApJTi5NT09OLlJVMR4wHAYDVQQDDBVzbC1sZGFwLTAxLmluLm1vb24ucnUwggEi
+        MA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDJCqBoX8YUlwuZN0iN1mYbdIaj
+        7dvDWcugNyJbROYomTPVnZlniI97u676EC9nxaN3qgr3sWJImEwxIN1lmMlQIIx5
+        Nem+lQnp5y85xJRJ8Oj+VJWhbvDTsIRTWFysRYC8ogHMSdo42cJDcUHlZsfW5mqj
+        wLjah0PwueGcZXOTEuXQYLvzOgLd9VQnEVMlyEWIT4Ej6q+hK5LYxoCp9aLMInbR
+        BZ4TPa3W9iqfXXOtMPyJiV7f0XfhVxSptjp/GPUrqLucVppo4PcGqTy14MZ6Gx0S
+        TDK54cXDQyc4lJvhcTbxhg+KR/GIxN5T6/jt7OLRwIn9E3FXegzlg8r6LdXRAgMB
+        AAGjggHKMIIBxjAfBgNVHSMEGDAWgBRj8A2qXkgMTOtSeWOqKxWl/ogFBTA8Bggr
+        BgEFBQcBAQQwMC4wLAYIKwYBBQUHMAGGIGh0dHA6Ly9pcGEtY2EuaW4ubW9vbi5y
+        dS9jYS9vY3NwMA4GA1UdDwEB/wQEAwIE8DAdBgNVHSUEFjAUBggrBgEFBQcDAQYI
+        KwYBBQUHAwIwdQYDVR0fBG4wbDBqoDKgMIYuaHR0cDovL2lwYS1jYS5pbi5tb29u
+        LnJ1L2lwYS9jcmwvTWFzdGVyQ1JMLmJpbqI0pDIwMDEOMAwGA1UECgwFaXBhY2Ex
+        HjAcBgNVBAMMFUNlcnRpZmljYXRlIEF1dGhvcml0eTAdBgNVHQ4EFgQU5DU+wtnR
+        zVho4UnauMiz/gijBIMwgZ8GA1UdEQSBlzCBlIIVc2wtbGRhcC0wMS5pbi5tb29u
+        LnJ1oDUGCisGAQQBgjcUAgOgJwwlbGRhcC9zbC1sZGFwLTAxLmluLm1vb24ucnVA
+        SU4uTU9PTi5SVaBEBgYrBgEFAgKgOjA4oAwbCklOLk1PT04uUlWhKDAmoAMCAQGh
+        HzAdGwRsZGFwGxVzbC1sZGFwLTAxLmluLm1vb24ucnUwDQYJKoZIhvcNAQELBQAD
+        ggGBABZj0Szy/0+6HCeoIfp6BdGBxkXx9HDukV0krYdPQh4d9sgINq/iDqPO4kLZ
+        Vsf2K0Wxxwes37aY6X7v4zvluo4dfpnnCf3fLY7p4UyR1K5EXMYRdIRcYYdsKROY
+        XocBNvhiOihbQHxcayYwTVTUEnxcTAuTBjNZBowafx8oORQebb4V7i8yXOujAqYe
+        Qp5D4Lli3Lv5y0GOsrGtvZA92RZnDO+XVacO1W3/CksaPRKgKfRpZVglCuGWiMdl
+        fPuDh1cRUFtrxoREGWeUrgZE6oZ9r43999PPdnGMMpRkyl3brqJ09xgzBZmaYSSc
+        vq5yBQJhEUCjsittut1ddbphCL+ICBwIQfcZTRioAWqOMxghneIJrFr5ykzlVzUi
+        +ci5ssyDwlbHYdIMQ6XfBFeTG/djDLdWESkZqr/VPJsP0YgUZGqidBJ2Qs9xnLnB
+        k4T4UkBMG8Tov7sUsMj4WBoFIaHinOQEOKyYoP/9BWnPp6DMSqIkGmWnqolurb+W
+        t+HhiA==
+        -----END CERTIFICATE-----
+
+
+  - apiVersion: grafana.integreatly.org/v1beta1
+    kind: Grafana
+    metadata:
+      name: grafana
+      labels:
+        dashboards: "grafana"
+    spec:
+      config:
+        auth.ldap:
+          enabled: "true"
+          config_file: /etc/grafana-ldap-configmaps/ldap.toml
+        log:
+          mode: "console"
+      disableDefaultAdminSecret: true
+        # security:
+        #   admin_user: root
+        #   admin_password: secret
+      ingress:
+        spec:
+          ingressClassName: traefik
+          rules:
+            - host: grafana.in.example.com
+              http:
+                paths:
+                  - backend:
+                      service:
+                        name: grafana-service
+                        port:
+                          number: 3000
+                    path: /
+                    pathType: Prefix
+      persistentVolumeClaim:
+        spec:
+          storageClassName: local-monitoring-storage
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 5Gi
+      deployment:
+        spec:
+          template:
+            spec:
+              containers:
+                - name: grafana
+                  readinessProbe:
+                    failureThreshold: 3
+                  env:
+                    - name: GF_SECURITY_ADMIN_USER
+                      valueFrom:
+                        secretKeyRef:
+                          key: GF_SECURITY_ADMIN_USER
+                          name: grafana-admin-credentials-custom
+                    - name: GF_SECURITY_ADMIN_PASSWORD
+                      valueFrom:
+                        secretKeyRef:
+                          key: GF_SECURITY_ADMIN_PASSWORD
+                          name: grafana-admin-credentials-custom
+                  volumeMounts:
+                    - mountPath: /etc/grafana-ldap-configmaps
+                      name: grafana-ldap-configmaps
+                      readOnly: false
+              volumes:
+                - name: grafana-ldap-configmaps
+                  configMap:
+                    name: grafana-ldap-config
+                - name: grafana-data
+                  persistentVolumeClaim:
+                    claimName: grafana-pvc
+          strategy:
+            type: Recreate
+
+  # - apiVersion: grafana.integreatly.org/v1beta1
+  #   kind: GrafanaDatasource
+  #   metadata:
+  #     name: victoriametrics
+  #   spec:
+  #     instanceSelector:
+  #       matchLabels:
+  #         dashboards: "grafana"
+  #     datasource:
+  #       name: VictoriaMetrics
+  #       type: prometheus
+  #       access: proxy
+  #       url: http://vmsingle-vm-victoria-metrics-k8s-stack.monitoring.svc.cluster.local.:8428
+  #       isDefault: true
+
+  - apiVersion: grafana.integreatly.org/v1beta1
+    kind: GrafanaDatasource
+    metadata:
+      name: loki-infra
+    spec:
+      instanceSelector:
+        matchLabels:
+          dashboards: "grafana"
+      datasource:
+        name: Loki-infra
+        type: loki
+        access: proxy
+        # Grafana и Loki (release "loki", chart grafana/loki) — в одном namespace одного кластера,
+        # поэтому обращаемся по внутреннему cluster-DNS сервиса "loki-gateway", а не через внешний
+        # Ingress/DNS ("logs.in.example.com" из ../loki/values.yaml — используется только для
+        # внешнего доступа monitoring_agent/Promtail, не для этого server-side запроса Grafana).
+        url: http://loki-gateway.monitoring.svc.cluster.local
+        isDefault: false
+        jsonData:
+          httpHeaderName1: "X-Scope-OrgID"
+        secureJsonData:
+          httpHeaderValue1: "infra"
+
+  - apiVersion: grafana.integreatly.org/v1beta1
+    kind: GrafanaDatasource
+    metadata:
+      name: loki
+    spec:
+      instanceSelector:
+        matchLabels:
+          dashboards: "grafana"
+      datasource:
+        name: Loki
+        type: loki
+        access: proxy
+        # Grafana и Loki (release "loki", chart grafana/loki) — в одном namespace одного кластера,
+        # поэтому обращаемся по внутреннему cluster-DNS сервиса "loki-gateway", а не через внешний
+        # Ingress/DNS ("logs.in.example.com" из ../loki/values.yaml — используется только для
+        # внешнего доступа monitoring_agent/Promtail, не для этого server-side запроса Grafana).
+        url: http://loki-gateway.monitoring.svc.cluster.local
+        isDefault: true
+        jsonData:
+          httpHeaderName1: "X-Scope-OrgID"
+        secureJsonData:
+          httpHeaderValue1: "tenant1"
+
+  - apiVersion: grafana.integreatly.org/v1beta1
+    kind: GrafanaFolder
+    metadata:
+      name: addons
+    spec:
+      instanceSelector:
+        matchLabels:
+          dashboards: "grafana"
+      # If title is not defined, the value will be taken from metadata.name
+      title: ADDONS
+
+  - apiVersion: grafana.integreatly.org/v1beta1
+    kind: GrafanaFolder
+    metadata:
+      name: nginx
+    spec:
+      instanceSelector:
+        matchLabels:
+          dashboards: "grafana"
+      # If title is not defined, the value will be taken from metadata.name
+      title: Nginx
+
+  # - apiVersion: grafana.integreatly.org/v1beta1
+  #   kind: GrafanaFolder
+  #   metadata:
+  #     name: kubernetes
+  #   spec:
+  #     instanceSelector:
+  #       matchLabels:
+  #         dashboards: "grafana"
+  #     # If title is not defined, the value will be taken from metadata.name
+  #     title: Kubernetes
+
+  # - apiVersion: grafana.integreatly.org/v1beta1
+  #   kind: GrafanaFolder
+  #   metadata:
+  #     name: victoriametrics
+  #   spec:
+  #     instanceSelector:
+  #       matchLabels:
+  #         dashboards: "grafana"
+  #     # If title is not defined, the value will be taken from metadata.name
+  #     title: VictoriaMetrics
+
+
+
+
+
+
+# - apiVersion: external-secrets.io/v1beta1
+#   kind: ExternalSecret
+#   metadata:
+#     name: grafana-operator-apikey
+#   spec:
+#     refreshInterval: 1h
+#     secretStoreRef:
+#       kind: SecretStore
+#       name: my-secret-store
+#     target:
+#       template:
+#         data:
+#           GRAFANA_CLOUD_INSTANCE_TOKEN: "{{`{{ .Token }}`}}"
+#     dataFrom:
+#     - extract:
+#         key: my-secret-store-secret

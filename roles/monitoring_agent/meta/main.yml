@@ -6,4 +6,8 @@ galaxy_info:
   min_ansible_version: "2.2"
   galaxy_tags:
     - monitoring
-dependencies: []
+dependencies:
+  - role: docker
+    when: monitoring_agent_orchestrator == 'docker'
+    vars:
+      docker_daemon_json_options: "{{ monitoring_agent_docker_daemon_json_options }}"

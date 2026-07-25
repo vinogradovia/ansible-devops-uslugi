@@ -29,15 +29,23 @@ monitoring_agent_node_exporter_image: >-
 monitoring_agent_node_exporter_port: '9100'
 monitoring_agent_node_exporter_systemd_name: node_exporter
 monitoring_agent_node_exporter_binary_download_url: https://github.com/prometheus/node_exporter/releases/download/v1.10.2/node_exporter-1.10.2.linux-amd64.tar.gz
+monitoring_agent_node_exporter_binary_checksum: sha256:c46e5b6f53948477ff3a19d97c58307394a29fe64a01905646f026ddc32cb65b
 monitoring_agent_node_exporter_binary_install_path: /usr/sbin/node_exporter
 
 monitoring_agent_docker_exporter_enabled: false
 monitoring_agent_docker_exporter_patch_docker: true
-monitoring_agent_docker_exporter_docker_daemon_json: /etc/docker/daemon.json
 monitoring_agent_docker_exporter_port: 9323
 monitoring_agent_docker_exporter_docker_daemon_metrics_listener: '0.0.0.0'
 monitoring_agent_docker_exporter_docker_daemon_metrics_addr: >-
   {{ monitoring_agent_docker_exporter_docker_daemon_metrics_listener }}:{{ monitoring_agent_docker_exporter_port | string }}
+
+# Ключ metrics-addr для роли docker (docs/adr/0002-docker-role.md §6) — docker владеет
+# /etc/docker/daemon.json целиком, monitoring_agent передаёт только свой ключ через зависимость
+# в meta/main.yml.
+monitoring_agent_docker_daemon_json_options: >-
+  {{ {'metrics-addr': monitoring_agent_docker_exporter_docker_daemon_metrics_addr}
+     if (monitoring_agent_docker_exporter_enabled and monitoring_agent_docker_exporter_patch_docker)
+     else {} }}
 
 monitoring_agent_cadvisor_enabled: false
 monitoring_agent_cadvisor_port: 9326
@@ -58,18 +66,20 @@ monitoring_agent_redis_exporter_addr: "redis://localhost:6379"
 monitoring_agent_redis_exporter_password: ""
 monitoring_agent_redis_exporter_systemd_name: redis_exporter
 monitoring_agent_redis_exporter_binary_download_url: https://github.com/oliver006/redis_exporter/releases/download/v1.81.0/redis_exporter-v1.81.0.linux-amd64.tar.gz
+monitoring_agent_redis_exporter_binary_checksum: sha256:d2f4740fa81e1a274ca99677783f3fe1544f6022fed997d4cd632d01a8eff1bb
 monitoring_agent_redis_exporter_binary_install_path: /usr/sbin/redis_exporter
 
 monitoring_agent_nginx_exporter_enabled: false
 monitoring_agent_nginx_exporter_image_registry: docker.io
 monitoring_agent_nginx_exporter_image_repository: nginx/nginx-prometheus-exporter
-monitoring_agent_nginx_exporter_image_version: "1.4.1"
+monitoring_agent_nginx_exporter_image_version: "1.5.0"
 monitoring_agent_nginx_exporter_image: >-
   {{ monitoring_agent_nginx_exporter_image_registry }}/{{ monitoring_agent_nginx_exporter_image_repository }}:{{ monitoring_agent_nginx_exporter_image_version }}
 monitoring_agent_nginx_exporter_port: '9113'
 monitoring_agent_nginx_exporter_scrape_uri: ""  # for example "http://localhost:80/basic_status", use stub for it
 monitoring_agent_nginx_exporter_systemd_name: nginx_exporter
 monitoring_agent_nginx_exporter_binary_download_url: https://github.com/nginx/nginx-prometheus-exporter/releases/download/v1.5.0/nginx-prometheus-exporter_1.5.0_linux_amd64.tar.gz
+monitoring_agent_nginx_exporter_binary_checksum: sha256:2614e4d18a181bee5828303df25a205f67449b6cb2de7b0ddfe1284a1f83e1df
 monitoring_agent_nginx_exporter_binary_install_path: /usr/sbin/nginx-prometheus-exporter
 
 monitoring_agent_nginxlog_exporter_enabled: false
@@ -94,6 +104,7 @@ monitoring_agent_nginxlog_exporter_metrics_prefix: "nginx"
 
 monitoring_agent_nginxlog_exporter_log_group: adm  # group for log directory
 monitoring_agent_nginxlog_exporter_binary_download_url: https://github.com/martin-helmich/prometheus-nginxlog-exporter/releases/download/v1.11.0/prometheus-nginxlog-exporter_1.11.0_linux_amd64.tar.gz
+monitoring_agent_nginxlog_exporter_binary_checksum: sha256:ab640b73b7e22d1f46197a98c3a06c548d66f9e3fb36b9437011997643569aa6
 monitoring_agent_nginxlog_exporter_binary_install_path: /usr/sbin/prometheus-nginxlog-exporter
 
 monitoring_agent_php_fpm_exporter_enabled: false
@@ -107,6 +118,7 @@ monitoring_agent_php_fpm_exporter_scrape_uri: ""  # for example "tcp://127.0.0.1
 monitoring_agent_php_fpm_exporter_systemd_name: php_fpm_exporter
 monitoring_agent_php_fpm_exporter_socket_group: www-data
 monitoring_agent_php_fpm_exporter_binary_download_url: https://github.com/hipages/php-fpm_exporter/releases/download/v2.2.0/php-fpm_exporter_2.2.0_linux_amd64.tar.gz
+monitoring_agent_php_fpm_exporter_binary_checksum: sha256:b1c207fcd89f9be20104fd90bc76b3c584987ea5a769c99d5759f79af8322449
 monitoring_agent_php_fpm_exporter_binary_install_path: /usr/sbin/php-fpm_exporter
 
 monitoring_agent_ipa_exporter_enabled: false
@@ -122,6 +134,7 @@ monitoring_agent_ipa_exporter_user: ""  # for example, uid=user,cn=users,cn=acco
 monitoring_agent_ipa_exporter_password: ""
 monitoring_agent_ipa_exporter_systemd_name: ipa_exporter
 monitoring_agent_ipa_exporter_binary_download_url: https://github.com/vinogradovia/ansible-devops-uslugi/releases/download/v1.0.0/freeipa-exporter-1.0.0.linux-amd64.tar.gz
+monitoring_agent_ipa_exporter_binary_checksum: sha256:e2718c8c258bbcf3a51de0d775547c2d8b4197041178739b2d4960acef831160
 monitoring_agent_ipa_exporter_binary_install_path: /usr/sbin/freeipa-exporter
 
 monitoring_agent_mysqld_exporter_enabled: false
@@ -136,6 +149,7 @@ monitoring_agent_mysqld_exporter_user: "mysql-exporter"
 monitoring_agent_mysqld_exporter_password: ""
 monitoring_agent_mysqld_exporter_systemd_name: mysqld_exporter
 monitoring_agent_mysqld_exporter_binary_download_url: https://github.com/prometheus/mysqld_exporter/releases/download/v0.18.0/mysqld_exporter-0.18.0.linux-amd64.tar.gz
+monitoring_agent_mysqld_exporter_binary_checksum: sha256:46e8f45654352bdd42d162b2b4a68f00055d45acc168f9c068235b9e3acc39c1
 monitoring_agent_mysqld_exporter_binary_install_path: /usr/sbin/mysqld_exporter
 
 # pve_exporter

@@ -1,0 +1,139 @@
+---
+- name: Verify (primary)
+  hosts: mysql_primary
+  become: true
+  gather_facts: false
+  tasks:
+    # --- Adopt не должен переустанавливать MySQL (ADR §2) — данные, созданные ДО роли
+    # (prepare.yml), должны пережить converge без потерь. -------------------------------------
+    - name: Проверить, что "боевые" данные пережили adopt
+      ansible.builtin.command: >
+        mysql -N -B -e "SELECT note FROM molecule_preexisting.marker WHERE id=1;"
+      register: molecule_adopt_marker
+      changed_when: false
+
+    - name: Adopt не должен был переустановить MySQL
+      ansible.builtin.assert:
+        that:
+          - molecule_adopt_marker.stdout | trim == 'adopted-not-reinstalled'
+        fail_msg: >-
+          Данные, созданные до роли, не найдены после converge — похоже, роль переустановила
+          MySQL вместо adopt (см. tasks/detect-existing-instance.yml).
+        quiet: true
+
+    # --- server_id/GTID/binlog (ADR §4) -------------------------------------------------------
+    - name: Прочитать переменные репликации на primary
+      ansible.builtin.command: >
+        mysql -N -B -e "SELECT @@GLOBAL.gtid_mode, @@GLOBAL.enforce_gtid_consistency,
+        @@GLOBAL.binlog_format, @@GLOBAL.read_only, @@GLOBAL.server_id;"
+      register: molecule_primary_vars
+      changed_when: false
+
+    - name: Настройки primary должны соответствовать роли
+      vars:
+        _cols: "{{ molecule_primary_vars.stdout_lines[0].split('\t') }}"
+      ansible.builtin.assert:
+        that:
+          - _cols[0] == 'ON'
+          - _cols[1] == 'ON'
+          - _cols[2] == 'ROW'
+          - _cols[3] == '0'
+          - _cols[4] == (mysql_replication_server_id | string)
+        fail_msg: "gtid_mode/enforce_gtid_consistency/binlog_format/read_only/server_id: {{ _cols }}"
+        quiet: true
+
+    # --- Репликационный пользователь (ADR §4) -------------------------------------------------
+    - name: Репликационный пользователь должен существовать
+      ansible.builtin.command: >
+        mysql -N -B -e "SELECT COUNT(*) FROM mysql.user WHERE user='repl';"
+      register: molecule_repl_user_count
+      changed_when: false
+
+    - name: Repl-пользователь должен быть заведён
+      ansible.builtin.assert:
+        that:
+          - molecule_repl_user_count.stdout | trim == '1'
+        quiet: true
+
+    # --- Функциональная проверка репликации (ТЗ, приёмка п.1): пишем тестовую строку -----------
+    - name: Сгенерировать уникальный маркер для проверки репликации
+      ansible.builtin.set_fact:
+        molecule_test_marker: "{{ lookup('pipe', 'date +%s%N') }}"
+
+    - name: Создать тестовую схему/таблицу
+      ansible.builtin.command: >
+        mysql -e "CREATE DATABASE IF NOT EXISTS molecule_test;
+        CREATE TABLE IF NOT EXISTS molecule_test.probe (id INT PRIMARY KEY AUTO_INCREMENT, marker VARCHAR(64));"
+      changed_when: true
+
+    - name: Записать маркер на primary
+      ansible.builtin.command: >
+        mysql -e "INSERT INTO molecule_test.probe (marker) VALUES ('{{ molecule_test_marker }}');"
+      changed_when: true
+
+- name: Verify (реплики)
+  hosts: mysql_read_replica:mysql_dr_replica
+  become: true
+  gather_facts: false
+  vars:
+    molecule_test_marker: "{{ hostvars[groups['mysql_primary'][0]].molecule_test_marker }}"
+  tasks:
+    # --- Статус репликации (ADR §10 — "verify проверяет реальный SHOW REPLICA STATUS") --------
+    - name: Получить статус репликации
+      ansible.mysql.mysql_replication:
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+        mode: getreplica
+      register: molecule_replica_status
+
+    - name: Репликация должна быть настроена и в порядке
+      ansible.builtin.assert:
+        that:
+          - molecule_replica_status.Is_Replica
+          - molecule_replica_status.Replica_IO_Running == 'Yes'
+          - molecule_replica_status.Replica_SQL_Running == 'Yes'
+          - (molecule_replica_status.Seconds_Behind_Source | int) < 30
+        fail_msg: "{{ molecule_replica_status | to_nice_json }}"
+        quiet: true
+
+    # --- read_only/super_read_only (ТЗ, приёмка п.2) -------------------------------------------
+    - name: Прочитать read_only/super_read_only
+      ansible.builtin.command: >
+        mysql -N -B -e "SELECT @@GLOBAL.read_only, @@GLOBAL.super_read_only;"
+      register: molecule_replica_read_only
+      changed_when: false
+
+    - name: Read_only и super_read_only должны быть включены
+      vars:
+        _cols: "{{ molecule_replica_read_only.stdout_lines[0].split('\t') }}"
+      ansible.builtin.assert:
+        that:
+          - _cols[0] == '1'
+          - _cols[1] == '1'
+        fail_msg: "read_only/super_read_only: {{ _cols }}"
+        quiet: true
+
+    # --- Запись на реплику должна быть отклонена (ТЗ, приёмка п.2) -----------------------------
+    - name: Попытка записи на реплику
+      ansible.builtin.command: >
+        mysql -e "INSERT INTO molecule_test.probe (marker) VALUES ('should-be-rejected');"
+      register: molecule_write_attempt
+      failed_when: false
+      changed_when: false
+
+    - name: Запись на реплику должна завершиться ошибкой read-only
+      ansible.builtin.assert:
+        that:
+          - molecule_write_attempt.rc != 0
+          - "'read-only' in molecule_write_attempt.stderr | lower"
+        fail_msg: "{{ molecule_write_attempt.stderr }}"
+        quiet: true
+
+    # --- Тестовая запись с primary должна дойти "за секунды" (ТЗ, приёмка п.1) -----------------
+    - name: Дождаться появления тестовой записи, реплицированной с primary
+      ansible.builtin.command: >
+        mysql -N -B -e "SELECT COUNT(*) FROM molecule_test.probe WHERE marker='{{ molecule_test_marker }}';"
+      register: molecule_probe_count
+      until: molecule_probe_count.stdout | trim == '1'
+      retries: 15
+      delay: 2
+      changed_when: false

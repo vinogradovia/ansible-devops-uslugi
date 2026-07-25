@@ -1,0 +1,163 @@
+---
+# -- Add extra objects dynamically to this chart
+extraObjects:
+  - apiVersion: storage.k8s.io/v1
+    kind: StorageClass
+    metadata:
+      name: local-monitoring-storage
+    provisioner: rancher.io/local-path
+    parameters:
+      nodePath: /opt/monitoring_storage
+    volumeBindingMode: WaitForFirstConsumer
+    reclaimPolicy: Delete
+
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: vm-alertmanager-telegram-critical
+    type: Opaque
+    stringData:
+      bot_token: CHANGEME_TELEGRAM_BOT_TOKEN
+
+  - apiVersion: v1
+    kind: Secret
+    metadata:
+      name: vm-alertmanager-telegram-default
+    type: Opaque
+    stringData:
+      bot_token: CHANGEME_TELEGRAM_BOT_TOKEN
+
+  - apiVersion: operator.victoriametrics.com/v1beta1
+    kind: VMScrapeConfig
+    metadata:
+      name: vm-node-exporter
+    spec:
+      fileSDConfigs:
+        - files:
+            - /etc/vmagent/filesd/node-exporter-targets/data.json
+      relabelConfigs:
+        - target_label: job
+          replacement: node-exporter
+  # - apiVersion: operator.victoriametrics.com/v1beta1
+  #   kind: VMScrapeConfig
+  #   metadata:
+  #     name: vm-docker-exporter
+  #   spec:
+  #     fileSDConfigs:
+  #       - files:
+  #           - /etc/vmagent/filesd/docker-exporter-targets/data.json
+  #     relabelConfigs:
+  #       - target_label: job
+  #         replacement: docker-exporter
+  - apiVersion: operator.victoriametrics.com/v1beta1
+    kind: VMScrapeConfig
+    metadata:
+      name: vm-cadvisor
+    spec:
+      fileSDConfigs:
+        - files:
+            - /etc/vmagent/filesd/cadvisor-targets/data.json
+      relabelConfigs:
+        - target_label: job
+          replacement: cadvisor
+  - apiVersion: operator.victoriametrics.com/v1beta1
+    kind: VMScrapeConfig
+    metadata:
+      name: vm-ipa-exporter
+    spec:
+      fileSDConfigs:
+        - files:
+            - /etc/vmagent/filesd/ipa-exporter-targets/data.json
+      relabelConfigs:
+        - target_label: job
+          replacement: ipa-exporter
+  # - apiVersion: operator.victoriametrics.com/v1beta1
+  #   kind: VMScrapeConfig
+  #   metadata:
+  #     name: vm-redis-exporter
+  #   spec:
+  #     fileSDConfigs:
+  #       - files:
+  #           - /etc/vmagent/filesd/redis-exporter-targets/data.json
+  #     relabelConfigs:
+  #       - target_label: job
+  #         replacement: redis-exporter
+  - apiVersion: operator.victoriametrics.com/v1beta1
+    kind: VMScrapeConfig
+    metadata:
+      name: vm-nginx-exporter
+    spec:
+      fileSDConfigs:
+        - files:
+            - /etc/vmagent/filesd/nginx-exporter-targets/data.json
+      relabelConfigs:
+        - target_label: job
+          replacement: nginx-exporter
+  - apiVersion: operator.victoriametrics.com/v1beta1
+    kind: VMScrapeConfig
+    metadata:
+      name: vm-nginxlog-exporter
+    spec:
+      fileSDConfigs:
+        - files:
+            - /etc/vmagent/filesd/nginxlog-exporter-targets/data.json
+      relabelConfigs:
+        - target_label: job
+          replacement: nginxlog-exporter
+  - apiVersion: operator.victoriametrics.com/v1beta1
+    kind: VMScrapeConfig
+    metadata:
+      name: vm-php-fpm-exporter
+    spec:
+      fileSDConfigs:
+        - files:
+            - /etc/vmagent/filesd/php-fpm-exporter-targets/data.json
+      relabelConfigs:
+        - target_label: job
+          replacement: php-fpm-exporter
+  - apiVersion: operator.victoriametrics.com/v1beta1
+    kind: VMScrapeConfig
+    metadata:
+      name: vm-mysqld-exporter
+    spec:
+      fileSDConfigs:
+        - files:
+            - /etc/vmagent/filesd/mysqld-exporter-targets/data.json
+      relabelConfigs:
+        - target_label: job
+          replacement: mysqld-exporter
+  - apiVersion: operator.victoriametrics.com/v1beta1
+    kind: VMScrapeConfig
+    metadata:
+      name: vm-pve-exporter
+    spec:
+      fileSDConfigs:
+        - files:
+            - /etc/vmagent/filesd/pve-exporter-targets/data.json
+      relabelConfigs:
+        - target_label: job
+          replacement: pve-exporter
+  - apiVersion: operator.victoriametrics.com/v1beta1
+    kind: VMScrapeConfig
+    metadata:
+      name: vm-pve-exporter-pve-node
+    spec:
+      path: /pve
+      fileSDConfigs:
+        - files:
+            - /etc/vmagent/filesd/pve-exporter-targets/data.json
+      relabelConfigs:
+        - target_label: job
+          replacement: pve-exporter
+  - apiVersion: operator.victoriametrics.com/v1beta1
+    kind: VMScrapeConfig
+    metadata:
+      name: vm-prom-client
+    spec:
+      path: /api/metrics
+      fileSDConfigs:
+        - files:
+            - /etc/vmagent/filesd/prom-client-targets/data.json
+      relabelConfigs:
+        - target_label: job
+          replacement: prom-client

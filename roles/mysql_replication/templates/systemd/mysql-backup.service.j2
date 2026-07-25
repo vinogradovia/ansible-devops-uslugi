@@ -1,0 +1,6 @@
+[Unit]
+Description=MySQL physical backup ({{ mysql_replication_backup_tool }}) to S3
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/mysql-backup.sh

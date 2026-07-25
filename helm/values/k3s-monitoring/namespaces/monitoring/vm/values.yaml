@@ -1,0 +1,643 @@
+global:
+  cluster:
+    dnsDomain: cluster.local.
+  clusterLabel: "example_cluster"
+
+
+# -- VictoriaMetrics Operator dependency chart configuration. More values can be found [here](https://docs.victoriametrics.com/helm/victoria-metrics-operator/#parameters). Also checkout [here](https://docs.victoriametrics.com/operator/configuration/#environment-variables) possible ENV variables to configure operator behaviour
+victoria-metrics-operator:
+  enabled: true
+  crds:
+    plain: true
+    cleanup:
+      enabled: true
+      image:
+        repository: rancher/kubectl
+        pullPolicy: IfNotPresent
+  admissionWebhooks:
+    enabled: false
+  securityContext:
+    enabled: false
+  podSecurityContext:
+    enabled: false
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
+  serviceMonitor:
+    enabled: true
+    vm: true
+    interval: "30s"
+
+vmagent:
+  enabled: true
+  spec:
+    replicaCount: 1
+    image:
+      repository: victoriametrics/vmagent
+      tag: "v1.103.0"
+      pullPolicy: IfNotPresent
+    port: "8429"
+    remoteWrite:
+      - url: "http://vmsingle-vm-victoria-metrics-k8s-stack:8428/api/v1/write"
+    scrapeInterval: "30s"
+    externalLabels:
+      cluster: "prod-cluster"
+      region: "ru-central1-a"
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "300m"
+      limits:
+        memory: "1Gi"
+        cpu: "1000m"
+    securityContext:
+      enabled: false
+    serviceSpec:
+      metadata:
+        name: vmagent
+      spec:
+        type: ClusterIP
+        ports:
+          - name: http
+            port: 8429
+            targetPort: 8429
+            protocol: TCP
+    serviceScrapeSpec:
+      endpoints:
+        - port: http
+          path: /metrics
+          interval: 30s
+          honorLabels: true
+    extraArgs:
+      promscrape.streamParse: "true"
+      promscrape.dropOriginalLabels: "true"
+
+      remoteWrite.sendTimeout: "30s"
+      remoteWrite.forceVMProto: "true"
+      maxConcurrentInserts: "32"
+      maxInsertRequestSize: "100MB"
+    logLevel: "INFO"
+    logFormat: "json"
+    volumeMounts:
+      - mountPath: /etc/vmagent/filesd/node-exporter-targets
+        name: vm-filesd-node-exporter
+        # subPath: node-exporter-targets.json
+      - mountPath: /etc/vmagent/filesd/docker-exporter-targets
+        name: vm-filesd-docker-exporter
+      - mountPath: /etc/vmagent/filesd/cadvisor-targets
+        name: vm-filesd-cadvisor
+      - mountPath: /etc/vmagent/filesd/ipa-exporter-targets
+        name: vm-filesd-ipa-exporter
+      - mountPath: /etc/vmagent/filesd/redis-exporter-targets
+        name: vm-filesd-redis-exporter
+      - mountPath: /etc/vmagent/filesd/nginx-exporter-targets
+        name: vm-filesd-nginx-exporter
+      - mountPath: /etc/vmagent/filesd/nginxlog-exporter-targets
+        name: vm-filesd-nginxlog-exporter
+      - mountPath: /etc/vmagent/filesd/php-fpm-exporter-targets
+        name: vm-filesd-php-fpm-exporter
+      - mountPath: /etc/vmagent/filesd/mysqld-exporter-targets
+        name: vm-filesd-mysqld-exporter
+      - mountPath: /etc/vmagent/filesd/pve-exporter-targets
+        name: vm-filesd-pve-exporter
+      - mountPath: /etc/vmagent/filesd/prom-client-targets
+        name: vm-filesd-prom-client
+    volumes:
+      - configMap:
+          defaultMode: 420
+          name: vm-filesd-node-exporter
+        name: vm-filesd-node-exporter
+      - configMap:
+          defaultMode: 420
+          name: vm-filesd-docker-exporter
+        name: vm-filesd-docker-exporter
+      - configMap:
+          defaultMode: 420
+          name: vm-filesd-cadvisor
+        name: vm-filesd-cadvisor
+      - configMap:
+          defaultMode: 420
+          name: vm-filesd-ipa-exporter
+        name: vm-filesd-ipa-exporter
+      - configMap:
+          defaultMode: 420
+          name: vm-filesd-redis-exporter
+        name: vm-filesd-redis-exporter
+      - configMap:
+          defaultMode: 420
+          name: vm-filesd-nginx-exporter
+        name: vm-filesd-nginx-exporter
+      - configMap:
+          defaultMode: 420
+          name: vm-filesd-nginxlog-exporter
+        name: vm-filesd-nginxlog-exporter
+      - configMap:
+          defaultMode: 420
+          name: vm-filesd-php-fpm-exporter
+        name: vm-filesd-php-fpm-exporter
+      - configMap:
+          defaultMode: 420
+          name: vm-filesd-mysqld-exporter
+        name: vm-filesd-mysqld-exporter
+      - configMap:
+          defaultMode: 420
+          name: vm-filesd-pve-exporter
+        name: vm-filesd-pve-exporter
+      - configMap:
+          defaultMode: 420
+          name: vm-filesd-prom-client
+        name: vm-filesd-prom-client
+  # -- (object) VMAgent ingress configuration
+  ingress:
+    enabled: true
+    # For Kubernetes >= 1.18 you should specify the ingress-controller via the field ingressClassName
+    # See https://kubernetes.io/blog/2020/04/02/improvements-to-the-ingress-api-in-kubernetes-1.18/#specifying-the-class-of-an-ingress
+    # ingressClassName: nginx
+    # Values can be templated
+    annotations:
+      {}
+      # kubernetes.io/ingress.class: nginx
+      # kubernetes.io/tls-acme: "true"
+    labels: {}
+    path: ""
+    pathType: Prefix
+
+    hosts:
+      - vmagent.in.example.com
+    extraPaths: []
+    # - path: /*
+    #   pathType: Prefix
+    #   backend:
+    #     service:
+    #       name: ssl-redirect
+    #       port:
+    #         name: service
+    tls: []
+    #  - secretName: vmagent-ingress-tls
+    #    hosts:
+    #      - vmagent.domain.com
+
+defaultRules:
+  create: true
+  additionalGroupByLabels:
+    - "cluster"
+
+  # Управление включением стандартных групп
+  groups:
+    etcd:
+      create: true
+    general:
+      create: true
+    k8sContainerCpuLimits:
+      create: true
+    k8sContainerCpuRequests:
+      create: true
+    k8sContainerCpuUsageSecondsTotal:
+      create: true
+    k8sContainerMemoryLimits:
+      create: true
+    k8sContainerMemoryRequests:
+      create: true
+    k8sContainerMemoryRss:
+      create: true
+    k8sContainerMemoryCache:
+      create: true
+    k8sContainerMemoryWorkingSetBytes:
+      create: true
+    k8sContainerMemorySwap:
+      create: true
+    k8sPodOwner:
+      create: true
+    k8sContainerResource:
+      create: true
+    kubeApiserver:
+      create: true
+    kubeApiserverAvailability:
+      create: true
+    kubeApiserverBurnrate:
+      create: true
+    kubeApiserverHistogram:
+      create: true
+    kubeApiserverSlos:
+      create: true
+    kubelet:
+      create: true
+    kubePrometheusGeneral:
+      create: true
+    kubePrometheusNodeRecording:
+      create: false
+    kubernetesApps:
+      create: true
+      targetNamespace: ".*"
+    kubernetesResources:
+      create: true
+    kubernetesStorage:
+      create: true
+      targetNamespace: ".*"
+    kubernetesSystem:
+      create: true
+    kubernetesSystemKubelet:
+      create: true
+    kubernetesSystemApiserver:
+      create: true
+    kubernetesSystemControllerManager:
+      create: true
+    kubeScheduler:
+      create: true
+    kubernetesSystemScheduler:
+      create: true
+    kubeStateMetrics:
+      create: true
+    nodeNetwork:
+      create: true
+    node:
+      create: false
+    vmagent:
+      create: true
+    vmsingle:
+      create: true
+    vmcluster:
+      create: true
+    vmHealth:
+      create: true
+    vmoperator:
+      create: true
+    alertmanager:
+      create: true
+  runbookUrl: "https://runbooks.prometheus-operator.dev/runbooks"
+
+external:
+  grafana:
+    # -- External Grafana host
+    host: "grafana.in.example.com"
+
+vmalert:
+  enabled: true
+  configReloaderEnabled: false
+
+  spec:
+    replicaCount: 1
+    image:
+      repository: victoriametrics/vmalert
+      tag: "v1.103.0"
+      pullPolicy: IfNotPresent
+    port: "8880"
+    externalLabels:
+      source: "vmalert"
+      cluster: "prod-cluster"
+      severity: "warning"
+    # URL
+    datasource:
+      url: "http://vmsingle-vm-victoria-metrics-k8s-stack:8428"
+    remoteWrite:
+      url: "http://vmsingle-vm-victoria-metrics-k8s-stack:8428/api/v1/write"
+    remoteRead:
+      url: "http://vmsingle-vm-victoria-metrics-k8s-stack:8428"
+    notifier:
+      url: "http://vmalertmanager-vm-victoria-metrics-k8s-stack:9093"
+
+    rulePath:
+      - /etc/vmalert/config/*.yaml
+      - /etc/vmalert/config/*.yml
+
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "200m"
+      limits:
+        memory: "512Mi"
+        cpu: "500m"
+
+    extraArgs:
+      rule.validateTemplates: "true"
+      rule.validateExpressions: "true"
+      httpListenAddr: ":8880"
+      external.url: "https://grafana.in.example.com"
+    logLevel: "INFO"
+    logFormat: "json"
+
+    serviceSpec:
+      metadata:
+        name: vmalert
+      spec:
+        type: ClusterIP
+        ports:
+          - name: http
+            port: 8880
+            targetPort: 8880
+            protocol: TCP
+
+    serviceScrapeSpec:
+      endpoints:
+        - port: http
+          path: /metrics
+          interval: 30s
+
+    securityContext:
+      enabled: false
+  # -- (object) VMAlert ingress config
+  ingress:
+    enabled: true
+    # For Kubernetes >= 1.18 you should specify the ingress-controller via the field ingressClassName
+    # See https://kubernetes.io/blog/2020/04/02/improvements-to-the-ingress-api-in-kubernetes-1.18/#specifying-the-class-of-an-ingress
+    # ingressClassName: nginx
+    # Values can be templated
+    annotations:
+      {}
+      # kubernetes.io/ingress.class: nginx
+      # kubernetes.io/tls-acme: "true"
+    labels: {}
+    path: ""
+    pathType: Prefix
+
+    hosts:
+      - vmalert.in.example.com
+    # -- Extra paths to prepend to every host configuration. This is useful when working with annotation based services.
+    extraPaths: []
+    # - path: /*
+    #   pathType: Prefix
+    #   backend:
+    #     service:
+    #       name: ssl-redirect
+    #       port:
+    #         name: service
+    tls: []
+    #  - secretName: vmalert-ingress-tls
+    #    hosts:
+    #      - vmalert.domain.com
+
+
+
+extraConfigMaps:
+  - name: vmalert-custom-rules
+    data:
+      custom-rules.yaml: |
+        groups:
+          - name: custom-node.rules
+            rules:
+              - record: :node_memory_MemAvailable_bytes:sum
+                expr: sum by (cluster) (node_memory_MemAvailable_bytes)
+              - record: node:node_cpu_utilization:ratio_rate5m
+                expr: |
+                  1 - avg by (cluster, instance) (
+                    rate(node_cpu_seconds_total{mode="idle"}[5m])
+                  )
+          - name: custom-kube-prometheus-node-recording.rules
+            rules:
+              - record: cluster:node_cpu:sum_rate5m
+                expr: sum by (cluster) (rate(node_cpu_seconds_total[5m]))
+
+  - name: alerting-rules
+    data:
+      alerting.rules.yaml: |
+        groups:
+          - name: custom.alerts
+            interval: 30s
+            rules:
+              - alert: HighCPUUsage
+                expr: node:node_cpu_utilization:ratio_rate5m > 0.8
+                labels:
+                  severity: critical
+                  cluster: prod-cluster
+                annotations:
+                  summary: High CPU usage
+
+alertmanager:
+  enabled: false
+  # moved to external values
+
+vmsingle:
+  enabled: false
+  # moved to external values
+
+grafana:
+  enabled: false
+  # moved to external values
+
+vmcluster:
+  enabled: false
+
+defaultDashboards:
+  # -- Enable custom dashboards installation
+  enabled: true
+  defaultTimezone: europe/moscow
+  labels: {}
+  annotations: {}
+  grafanaOperator:
+    # -- Create dashboards as CRDs (requires grafana-operator to be installed)
+    enabled: true
+    spec:
+      instanceSelector:
+        matchLabels:
+          dashboards: grafana
+      allowCrossNamespaceImport: true
+  # -- Create dashboards as ConfigMap despite dependency it requires is not installed
+  dashboards:
+    victoriametrics-vmalert:
+      enabled: true
+    victoriametrics-operator:
+      enabled: true
+    # -- In ArgoCD using client-side apply this dashboard reaches annotations size limit and causes k8s issues without server side apply
+    # See [this issue](https://github.com/VictoriaMetrics/helm-charts/tree/master/charts/victoria-metrics-k8s-stack#metadataannotations-too-long-must-have-at-most-262144-bytes-on-dashboards)
+    node-exporter-full:
+      enabled: true
+
+prometheus-node-exporter:
+  enabled: true
+  vmScrape:
+    enabled: true
+    spec:
+      jobLabel: jobLabel
+      selector:
+        matchLabels:
+          app.kubernetes.io/name: '{{ include "prometheus-node-exporter.name" (index .Subcharts "prometheus-node-exporter") }}'
+      endpoints:
+        - port: "metrics"
+          metricRelabelConfigs:
+            - action: drop
+              source_labels: [mountpoint]
+              regex: "/var/lib/kubelet/pods.+"
+
+kube-state-metrics:
+  enabled: true
+  vmScrape:
+    enabled: true
+    spec:
+      selector:
+        matchLabels:
+          app.kubernetes.io/name: '{{ include "kube-state-metrics.name" (index .Subcharts "kube-state-metrics") }}'
+          app.kubernetes.io/instance: '{{ include "vm.release" . }}'
+      endpoints:
+        - port: http
+          honorLabels: true
+          metricRelabelConfigs:
+            - action: labeldrop
+              regex: (uid|container_id|image_id)
+      jobLabel: app.kubernetes.io/name
+
+kubelet:
+  enabled: true
+  vmScrapes:
+    cadvisor:
+      enabled: true
+      spec:
+        path: /metrics/cadvisor
+    probes:
+      enabled: true
+      spec:
+        path: /metrics/probes
+    resources:
+      enabled: true
+      spec:
+        path: /metrics/resource
+  vmScrape:
+    kind: VMNodeScrape
+    spec:
+      scheme: "https"
+      honorLabels: true
+      interval: "30s"
+      scrapeTimeout: "5s"
+      tlsConfig:
+        insecureSkipVerify: true
+        caFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      metricRelabelConfigs:
+        - action: labeldrop
+          regex: (uid)
+        - action: labeldrop
+          regex: (id|name)
+        - action: drop
+          source_labels: [__name__]
+          regex: (rest_client_request_duration_seconds_bucket|rest_client_request_duration_seconds_sum|rest_client_request_duration_seconds_count)
+      relabelConfigs:
+        - action: labelmap
+          regex: __meta_kubernetes_node_label_(.+)
+        - sourceLabels: [__metrics_path__]
+          targetLabel: metrics_path
+        - targetLabel: job
+          replacement: kubelet
+      honorTimestamps: false
+
+coreDns:
+  enabled: true
+  service:
+    enabled: true
+    port: 9153
+    targetPort: 9153
+    selector:
+      k8s-app: kube-dns
+  vmScrape:
+    enabled: true
+    spec:
+      jobLabel: jobLabel
+      namespaceSelector:
+        matchNames: []
+      endpoints:
+        - port: http-metrics
+          bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+
+kubeApiServer:
+  enabled: false
+  vmScrape:
+    enabled: true
+    spec:
+      endpoints:
+        - bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+          port: https
+          scheme: https
+          tlsConfig:
+            caFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+            serverName: kubernetes
+      jobLabel: component
+      namespaceSelector:
+        matchNames:
+          - default
+      selector:
+        matchLabels:
+          component: apiserver
+          provider: kubernetes
+
+kubeControllerManager:
+  enabled: false
+  endpoints:
+    - "192.168.21.9"
+  service:
+    enabled: true
+    port: 10257
+    targetPort: 10257
+    selector:
+      component: kube-controller-manager
+  vmScrape:
+    enabled: true
+    spec:
+      jobLabel: jobLabel
+      namespaceSelector:
+        matchNames: []
+      endpoints:
+        - bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+          port: "10257"
+          scheme: https
+          tlsConfig:
+            caFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+            serverName: kubernetes
+
+kubeScheduler:
+  enabled: false
+  endpoints:
+    - "192.168.21.9"
+  service:
+    enabled: true
+    port: 10259
+    targetPort: 10259
+    selector:
+      component: kube-scheduler
+  vmScrape:
+    enabled: true
+    spec:
+      jobLabel: jobLabel
+      namespaceSelector:
+        matchNames: []
+      endpoints:
+        - bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+          port: "10259"
+          scheme: https
+          tlsConfig:
+            caFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+
+# ⚡⚡⚡ ИСПРАВЛЕННЫЙ kubeEtcd ⚡⚡⚡
+kubeEtcd:
+  enabled: false
+  endpoints:
+    - "192.168.21.9"
+  service:
+    enabled: true
+    port: 2379
+    targetPort: 2379
+    selector:
+      component: etcd
+  vmScrape:
+    enabled: true
+    spec:
+      jobLabel: jobLabel
+      namespaceSelector:
+        matchNames: []
+      endpoints:
+        - bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+          port: "2379"
+          scheme: https
+          tlsConfig:
+            caFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          # ✅ relabelConfigs и metricRelabelConfigs должны быть внутри endpoints
+          relabelConfigs:
+            - sourceLabels: [__meta_kubernetes_pod_name]
+              targetLabel: etcd_node
+            - sourceLabels: [__meta_kubernetes_pod_container_name]
+              targetLabel: container
+          metricRelabelConfigs:
+            - action: keep
+              source_labels: [__name__]
+              regex: ^etcd_(server|debugging|disk|network|grpc).*

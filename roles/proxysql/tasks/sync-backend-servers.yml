@@ -1,0 +1,44 @@
+---
+# Декларативная синхронизация backend-серверов через admin-интерфейс ProxySQL (embedded SQLite,
+# не статический файл — см. templates/proxysql.cnf.j2). Идемпотентность — через полную замену
+# строк в управляемых hostgroups (writer/reader), а не точечный merge.
+#
+# ВАЖНО: DR-реплика намеренно не входит в proxysql_backend_servers в обычном режиме (ADR §6) —
+# эта задача ничего не знает про DR, только синхронизирует то, что пришло в переменной.
+
+- name: Remove existing rows for managed hostgroups
+  ansible.mysql.mysql_query:
+    login_host: 127.0.0.1
+    login_port: "{{ proxysql_admin_listen_port }}"
+    login_user: "{{ proxysql_admin_user }}"
+    login_password: "{{ proxysql_admin_password }}"
+    query: "DELETE FROM mysql_servers WHERE hostgroup_id IN (%s, %s)"
+    positional_args:
+      - "{{ proxysql_writer_hostgroup }}"
+      - "{{ proxysql_reader_hostgroup }}"
+
+- name: Insert desired backend servers
+  ansible.mysql.mysql_query:
+    login_host: 127.0.0.1
+    login_port: "{{ proxysql_admin_listen_port }}"
+    login_user: "{{ proxysql_admin_user }}"
+    login_password: "{{ proxysql_admin_password }}"
+    query: >-
+      INSERT INTO mysql_servers (hostgroup_id, hostname, port)
+      VALUES (%s, %s, %s)
+    positional_args:
+      - "{{ item.hostgroup }}"
+      - "{{ item.address }}"
+      - "{{ item.port }}"
+  loop: "{{ proxysql_backend_servers }}"
+
+- name: Load servers to runtime and persist to disk
+  ansible.mysql.mysql_query:
+    login_host: 127.0.0.1
+    login_port: "{{ proxysql_admin_listen_port }}"
+    login_user: "{{ proxysql_admin_user }}"
+    login_password: "{{ proxysql_admin_password }}"
+    query: "{{ item }}"
+  loop:
+    - "LOAD MYSQL SERVERS TO RUNTIME"
+    - "SAVE MYSQL SERVERS TO DISK"
