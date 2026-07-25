@@ -1,0 +1,207 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: false
+  vars:
+    _enabled_domains: >-
+      {{ nginx_domains | rejectattr('enabled', 'defined') | map(attribute='name') | list
+         + nginx_domains | selectattr('enabled', 'defined') | selectattr('enabled') | map(attribute='name') | list }}
+    _disabled_domains: >-
+      {{ nginx_domains | selectattr('enabled', 'defined') | rejectattr('enabled') | map(attribute='name') | list }}
+  tasks:
+    # --- Главная проверка (ROADMAP.md, P4): реальный "nginx -t" ловит §9 архитектурного
+    # документа (basic_auth/json-логи и т.п.) немедленно, а не на реальном деплое. -----------
+    - name: "nginx -t"
+      ansible.builtin.command: nginx -t
+      register: molecule_nginx_t
+      changed_when: false
+
+    - name: nginx -t должен завершаться без ошибок
+      ansible.builtin.assert:
+        that:
+          - molecule_nginx_t.rc == 0
+        fail_msg: "nginx -t упал: {{ molecule_nginx_t.stderr }}"
+        quiet: true
+
+    - name: Собрать facts о сервисах
+      ansible.builtin.service_facts:
+
+    - name: nginx должен быть running
+      ansible.builtin.assert:
+        that:
+          - "'nginx.service' in ansible_facts.services"
+          - ansible_facts.services['nginx.service'].state == 'running'
+        quiet: true
+
+    # --- Включённые домены: vhost создан и включён (symlink sites-enabled) ------------------
+    - name: "sites-available/*.conf существует для каждого включённого домена"
+      ansible.builtin.stat:
+        path: "/etc/nginx/sites-available/{{ item }}.conf"
+      register: molecule_sites_available
+      loop: "{{ _enabled_domains }}"
+
+    - name: "sites-available/*.conf должен существовать"
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists
+        quiet: true
+      loop: "{{ molecule_sites_available.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: "sites-enabled/*.conf — симлинк на sites-available для каждого включённого домена"
+      ansible.builtin.stat:
+        path: "/etc/nginx/sites-enabled/{{ item }}.conf"
+      register: molecule_sites_enabled
+      loop: "{{ _enabled_domains }}"
+
+    - name: "sites-enabled должен быть симлинком"
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists
+          - item.stat.islnk
+        quiet: true
+      loop: "{{ molecule_sites_enabled.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    # --- domain.enabled: false — main.yml должен пропустить домен целиком, не только рендер --
+    - name: "disabled-домен: sites-available/*.conf НЕ должен существовать"
+      ansible.builtin.stat:
+        path: "/etc/nginx/sites-available/{{ item }}.conf"
+      register: molecule_disabled_conf
+      loop: "{{ _disabled_domains }}"
+
+    - name: "disabled-домен не должен иметь конфига"
+      ansible.builtin.assert:
+        that:
+          - not item.stat.exists
+        quiet: true
+      loop: "{{ molecule_disabled_conf.results }}"
+
+    - name: "disabled-домен: root-директория не должна быть создана"
+      ansible.builtin.stat:
+        path: /var/www/disabled/public
+      register: molecule_disabled_root
+
+    - name: root disabled-домена не должен существовать
+      ansible.builtin.assert:
+        that:
+          - not molecule_disabled_root.stat.exists
+        quiet: true
+
+    # --- Агрегация rate-limit зон: shared_web используется двумя доменами, зона должна быть
+    # объявлена ровно один раз (дедупликация по zone_name, roles/nginx_multidomain/tasks/rate_limit_zones.yml) --
+    - name: Прочитать conf.d/rate-limit-zones.conf
+      ansible.builtin.slurp:
+        path: /etc/nginx/conf.d/rate-limit-zones.conf
+      register: molecule_rate_limit_conf
+
+    - name: "shared_web должна быть объявлена ровно один раз"
+      ansible.builtin.assert:
+        that:
+          - (molecule_rate_limit_conf.content | b64decode).count('limit_req_zone') == 1
+          - "'shared_web' in (molecule_rate_limit_conf.content | b64decode)"
+        quiet: true
+
+    # --- Proxy-cache зона и conf.d-сниппет ---------------------------------------------------
+    - name: "conf.d/proxy-cache-zones.conf и произвольный conf.d-файл существуют"
+      ansible.builtin.stat:
+        path: "/etc/nginx/conf.d/{{ item }}"
+      register: molecule_confd_files
+      loop:
+        - proxy-cache-zones.conf
+        - stub_status.conf
+        - molecule-test-maps.conf
+
+    - name: "conf.d-файлы должны существовать"
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists
+        quiet: true
+      loop: "{{ molecule_confd_files.results }}"
+
+    # --- Регрессия на утечку set_fact между итерациями цикла доменов (§9.1 арх. документа):
+    # ssl-домен идёт первым в nginx_domains, static-plain (без ssl вообще) — сразу следующим.
+    - name: Прочитать рендер vhost'а без ssl (static-plain)
+      ansible.builtin.slurp:
+        path: /etc/nginx/sites-available/static-plain.nginx-multidomain.molecule.test.conf
+      register: molecule_static_plain_conf
+
+    - name: static-plain не должен содержать ssl-директив (нет утечки _domain_ssl_cert/_key)
+      ansible.builtin.assert:
+        that:
+          - "'ssl_certificate' not in (molecule_static_plain_conf.content | b64decode)"
+        quiet: true
+
+    - name: Прочитать рендер vhost'а с ssl (proxy-ssl)
+      ansible.builtin.slurp:
+        path: /etc/nginx/sites-available/proxy-ssl.nginx-multidomain.molecule.test.conf
+      register: molecule_proxy_ssl_conf
+
+    - name: proxy-ssl должен содержать ssl-директивы (sanity, что ssl реально отрендерился)
+      ansible.builtin.assert:
+        that:
+          - "'ssl_certificate ' in (molecule_proxy_ssl_conf.content | b64decode)"
+          - "'ssl_certificate_key' in (molecule_proxy_ssl_conf.content | b64decode)"
+        quiet: true
+
+    # --- Custom-сертификаты: скопированы из cert_src/key_src, ключ не мирочитаем ------------
+    - name: "Проверить права на приватный ключ custom-сертификата"
+      ansible.builtin.stat:
+        path: /etc/ssl/private/proxy-ssl.key
+      register: molecule_ssl_key_stat
+
+    - name: приватный ключ должен существовать
+      ansible.builtin.assert:
+        that:
+          - molecule_ssl_key_stat.stat.exists
+        quiet: true
+
+    # --- Функциональные проверки: override "/" реально подменяет дефолтный location --------
+    - name: "GET / у static-plain — должен отдать override, а не try_files"
+      ansible.builtin.uri:
+        url: http://127.0.0.1/
+        headers:
+          Host: static-plain.nginx-multidomain.molecule.test
+        status_code: 200
+        return_content: true
+      register: molecule_static_root
+
+    - name: "тело ответа должно быть от override-location'а"
+      ansible.builtin.assert:
+        that:
+          - "'static-override-ok' in molecule_static_root.content"
+        quiet: true
+
+    - name: "GET /healthz у static-plain — не-override custom location"
+      ansible.builtin.uri:
+        url: http://127.0.0.1/healthz
+        headers:
+          Host: static-plain.nginx-multidomain.molecule.test
+        status_code: 200
+        return_content: true
+      register: molecule_static_healthz
+
+    - name: "тело ответа /healthz"
+      ansible.builtin.assert:
+        that:
+          - "'healthz-ok' in molecule_static_healthz.content"
+        quiet: true
+
+    - name: "GET / (http) у proxy-ssl — redirect_https: true должен слать 301 на https"
+      ansible.builtin.uri:
+        url: http://127.0.0.1/
+        headers:
+          Host: proxy-ssl.nginx-multidomain.molecule.test
+        status_code: 301
+        follow_redirects: none
+
+    - name: "GET / (https, self-signed) у proxy-ssl — backend недоступен, ожидаем 502"
+      ansible.builtin.uri:
+        url: https://127.0.0.1/
+        headers:
+          Host: proxy-ssl.nginx-multidomain.molecule.test
+        validate_certs: false
+        status_code: 502

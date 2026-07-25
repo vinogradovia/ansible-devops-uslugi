@@ -1,0 +1,19 @@
+---
+- name: Prepare
+  hosts: all
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Дождаться готовности systemd внутри контейнера
+      ansible.builtin.command: systemctl is-system-running
+      register: molecule_systemd_status
+      changed_when: false
+      failed_when: false
+      until: molecule_systemd_status.stdout in ['running', 'degraded']
+      retries: 15
+      delay: 2
+
+    - name: Обновить apt-кэш
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
