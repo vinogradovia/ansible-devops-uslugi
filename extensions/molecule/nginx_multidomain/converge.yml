@@ -1,0 +1,10 @@
+---
+- name: Converge
+  hosts: all
+  become: true
+  collections:
+    - devops.uslugi
+  tasks:
+    - name: Прогнать роль nginx_multidomain (nginx_domains — см. group_vars/all.yml)
+      ansible.builtin.import_role:
+        name: nginx_multidomain

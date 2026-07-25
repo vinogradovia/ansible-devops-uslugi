@@ -1,0 +1,103 @@
+---
+# Переменные роли nginx_multidomain для converge/verify этого сценария. Лежат в group_vars/,
+# а не в vars: playbook'ов — Ansible подхватывает их для converge.yml, prepare.yml и verify.yml
+# одинаково (каталог рядом с playbook'ами), без дублирования.
+#
+# Сознательно НЕ включены (см. roles/nginx_multidomain/docs/nginx_multidomain_role_architecture.md,
+# §8.3/8.4/9.3): domain.basic_auth.enabled и domain.logs.format: [json] — оба уже сейчас ломают
+# "nginx -t" (auth_basic_user_file и log_format nginx_json ссылаются на несуществующие
+# файл/директиву). Как только эти баги будут исправлены, сюда стоит добавить домен,
+# покрывающий оба случая — сейчас включение либо одного из них само сделает converge/verify
+# красным по вине известного, ещё не починенного бага, а не по вине этого сценария.
+
+nginx_domains:
+  # Порядок специально такой: ssl-домен идёт первым, следом — домен без ssl вообще.
+  # tasks/vhosts.yml переживает set_fact _domain_ssl_cert/_domain_ssl_key между итерациями
+  # loop (см. §9.1 архитектурного документа) — verify.yml проверяет, что в рендер
+  # static-plain эти факты не просочились.
+  - name: proxy-ssl.nginx-multidomain.molecule.test
+    type: proxy
+    ssl:
+      enabled: true
+      mode: custom
+      # /etc/ssl/{certs,private} — стандартные каталоги Debian (пакет openssl/ca-certificates),
+      # уже существуют на хосте до роли. Роль (certificates_custom.yml) копирует файлы через
+      # cert_src/key_src, но сама директорию назначения не создаёт — актуально для любого
+      # cert_file/key_file вне nginx_conf_dir.
+      cert_file: /etc/ssl/certs/proxy-ssl.crt
+      key_file: /etc/ssl/private/proxy-ssl.key
+      # Файлы на контроллере — фикстура рядом с этим сценарием (files/), не настоящий сертификат.
+      cert_src: "{{ playbook_dir }}/files/molecule-test.crt"
+      key_src: "{{ playbook_dir }}/files/molecule-test.key"
+      redirect_https: true
+      hsts: true
+    upstream:
+      name: proxy_ssl_backend
+      load_balancing: least_conn
+      keepalive: 16
+      servers:
+        - { address: "127.0.0.1:18080", weight: 1 }
+        - { address: "127.0.0.1:18081", backup: true }
+    extra_upstreams:
+      - name: proxy_ssl_extra_backend
+        servers:
+          - { address: "127.0.0.1:18082" }
+    proxy_cache: micro
+    client_max_body_size: 32m
+    rate_limit:
+      zone_name: shared_web
+      rate: "10r/s"
+      burst: 10
+      nodelay: false
+    custom_locations:
+      - path: /extra
+        config: |
+          proxy_pass http://proxy_ssl_extra_backend;
+
+  - name: static-plain.nginx-multidomain.molecule.test
+    type: static
+    root: /var/www/static-plain/public
+    rate_limit:
+      zone_name: shared_web
+      rate: "10r/s"
+      burst: 20
+      nodelay: true
+    logs:
+      extra_access_log:
+        - path: /var/log/nginx/molecule-extra.log
+    custom_locations:
+      # override: true на "/" — единственный path, для которого override вообще что-то меняет
+      # (см. §7 архитектурного документа): полностью заменяет дефолтный "location /".
+      - path: /
+        override: true
+        config: |
+          return 200 "static-override-ok";
+      - path: /healthz
+        config: |
+          access_log off;
+          return 200 "healthz-ok";
+
+  - name: disabled.nginx-multidomain.molecule.test
+    type: static
+    enabled: false
+    root: /var/www/disabled/public
+
+nginx_proxy_cache_zones:
+  - name: micro
+    path: /var/cache/nginx/micro
+    keys_zone_size: 20m
+    max_size: 200m
+    inactive: 10m
+
+nginx_stub_status:
+  enabled: true
+  listen: "127.0.0.1:8090"
+  location: "/nginx_status"
+
+nginx_conf_d_files:
+  - name: molecule-test-maps.conf
+    content: |
+      map $http_x_molecule_test $molecule_test_flag {
+          default 0;
+          "yes" 1;
+      }
