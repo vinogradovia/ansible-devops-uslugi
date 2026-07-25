@@ -11,6 +11,14 @@ max_wal_senders = {{ postgresql_replication_max_wal_senders }}
 max_replication_slots = {{ postgresql_replication_max_replication_slots }}
 hot_standby = on
 
+# Обязательно для `repmgr node rejoin --force-rewind`/`pg_rewind` (docs/runbooks/postgresql-
+# failover.md, раздел 3, шаг 3) — без wal_log_hints (или checksums, которые требуют переинициализации
+# кластера через initdb/pg_checksums, а не просто рестарта) pg_rewind отказывает с "--force-rewind
+# specified but pg_rewind cannot be used". Нужно на ВСЕХ узлах заранее (до расхождения таймлайнов),
+# не только на том, который потом будет rewind-иться — потому и в общем drop-in-файле, а не только
+# в конфиге DR-/read-реплики.
+wal_log_hints = on
+
 # repmgr должен быть загружен на КАЖДОМ узле кластера (primary и обеих репликах), не только на
 # репликах — иначе `repmgr standby switchover`/переключение ролей не работает (repmgr требует
 # симметричной конфигурации preload на всех узлах).

@@ -217,13 +217,26 @@ sudo -u postgres repmgr -f /etc/repmgr.conf cluster show
 
 В согласованное окно:
 
-1. Промоутить старый primary обратно (используя тот же тегированный механизм, что и в разделе 2 —
-   на этот раз против бывшего primary, временно ставшего standby):
+1. Остановить PostgreSQL на текущем primary (той реплике, что была промоутнута в разделе 2) —
+   `repmgr standby promote` откажется промоутить старый primary обратно, пока текущий primary
+   технически доступен (та же защита repmgr, что и в разделе 2, шаг 1, только теперь в обратную
+   сторону — "this replication cluster already has an active primary server"):
+   ```bash
+   ssh <ip_current_primary> 'sudo systemctl stop postgresql@<version>-main'
+   ```
+2. Промоутить старый primary обратно (используя тот же тегированный механизм, что и в разделе 2 —
+   на этот раз против бывшего primary, временно ставшего standby). `tasks/promote.yml` проверяет
+   assert'ом **статическую** переменную `postgresql_replication_role` (не реальную роль в
+   `repmgr`), а у этого хоста в group_vars она навсегда `primary` — без override assert отклонит
+   команду с той же ошибкой, что и на шаге 1 раздела 2 («promote.yml запускается только против
+   read_replica/dr_replica»). Переопределите её на этот единственный вызов через `-e`:
    ```bash
    ansible-playbook -i inventory.yml postgresql-replicas.yml \
-       --tags postgresql_replication_promote --limit <ip_old_primary>
+       --tags postgresql_replication_promote \
+       -e postgresql_replication_role=dr_replica \
+       --limit <ip_old_primary>
    ```
-2. Переключить Odyssey обратно на исходную топологию:
+3. Переключить Odyssey обратно на исходную топологию:
    ```bash
    ansible-playbook -i inventory.yml odyssey.yml \
      -e "odyssey_write_backend_host=<ip_old_primary>" \
