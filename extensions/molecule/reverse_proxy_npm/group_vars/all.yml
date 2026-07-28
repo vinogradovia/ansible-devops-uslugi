@@ -1,17 +1,23 @@
 ---
 # Переменные роли reverse_proxy_npm для converge/verify этого сценария. Лежат в group_vars/,
-# а не в vars: playbook'ов — Ansible подхватывает их для converge.yml и verify.yml одинаково
-# (каталог рядом с playbook'ами), без дублирования (тот же паттерн, что и
+# а не в vars: playbook'ов — Ansible подхватывает их для converge.yml/verify.yml/prepare.yml
+# одинаково (каталог рядом с playbook'ами), без дублирования (тот же паттерн, что и
 # extensions/molecule/nginx_multidomain/group_vars/all.yml).
 #
-# Сознательно НЕ включено: reverse_proxy_npm_admin_ui_expose_host — этот путь дергает реальный
-# Let's Encrypt HTTP-01 через API NPM (см. ADR §8), а у тестового контейнера нет ни настоящего
-# DNS, ни публичной сети — запрос сертификата гарантированно упадёт. Сценарий вместо этого
-# проверяет именно ДЕФОЛТНОЕ поведение (§11 ADR): admin UI недоступен на внешнем интерфейсе,
-# т.к. reverse_proxy_npm_admin_ui_expose_host по умолчанию false.
+# reverse_proxy_npm_admin_ui_expose_host: true — намеренно ВКЛЮЧЕНО (в отличие от прежнего
+# docker-driver сценария): реальный Let's Encrypt HTTP-01 здесь по-прежнему недостижим (ВМ в
+# приватной libvirt NAT-сети, без публичного DNS), но ssl_provider: custom подставляет
+# самоподписанный сертификат, сгенерированный в prepare.yml (openssl req -x509), — это и есть
+# путь, который старый docker-сценарий сознательно не проверял (см. docs/adr/0001, ревизия).
 
 reverse_proxy_npm_admin_email: "admin@reverse-proxy-npm.molecule.test"
 reverse_proxy_npm_admin_password: "Molecule_Test_ChangeMe!23"
+
+reverse_proxy_npm_admin_ui_expose_host: true
+reverse_proxy_npm_admin_ui_domain: "molecule.test"
+reverse_proxy_npm_admin_ui_ssl_provider: custom
+reverse_proxy_npm_admin_ui_ssl_certificate_path: /opt/reverse-proxy-npm-test-certs/admin-ui.crt
+reverse_proxy_npm_admin_ui_ssl_certificate_key_path: /opt/reverse-proxy-npm-test-certs/admin-ui.key
 
 reverse_proxy_npm_proxy_hosts:
   # Имя контейнера, а не IP/host.docker.internal: fixture-бэкенд (prepare.yml) подключается к

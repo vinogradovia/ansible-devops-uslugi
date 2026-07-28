@@ -4,22 +4,20 @@
   become: true
   gather_facts: true
   tasks:
-    - name: Дождаться готовности systemd внутри контейнера
-      ansible.builtin.command: systemctl is-system-running
-      register: molecule_systemd_status
+    - name: Дождаться завершения cloud-init
+      ansible.builtin.command: cloud-init status --wait
       changed_when: false
       failed_when: false
-      until: molecule_systemd_status.stdout in ['running', 'degraded']
-      retries: 15
-      delay: 2
 
     - name: Обновить apt-кэш
       ansible.builtin.apt:
         update_cache: true
         cache_valid_time: 3600
 
-    # --- Docker Engine (docker-in-docker) — роль reverse_proxy_npm сама Docker не ставит
-    # (см. molecule.yml), поэтому для сценария это готовим здесь, как внешний провижининг хоста.
+    # --- Docker Engine — роль reverse_proxy_npm сама Docker не ставит (meta/main.yml:
+    # dependencies: [], см. molecule.yml), поэтому для сценария это готовим здесь, как внешний
+    # провижининг хоста. В отличие от прежнего docker-driver сценария, здесь настоящая ВМ —
+    # storage-driver: vfs workaround (docker-in-docker) больше не нужен.
     - name: Установить пакеты, нужные для добавления apt-репозитория Docker
       ansible.builtin.apt:
         pkg:
@@ -35,15 +33,19 @@
 
     - name: Скачать GPG-ключ репозитория Docker
       ansible.builtin.get_url:
-        url: https://download.docker.com/linux/debian/gpg
+        url: "https://download.docker.com/linux/{{ ansible_distribution | lower }}/gpg"
         dest: /etc/apt/keyrings/docker.asc
         mode: '0644'
 
+    # {{ ansible_distribution | lower }}, не хардкод "debian" — box этого сценария (Ubuntu 24.04)
+    # отличается от прежнего docker-in-docker сценария (Debian 12), а download.docker.com/linux/
+    # debian не публикует suite "noble" (тот же приём, что в roles/docker/tasks/install-repo.yml).
     - name: Подключить apt-репозиторий Docker
       ansible.builtin.apt_repository:
         repo: >-
           deb [arch={{ 'amd64' if ansible_architecture == 'x86_64' else ansible_architecture }}
-          signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian
+          signed-by=/etc/apt/keyrings/docker.asc]
+          https://download.docker.com/linux/{{ ansible_distribution | lower }}
           {{ ansible_distribution_release }} stable
         state: present
         filename: docker
@@ -57,25 +59,6 @@
           - containerd.io
           - docker-buildx-plugin
           - docker-compose-plugin
-
-    - name: Заставить вложенный dockerd использовать storage-driver vfs
-      # Тестовый контейнер сам работает поверх overlay2 (host Docker), а нативный overlay2
-      # внутри overlay2 ломается на "failed to mount ... invalid argument" — классическое
-      # ограничение docker-in-docker, не имеющее отношения к роли reverse_proxy_npm. vfs медленнее,
-      # но не зависит от файловой системы хоста и всегда работает во вложенном контейнере.
-      ansible.builtin.copy:
-        dest: /etc/docker/daemon.json
-        content: |
-          {"storage-driver": "vfs"}
-        mode: '0644'
-
-    - name: Перезапустить docker с storage-driver vfs и убедиться, что служба включена
-      # restarted (не started): apt уже мог запустить dockerd с дефолтным overlay2 до того,
-      # как выше появился daemon.json — нужен рестарт, чтобы vfs реально применился.
-      ansible.builtin.systemd:
-        name: docker
-        state: restarted
-        enabled: true
 
     - name: Установить python3-docker (нужен community.docker.docker_container для fixture-бэкенда)
       ansible.builtin.apt:
@@ -94,3 +77,52 @@
         restart_policy: unless-stopped
         ports:
           - "18080:80"
+
+    # --- Самоподписанный сертификат для self-managed admin UI (ssl_provider: custom, см.
+    # group_vars/all.yml + roles/reverse_proxy_npm/README.md "Custom/self-signed сертификат").
+    # openssl CLI, а не community.crypto: это чисто тестовая утилита сценария, не часть роли — не
+    # хотим тянуть новую galaxy-зависимость коллекции ради одного openssl req в molecule.
+    - name: Создать каталог для тестовых сертификатов
+      ansible.builtin.file:
+        path: /opt/reverse-proxy-npm-test-certs
+        state: directory
+        mode: '0755'
+
+    # Та же логика, что manage-proxy-hosts.yml роли (short-label вместо as-is FQDN) — иначе
+    # сгенерированный здесь сертификат не совпадёт по CN/SAN с доменом, который реально создаст
+    # роль.
+    - name: Вычислить короткий label хоста (та же логика, что manage-proxy-hosts.yml роли)
+      ansible.builtin.set_fact:
+        molecule_admin_ui_host_label: >-
+          {{ (ansible_host | default(inventory_hostname))
+             if ((ansible_host | default(inventory_hostname)) | regex_search('^(\d{1,3}\.){3}\d{1,3}$'))
+             else (ansible_host | default(inventory_hostname)).split('.')[0] }}
+
+    - name: Вычислить ожидаемый домен admin UI (та же формула, что manage-proxy-hosts.yml роли)
+      ansible.builtin.set_fact:
+        molecule_admin_ui_domain: "npm-ui-{{ molecule_admin_ui_host_label }}.{{ reverse_proxy_npm_admin_ui_domain }}"
+
+    - name: Сгенерировать самоподписанный сертификат/ключ для admin UI
+      ansible.builtin.command:
+        cmd: >-
+          openssl req -x509 -newkey rsa:2048 -nodes -days 365
+          -keyout /opt/reverse-proxy-npm-test-certs/admin-ui.key
+          -out /opt/reverse-proxy-npm-test-certs/admin-ui.crt
+          -subj "/CN={{ molecule_admin_ui_domain }}"
+          -addext "subjectAltName=DNS:{{ molecule_admin_ui_domain }}"
+        creates: /opt/reverse-proxy-npm-test-certs/admin-ui.crt
+
+    - name: Ограничить права на приватный ключ
+      ansible.builtin.file:
+        path: /opt/reverse-proxy-npm-test-certs/admin-ui.key
+        mode: '0600'
+
+    # NPM (nginx внутри) маршрутизирует HTTPS по SNI, до чтения заголовка Host — запрос на
+    # 127.0.0.1 без SNI, соответствующего домену, нginx отклоняет на этапе TLS-handshake
+    # ("tlsv1 unrecognized name"), заголовок Host тут не помогает. Резолвим домен по-настоящему
+    # через /etc/hosts, чтобы verify.yml мог обратиться к нему напрямую (SNI = домен из URL).
+    - name: Добавить admin UI домен в /etc/hosts (для SNI при HTTPS-проверке в verify.yml)
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        line: "127.0.0.1 {{ molecule_admin_ui_domain }}"
+        state: present

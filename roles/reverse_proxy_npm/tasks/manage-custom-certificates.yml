@@ -1,0 +1,48 @@
+---
+# ADR §3 (management-слой) — custom/self-signed сертификат как альтернатива Let's Encrypt для
+# ssl_forced хостов (reverse_proxy_npm_proxy_hosts + self-managed admin UI host, см.
+# admin-bootstrap.yml). NPM хранит такие сертификаты отдельным ресурсом (provider: "other"):
+# сначала создаётся запись, затем файлы cert/key загружаются отдельным multipart-запросом — и
+# только тогда его id можно передать в devops.uslugi.npm_proxy(certificate_id=...) вместо "new"
+# (запрос у Let's Encrypt), см. manage-proxy-hosts.yml.
+
+- name: Reset the collected custom-certificate items list
+  ansible.builtin.set_fact:
+    reverse_proxy_npm_custom_cert_items: []
+
+# selectattr()/rejectattr() на списке разнородных dict'ов (не у всех элементов есть ssl_provider —
+# см. group_vars whoami-хоста в molecule-сценарии) падает AttributeError в этой версии
+# ansible-core, а не тихо резолвится в Undefined, как в более старых версиях Jinja/Ansible —
+# поэтому фильтрация через обычный loop + when с item.attr | default(...), тот же паттерн, что
+# уже используется в manage-proxy-hosts.yml (item.ssl_forced | default(false) и т.п.).
+- name: Collect proxy-host items requesting a custom certificate
+  ansible.builtin.set_fact:
+    reverse_proxy_npm_custom_cert_items: "{{ reverse_proxy_npm_custom_cert_items + [item] }}"
+  loop: >-
+    {{ reverse_proxy_npm_proxy_hosts
+       + ([reverse_proxy_npm_admin_ui_host] if reverse_proxy_npm_admin_ui_host is defined else []) }}
+  when:
+    - (item.ssl_provider | default('letsencrypt')) == 'custom'
+    - (item.state | default('present')) != 'absent'
+  loop_control:
+    label: "{{ item.domain_name }}"
+
+- name: Fail if ssl_provider custom is missing certificate paths
+  ansible.builtin.assert:
+    that:
+      - item.ssl_certificate_path | default('') | length > 0
+      - item.ssl_certificate_key_path | default('') | length > 0
+    fail_msg: >-
+      {{ item.domain_name }}: ssl_provider: custom требует непустые ssl_certificate_path и
+      ssl_certificate_key_path (пути на управляемом хосте, не на контроллере).
+    quiet: true
+  loop: "{{ reverse_proxy_npm_custom_cert_items }}"
+  loop_control:
+    label: "{{ item.domain_name }}"
+
+- name: Resolve/upload custom certificate for each requested domain
+  ansible.builtin.include_tasks:
+    file: manage-custom-certificates-item.yml
+  loop: "{{ reverse_proxy_npm_custom_cert_items }}"
+  loop_control:
+    label: "{{ item.domain_name }}"

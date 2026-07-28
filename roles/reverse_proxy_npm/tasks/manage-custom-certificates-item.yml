@@ -1,0 +1,88 @@
+---
+# Один элемент из reverse_proxy_npm_custom_cert_items (см. manage-custom-certificates.yml).
+# Идемпотентность — поиск по domain_names перед созданием, тот же приём, что search_proxy_host
+# в plugins/modules/npm_proxy.py.
+
+- name: "Search existing NPM certificate for {{ item.domain_name }}"
+  ansible.builtin.uri:
+    url: "{{ reverse_proxy_npm_api_url }}/nginx/certificates"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ reverse_proxy_npm_login.json.token }}"
+    status_code:
+      - 200
+  register: reverse_proxy_npm_certificate_search
+  no_log: true
+  changed_when: false
+
+- name: "Create NPM certificate record for {{ item.domain_name }}"
+  ansible.builtin.uri:
+    url: "{{ reverse_proxy_npm_api_url }}/nginx/certificates"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ reverse_proxy_npm_login.json.token }}"
+    body_format: json
+    body:
+      provider: other
+      nice_name: "{{ item.domain_name }}"
+      domain_names:
+        - "{{ item.domain_name }}"
+    status_code:
+      - 201
+  register: reverse_proxy_npm_certificate_created
+  no_log: true
+  when: >-
+    (reverse_proxy_npm_certificate_search.json
+     | selectattr('domain_names', 'contains', item.domain_name) | list | length) == 0
+
+# ansible.builtin.uri читает body.files[].filename с КОНТРОЛЛЕРА (задокументированное поведение
+# модуля), а не с управляемого хоста, где реально лежит ssl_certificate_path (и где выполняется
+# сам этот uri-таск) — поэтому здесь slurp + content, а не filename.
+- name: "Read certificate content from the managed host for {{ item.domain_name }}"
+  ansible.builtin.slurp:
+    src: "{{ item.ssl_certificate_path }}"
+  register: reverse_proxy_npm_certificate_content
+  when: reverse_proxy_npm_certificate_created is not skipped
+
+- name: "Read certificate key content from the managed host for {{ item.domain_name }}"
+  ansible.builtin.slurp:
+    src: "{{ item.ssl_certificate_key_path }}"
+  register: reverse_proxy_npm_certificate_key_content
+  no_log: true
+  when: reverse_proxy_npm_certificate_created is not skipped
+
+- name: "Upload certificate/key content for {{ item.domain_name }}"
+  ansible.builtin.uri:
+    url: "{{ reverse_proxy_npm_api_url }}/nginx/certificates/{{ reverse_proxy_npm_certificate_created.json.id }}/upload"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ reverse_proxy_npm_login.json.token }}"
+    body_format: form-multipart
+    body:
+      # filename здесь — только метаданные Content-Disposition (не читается заново с диска, раз
+      # content уже задан, см. ansible.module_utils.urls.prepare_multipart): без него NPM
+      # (multer на бэкенде) не распознаёт часть как файл и отвечает 400 "Certificate file was not
+      # provided" — проверено эмпирически на живом NPM 2.11.3.
+      certificate:
+        content: "{{ reverse_proxy_npm_certificate_content.content | b64decode }}"
+        filename: certificate.pem
+        mime_type: application/x-x509-ca-cert
+      certificate_key:
+        content: "{{ reverse_proxy_npm_certificate_key_content.content | b64decode }}"
+        filename: certificate.key
+        mime_type: application/octet-stream
+    status_code:
+      - 200
+  no_log: true
+  when: reverse_proxy_npm_certificate_created is not skipped
+
+- name: "Record certificate id for {{ item.domain_name }}"
+  ansible.builtin.set_fact:
+    reverse_proxy_npm_custom_certificate_ids: >-
+      {{ reverse_proxy_npm_custom_certificate_ids | default({}) | combine({
+        item.domain_name: (reverse_proxy_npm_certificate_created.json.id
+                            if reverse_proxy_npm_certificate_created is not skipped
+                            else (reverse_proxy_npm_certificate_search.json
+                                  | selectattr('domain_names', 'contains', item.domain_name)
+                                  | map(attribute='id') | first))
+      }) }}

@@ -6,6 +6,17 @@
   vars:
     reverse_proxy_npm_api_url: "http://127.0.0.1:81/api"
   tasks:
+    - name: Вычислить короткий label хоста (та же логика, что manage-proxy-hosts.yml роли)
+      ansible.builtin.set_fact:
+        molecule_admin_ui_host_label: >-
+          {{ (ansible_host | default(inventory_hostname))
+             if ((ansible_host | default(inventory_hostname)) | regex_search('^(\d{1,3}\.){3}\d{1,3}$'))
+             else (ansible_host | default(inventory_hostname)).split('.')[0] }}
+
+    - name: Вычислить ожидаемый домен admin UI (та же формула, что manage-proxy-hosts.yml роли)
+      ansible.builtin.set_fact:
+        molecule_admin_ui_domain: "npm-ui-{{ molecule_admin_ui_host_label }}.{{ reverse_proxy_npm_admin_ui_domain }}"
+
     # --- Контейнер запущен -------------------------------------------------------------------
     - name: Собрать информацию о контейнере reverse-proxy-npm
       community.docker.docker_container_info:
@@ -105,4 +116,38 @@
       ansible.builtin.assert:
         that:
           - "'Hostname' in molecule_npm_whoami_response.content"
+        quiet: true
+
+    # --- ADR §8 + ревизия: self-managed admin UI host с custom/self-signed сертификатом --------
+    # (путь, который прежний docker-driver сценарий сознательно не проверял — см. molecule.yml).
+    - name: "Self-managed admin UI proxy-host должен присутствовать среди proxy-hosts"
+      ansible.builtin.set_fact:
+        molecule_npm_admin_ui_host: >-
+          {{ molecule_npm_proxy_hosts.json | selectattr('domain_names', 'contains', molecule_admin_ui_domain) | first }}
+
+    - name: "Admin UI proxy-host должен иметь непустой certificate_id (custom-сертификат загружен)"
+      ansible.builtin.assert:
+        that:
+          - molecule_npm_admin_ui_host.certificate_id | int > 0
+        quiet: true
+
+    # URL по домену (не 127.0.0.1 + заголовок Host): NPM/nginx маршрутизирует HTTPS по SNI на
+    # этапе TLS-handshake, до чтения Host — заголовком тут не подменить, нужен реальный SNI, а
+    # для этого домен должен резолвиться (см. запись в /etc/hosts, добавленную в prepare.yml).
+    - name: "HTTPS-запрос через NPM на admin UI domain должен отвечать 200 (самоподписанный сертификат)"
+      ansible.builtin.uri:
+        url: "https://{{ molecule_admin_ui_domain }}/"
+        validate_certs: false
+        status_code:
+          - 200
+        return_content: true
+      register: molecule_npm_admin_ui_response
+
+    # Точная строка в <title> страницы логина NPM 2.11.3 — подтверждается по факту первого
+    # реального прогона сценария (см. docs/adr/0001, ревизия); сравнение регистронезависимое,
+    # чтобы не быть хрупким к минорным изменениям вёрстки.
+    - name: "Ответ должен быть от самого NPM (страница логина admin UI), а не от whoami/другого хоста"
+      ansible.builtin.assert:
+        that:
+          - "'nginx proxy manager' in molecule_npm_admin_ui_response.content | lower"
         quiet: true

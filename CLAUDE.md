@@ -40,15 +40,19 @@ poetry run ansible-lint     # линтинг коллекции (использ�
   и `verify.yml`, и `prepare.yml`. Явно обнуляет унаследованный из `../config.yml`
   `ansible.executor.args.ansible_playbook`, чтобы не подмешивать статический inventory
   `monitoring_servers`/`monitoring_agents` в изолированный docker-прогон.
-- `extensions/molecule/reverse_proxy_npm/` — сценарий для роли `reverse_proxy_npm`, тоже
-  `driver: docker`, той же структуры, что и `nginx_multidomain` (одноразовый systemd-контейнер,
-  `group_vars/all.yml`, обнулённый `ansible_playbook`). Отличие: роль сама разворачивает docker-
-  контейнер (NPM), поэтому это docker-in-docker — `prepare.yml` сценария ставит Docker Engine
-  внутри тестового контейнера как внешний провижининг хоста (сама роль Docker не устанавливает,
-  см. `roles/reverse_proxy_npm/README.md`) и поднимает fixture-бэкенд (`traefik/whoami`) для
-  проверки реального проксирования. `verify.yml` намеренно не проверяет
-  `reverse_proxy_npm_admin_ui_expose_host: true` — этот путь дёргает настоящий Let's Encrypt
-  HTTP-01 через API NPM, а у тестового контейнера нет публичной сети/DNS.
+- `extensions/molecule/reverse_proxy_npm/` — сценарий для роли `reverse_proxy_npm`,
+  `driver: vagrant`/`libvirt` (см. `docs/adr/0001-reverse-proxy-npm-role.md`, ревизия §11) —
+  **не** `driver: docker`, как было изначально: роль сама разворачивает docker-контейнер (NPM) и
+  сама Docker не ставит (`meta/main.yml: dependencies: []`), поэтому прежний docker-driver
+  сценарий был docker-in-docker (`storage-driver: vfs` workaround). Полноценная ВМ (box
+  `cloud-image/ubuntu-24.04`, как у `monitoring_server`) убирает этот workaround; `prepare.yml`
+  по-прежнему ставит Docker Engine — уже как внешний провижининг хоста на настоящей ВМ, а не
+  внутри тестового контейнера — и поднимает fixture-бэкенд (`traefik/whoami`) для проверки
+  реального проксирования. Полноценная ВМ сама по себе НЕ даёт публичного DNS/интернет-доступа —
+  поэтому `reverse_proxy_npm_admin_ui_expose_host: true` тестируется через
+  `ssl_provider: custom` (самоподписанный сертификат, сгенерированный `openssl req -x509` в
+  `prepare.yml`), а не через настоящий Let's Encrypt HTTP-01, который в любом из driver'ов этой
+  коллекции недостижим.
 - `extensions/molecule/docker/` — сценарий для роли `docker` (`docs/adr/0002-docker-role.md`).
   Намеренно **не** `driver: docker` — образ `geerlingguy/docker-debian12-ansible`, используемый
   другими docker-сценариями, уже содержит предустановленный Docker Engine (нужен для запуска
@@ -60,7 +64,7 @@ poetry run ansible-lint     # линтинг коллекции (использ�
 - `extensions/molecule/monitoring_server/` — сценарий для роли `monitoring_server`,
   `monitoring_server_orchestrator: docker` (см. `docs/adr/0007-monitoring-server-role.md`, §11).
   `driver: vagrant`/`libvirt`, box `cloud-image/ubuntu-24.04` — **не** `driver: docker`, в отличие
-  от `nginx_multidomain`/`reverse_proxy_npm`: роль сама разворачивает многосервисный docker-compose
+  от `nginx_multidomain`: роль сама разворачивает многосервисный docker-compose
   стек (VictoriaMetrics, Grafana, Loki, MinIO), докер-в-докере под этим стеком был бы конфликтом
   overlay2. Одна ВМ мониторит сама себя (`groups: [monitoring_servers, monitoring_agents]`, тот же
   паттерн, что `tests/inventory.yml`) — full-стек (VM + Grafana + Loki + MinIO + одна
@@ -87,7 +91,8 @@ molecule test -s reverse_proxy_traefik   # либо отдельно: create / c
 molecule test -s nginx_multidomain
 ```
 
-**`driver: vagrant` (`mysql_replication`, `proxysql`, `monitoring_server`) — известная проблема
+**`driver: vagrant` (`mysql_replication`, `proxysql`, `monitoring_server`, `reverse_proxy_npm`) —
+известная проблема
 окружения:** установленная связка `molecule` (>=26.3.0) + `molecule-plugins[vagrant]` (>=25.8.0,
 см. `pyproject.toml`) не прокидывает автоматически модуль `vagrant`, который поставляется вместе с
 `molecule-plugins`, в `ANSIBLE_LIBRARY` — новые версии `molecule` больше не используют

@@ -130,13 +130,72 @@ env при первом старте контейнера. Для NPM смена
 
 ### 11. Тестовое покрытие
 
-**Решение:** molecule-сценарий закладывается сразу при реализации роли, а не откладывается (в
-отличие от исторического долга `reverse_proxy_traefik`, см. ROADMAP P4/№27). Сценарий —
-`extensions/molecule/reverse_proxy_npm/`, `driver: docker` (одноразовый контейнер), по образцу
-`nginx_multidomain`: converge поднимает NPM + прогоняет management-слой на тестовый proxy-host,
-verify проверяет: контейнер запущен, admin-пароль сменён (API логин дефолтными credentials
-возвращает 401), тестовый proxy-host создан и отвечает, admin UI недоступен на внешнем интерфейсе
-по умолчанию.
+**Решение (исходное, см. ревизию 2026-07-26 ниже):** molecule-сценарий закладывается сразу при
+реализации роли, а не откладывается (в отличие от исторического долга `reverse_proxy_traefik`,
+см. ROADMAP P4/№27). Сценарий — `extensions/molecule/reverse_proxy_npm/`, `driver: docker`
+(одноразовый контейнер), по образцу `nginx_multidomain`: converge поднимает NPM + прогоняет
+management-слой на тестовый proxy-host, verify проверяет: контейнер запущен, admin-пароль сменён
+(API логин дефолтными credentials возвращает 401), тестовый proxy-host создан и отвечает, admin
+UI недоступен на внешнем интерфейсе по умолчанию.
+
+**Актуальное решение:** driver сменён на `vagrant`/`libvirt`, добавлена проверка
+`admin_ui_expose_host: true` через custom/self-signed сертификат — см. «Ревизия 2026-07-26» ниже.
+
+## Ревизия 2026-07-26: custom-сертификат как фича + переход molecule-теста на libvirt
+
+**Контекст:** §11 закладывал `driver: docker` для molecule-сценария и явно исключал из проверки
+`reverse_proxy_npm_admin_ui_expose_host: true` — этот путь дёргает настоящий Let's Encrypt
+HTTP-01, а у одноразового тестового контейнера нет ни публичной сети, ни DNS. Владелец роли
+попросил пересмотреть тестовое покрытие и получить полноценный тест на libvirt.
+
+**Решение 1 — custom-сертификат как полноценная фича роли, не заглушка для теста.**
+`plugins/modules/npm_proxy.py` при `ssl_forced: true` до этой ревизии всегда запрашивал
+сертификат у Let's Encrypt (`certificate_id: "new"`). Добавлена альтернатива: оператор может
+указать `ssl_provider: custom` (на элементе `reverse_proxy_npm_proxy_hosts` или на
+`reverse_proxy_npm_admin_ui_ssl_provider` для self-managed admin UI, см. §8) и пути к готовому
+PEM-сертификату/ключу на управляемом хосте (`ssl_certificate_path`/`ssl_certificate_key_path`) —
+роль сама создаёт сертификат в NPM (`POST /nginx/certificates`, `provider: other`) и загружает
+файлы, передавая полученный `certificate_id` в модуль вместо `"new"`. Основной практический
+случай — внутренние домены без публичного DNS (в т.ч. самоподписанные сертификаты), где выпуск
+Let's Encrypt заведомо недостижим — то же ограничение, что мешало протестировать
+`admin_ui_expose_host` в §11.
+
+**Решение 2 — molecule-сценарий: `driver: docker` → `driver: vagrant`/`libvirt`.**
+Смена драйвера сама по себе НЕ решает проблему §11 — libvirt-ВМ по умолчанию тоже в приватной
+NAT-сети без публичного DNS, реальный ACME HTTP-01 недостижим и там. Реальное решение — тестировать
+SSL/admin-UI-путь через custom/self-signed сертификат (Решение 1), а не через настоящий ACME.
+Заодно переход на полноценную ВМ (аналогично `monitoring_server`, `docs/adr/0007`, §11) убирает
+docker-in-docker и связанный с ним workaround `storage-driver: vfs` — роль сама Docker не ставит
+(`meta/main.yml: dependencies: []`), поэтому `prepare.yml` сценария по-прежнему устанавливает
+Docker Engine, но уже как внешний провижининг настоящей ВМ, а не внутри тестового контейнера.
+Новый сценарий (`box: cloud-image/ubuntu-24.04`) **заменяет** прежний docker-driver сценарий
+целиком, а не сосуществует с ним. `prepare.yml` генерирует самоподписанный сертификат/ключ
+(`openssl req -x509`, CLI-утилита — без новой galaxy-зависимости `community.crypto`, это чисто
+тестовый инструмент сценария, не часть роли) для домена self-managed admin UI; `verify.yml`
+проверяет, что этот proxy-host создан с непустым `certificate_id` и что HTTPS через NPM реально
+обслуживается этим сертификатом. Настоящий Let's Encrypt HTTP-01 по-прежнему не тестируется ни
+одним driver'ом коллекции — для этого нужен реальный публичный DNS, вне скоупа molecule-тестов.
+
+**Подтверждено полным прогоном `molecule test -s reverse_proxy_npm`
+(create → prepare → converge → idempotence → verify → destroy, все шаги зелёные).** По ходу
+реализации вскрылись три нюанса NPM API/Ansible, не очевидные из документации заранее:
+
+1. `ansible.builtin.uri` с `body_format: form-multipart` читает `files[].filename` **с
+   контроллера**, а не с управляемого хоста, — для сертификата, лежащего на самой ВМ, нужен
+   `ansible.builtin.slurp` + передача байтов через `content` (см.
+   `manage-custom-certificates-item.yml`).
+2. При этом `filename` всё равно нужно указать **рядом** с `content` (произвольное имя, не
+   обязано существовать на контроллере — читается с диска только когда `content` не задан) — без
+   него NPM (multer на бэкенде) не распознаёт часть как файл и отвечает 400 "Certificate file was
+   not provided".
+3. `verify.yml` не может проверить HTTPS через `https://127.0.0.1/` с заголовком `Host:` —
+   NPM/nginx маршрутизирует TLS по SNI на этапе handshake, до чтения `Host`; понадобилась запись в
+   `/etc/hosts` ВМ (`prepare.yml`) и запрос по настоящему доменному имени.
+
+Отдельно (не связано с NPM, но было первым найденным багом): исходный `prepare.yml` унаследовал
+`https://download.docker.com/linux/debian` из прежнего docker-сценария (образ на Debian) — с
+box'ом Ubuntu 24.04 репозиторий Debian не публикует suite `noble`. Исправлено на
+`{{ ansible_distribution | lower }}`, как в `roles/docker/tasks/install-repo.yml`.
 
 ## Открытые вопросы / вне скоупа
 

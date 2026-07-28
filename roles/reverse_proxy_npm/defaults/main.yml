@@ -26,13 +26,21 @@ reverse_proxy_npm_https_port: 443
 # --- Admin UI (порт 81) — см. ADR §8 --------------------------------------------------------
 # Порт 81 по умолчанию биндится только на loopback. Внешний доступ включается НЕ через смену
 # reverse_proxy_npm_admin_ui_bind_address, а через reverse_proxy_npm_admin_ui_expose_host:
-# роль сама создаёт в NPM proxy-host на self (127.0.0.1:81) с Let's Encrypt под доменом
+# роль сама создаёт в NPM proxy-host на self (127.0.0.1:81) с сертификатом под доменом
 # npm-ui-<host>.<reverse_proxy_npm_admin_ui_domain>, а сырой порт 81 наружу не открывается.
 reverse_proxy_npm_admin_ui_port: 81
 reverse_proxy_npm_admin_ui_bind_address: "127.0.0.1"
 reverse_proxy_npm_admin_ui_expose_host: false
 reverse_proxy_npm_admin_ui_domain: ""
 reverse_proxy_npm_admin_ui_letsencrypt_email: ""
+
+# Провайдер сертификата для self-managed admin UI proxy-host: letsencrypt (по умолчанию, требует
+# реальный публичный DNS/доступ по HTTP-01) | custom (upload готового cert+key в NPM — см. ниже,
+# "Custom/self-signed сертификат"). Пути ниже — на УПРАВЛЯЕМОМ хосте, не на контроллере: все
+# API-вызовы роли и так идут локально на 127.0.0.1 (см. deploy.yml).
+reverse_proxy_npm_admin_ui_ssl_provider: letsencrypt
+reverse_proxy_npm_admin_ui_ssl_certificate_path: ""
+reverse_proxy_npm_admin_ui_ssl_certificate_key_path: ""
 
 reverse_proxy_npm_api_url: "http://127.0.0.1:{{ reverse_proxy_npm_admin_ui_port }}/api"
 
@@ -61,5 +69,9 @@ reverse_proxy_npm_admin_nickname: "admin"
 
 # --- Управляемые proxy-хосты — см. ADR §3 (management-слой через REST API) -------------------
 # Каждый элемент: { domain_name, host, host_port (default 80), ssl_forced (default false),
-# letsencrypt_email (default ''), state (default present) }
+# letsencrypt_email (default ''), ssl_provider (default 'letsencrypt' — 'custom' для
+# заранее выпущенного/самоподписанного сертификата, см. README "Custom/self-signed сертификат"),
+# ssl_certificate_path, ssl_certificate_key_path (обязательны при ssl_provider: custom, пути на
+# управляемом хосте), state (default present) }. ssl_provider/ssl_certificate_* актуальны только
+# при ssl_forced: true.
 reverse_proxy_npm_proxy_hosts: []

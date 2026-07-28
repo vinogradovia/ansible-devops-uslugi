@@ -1,27 +1,35 @@
 ---
-# Molecule-сценарий для reverse_proxy_npm — см. docs/adr/0001-reverse-proxy-npm-role.md, §11.
-# Как и extensions/molecule/nginx_multidomain, изолирован через driver: docker (одноразовый
-# systemd-контейнер, полностью уничтожается на destroy) — в отличие от extensions/molecule/
-# {default,reverse_proxy_traefik}, которые гоняются против статического реального хоста.
-# Отличие от nginx_multidomain: роль сама разворачивает docker-контейнер (docker-in-docker),
-# поэтому prepare.yml дополнительно устанавливает Docker Engine внутри тестового контейнера —
-# сама роль (как и reverse_proxy_traefik, monitoring_server) Docker не ставит, это ответственность
-# внешнего провижининга хоста, см. defaults roles/reverse_proxy_npm/README.md.
+# Molecule-сценарий для reverse_proxy_npm — см. docs/adr/0001-reverse-proxy-npm-role.md, §11 +
+# ревизию ниже. driver: vagrant/libvirt (полноценная ВМ), как extensions/molecule/monitoring_server —
+# НЕ driver: docker, как раньше: старый docker-driver сценарий (одноразовый systemd-контейнер,
+# docker-in-docker для самой роли + storage-driver: vfs workaround, см. git history) сознательно
+# не проверял reverse_proxy_npm_admin_ui_expose_host: true — этот путь дёргает Let's Encrypt
+# HTTP-01, а у контейнера нет ни публичной сети, ни DNS. Полноценная ВМ на libvirt эту проблему
+# сама по себе НЕ решает (та же приватная NAT-сеть без публичного DNS) — реальное решение：
+# проверять этот путь через custom/self-signed сертификат (см. роль, README "Custom/self-signed
+# сертификат"), не через настоящий ACME. Переход на ВМ попутно убирает и docker-in-docker.
 #
-# ansible.executor.args.ansible_playbook обнуляется, как в nginx_multidomain/molecule.yml, чтобы
-# не подмешивать статический inventory monitoring_servers/monitoring_agents из ../config.yml.
+# Роль (в отличие от monitoring_server) сама Docker не ставит (meta/main.yml: dependencies: []) —
+# поэтому prepare.yml по-прежнему устанавливает Docker Engine как внешний провижининг хоста, как и
+# раньше в docker-driver сценарии, но уже без storage-driver: vfs (на настоящей ВМ overlay2
+# работает нативно, конфликта docker-в-docker нет).
+#
+# box — тот же, что уже провалидирован для libvirt-провайдера в monitoring_server
+# (cloud-image/ubuntu-24.04). Память/cpu заметно меньше: NPM — SQLite + один nginx-процесс +
+# один fixture-контейнер, а не многосервисный observability-стек.
+#
+# ansible.executor.args.ansible_playbook обнуляется, как и в остальных сценариях, чтобы не
+# подмешивать статический inventory monitoring_servers/monitoring_agents из ../config.yml.
 driver:
-  name: docker
+  name: vagrant
+  provider:
+    name: libvirt
 
 platforms:
   - name: reverse-proxy-npm
-    image: "docker.io/geerlingguy/docker-debian12-ansible:latest"
-    pre_build_image: true
-    privileged: true
-    volumes:
-      - /sys/fs/cgroup:/sys/fs/cgroup:rw
-    cgroupns_mode: host
-    command: ${MOLECULE_DOCKER_COMMAND:-""}
+    box: cloud-image/ubuntu-24.04
+    memory: 1536
+    cpus: 1
 
 scenario:
   test_sequence:

@@ -1,14 +1,32 @@
 ---
 # ADR §3 (management-слой) + §8 (self-proxied admin UI вместо проброса порта 81 наружу).
 
+# ansible_host/inventory_hostname может быть уже FQDN (в реальном inventory частая практика —
+# именовать хосты полным доменным именем, а не короткой меткой) — вставлять его as-is перед
+# reverse_proxy_npm_admin_ui_domain даёт мусорный "npm-ui-host.example.com.example.com". Берём
+# только первую метку (до первой точки), кроме IPv4-адреса — там точки значимы для уникальности
+# (192.168.1.5 → "192" был бы совсем не уникален), поэтому его оставляем целиком.
+- name: Compute short hostname label for self-managed admin UI domain
+  ansible.builtin.set_fact:
+    reverse_proxy_npm_admin_ui_host_label: >-
+      {{ (ansible_host | default(inventory_hostname))
+         if ((ansible_host | default(inventory_hostname)) | regex_search('^(\d{1,3}\.){3}\d{1,3}$'))
+         else (ansible_host | default(inventory_hostname)).split('.')[0] }}
+  when:
+    - reverse_proxy_npm_admin_ui_expose_host
+    - reverse_proxy_npm_admin_ui_domain | length > 0
+
 - name: Compute self-managed admin UI proxy-host (if exposed)
   ansible.builtin.set_fact:
     reverse_proxy_npm_admin_ui_host:
-      domain_name: "npm-ui-{{ ansible_host | default(inventory_hostname) }}.{{ reverse_proxy_npm_admin_ui_domain }}"
+      domain_name: "npm-ui-{{ reverse_proxy_npm_admin_ui_host_label }}.{{ reverse_proxy_npm_admin_ui_domain }}"
       host: "127.0.0.1"
       host_port: "{{ reverse_proxy_npm_admin_ui_port }}"
       ssl_forced: true
       letsencrypt_email: "{{ reverse_proxy_npm_admin_ui_letsencrypt_email | default(reverse_proxy_npm_admin_email, true) }}"
+      ssl_provider: "{{ reverse_proxy_npm_admin_ui_ssl_provider }}"
+      ssl_certificate_path: "{{ reverse_proxy_npm_admin_ui_ssl_certificate_path }}"
+      ssl_certificate_key_path: "{{ reverse_proxy_npm_admin_ui_ssl_certificate_key_path }}"
       state: present
   when:
     - reverse_proxy_npm_admin_ui_expose_host
@@ -23,6 +41,13 @@
     - reverse_proxy_npm_admin_ui_expose_host
     - reverse_proxy_npm_admin_ui_domain | length == 0
 
+# Custom/self-signed сертификаты (ssl_provider: custom, альтернатива Let's Encrypt) должны быть
+# созданы/загружены в NPM ДО создания proxy-хостов, которые на них ссылаются — отсюда include
+# именно здесь, после вычисления reverse_proxy_npm_admin_ui_host выше, но перед циклом ниже.
+- name: Include manage-custom-certificates tasks
+  ansible.builtin.include_tasks:
+    file: manage-custom-certificates.yml
+
 - name: Manage proxy hosts via NPM API
   devops.uslugi.npm_proxy:
     url: "{{ reverse_proxy_npm_api_url }}"
@@ -32,6 +57,7 @@
     host_port: "{{ item.host_port | default(80) }}"
     ssl_forced: "{{ item.ssl_forced | default(false) }}"
     letsencrypt_email: "{{ item.letsencrypt_email | default('') }}"
+    certificate_id: "{{ (reverse_proxy_npm_custom_certificate_ids | default({}))[item.domain_name] | default(omit) }}"
     state: "{{ item.state | default('present') }}"
   throttle: 1
   no_log: true

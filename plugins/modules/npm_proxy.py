@@ -57,10 +57,19 @@ options:
     letsencrypt_email:
         description: >-
             Email address used for the Let's Encrypt certificate request.
-            Required when I(ssl_forced=true).
+            Used when I(ssl_forced=true) and I(certificate_id) is not set.
         required: false
         default: ''
         type: str
+    certificate_id:
+        description: >-
+            Existing NPM certificate id to attach instead of requesting a new
+            Let's Encrypt certificate. Takes precedence over I(letsencrypt_email)
+            when I(ssl_forced=true) — used for custom/self-signed certificates
+            uploaded via C(POST /nginx/certificates) + C(.../upload).
+        required: false
+        default: null
+        type: int
     state:
         description: Whether the proxy host should exist (C(present)) or not (C(absent)).
         required: false
@@ -90,6 +99,17 @@ EXAMPLES = r'''
     host_port: 8080
     ssl_forced: true
     letsencrypt_email: "admin@example.com"
+    state: present
+
+- name: Create proxy host on NPM with a pre-uploaded custom certificate
+  devops.uslugi.npm_proxy:
+    url: "http://127.0.0.1:81/api"
+    token: "{{ reverse_proxy_npm_login.json.token }}"
+    domain: "app.example.com"
+    host: "10.0.0.5"
+    host_port: 8080
+    ssl_forced: true
+    certificate_id: 3
     state: present
 
 - name: Delete proxy host on NPM
@@ -162,7 +182,7 @@ def search_proxy_host(module, api_url, token, domain_name):
 
 
 def create_proxy_host(module, api_url, token, domain_name, forward_host, forward_port,
-                       ssl_forced, letsencrypt_email=''):
+                       ssl_forced, letsencrypt_email='', certificate_id=None):
     proxy_host = search_proxy_host(module, api_url, token, domain_name)
     if proxy_host:
         return 0, "Proxy-host %s already exists" % domain_name
@@ -176,14 +196,17 @@ def create_proxy_host(module, api_url, token, domain_name, forward_host, forward
     }
 
     if ssl_forced:
-        data["certificate_id"] = "new"
         data["ssl_forced"] = True
-        if letsencrypt_email:
-            data["meta"] = {
-                "letsencrypt_email": letsencrypt_email,
-                "letsencrypt_agree": True,
-                "dns_challenge": False,
-            }
+        if certificate_id:
+            data["certificate_id"] = certificate_id
+        else:
+            data["certificate_id"] = "new"
+            if letsencrypt_email:
+                data["meta"] = {
+                    "letsencrypt_email": letsencrypt_email,
+                    "letsencrypt_agree": True,
+                    "dns_challenge": False,
+                }
 
     raw_body, status_code = http_request(
         module, api_url, token, action="create-host", data=data,
@@ -231,6 +254,7 @@ def main():
             host_port=dict(type='int', required=False, default=80),
             ssl_forced=dict(type='bool', required=False, default=False),
             letsencrypt_email=dict(type='str', required=False, default=''),
+            certificate_id=dict(type='int', required=False, default=None),
             state=dict(type='str', default='present', choices=['absent', 'present']),
             validate_certs=dict(type='bool', required=False, default=True),
         ),
@@ -245,6 +269,7 @@ def main():
             module, api_url, token, domain_name,
             module.params['host'], module.params['host_port'],
             module.params['ssl_forced'], module.params['letsencrypt_email'],
+            module.params['certificate_id'],
         )
     else:
         rc, result = delete_proxy_host(module, api_url, token, domain_name)
