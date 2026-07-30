@@ -59,6 +59,18 @@ poetry run ansible-lint     # линтинг коллекции (использ�
   (`templates/compose-reverse-proxy-traefik.yml.j2`) в той же docker-сети `proxy`. `verify.yml`
   проверяет HTTP→HTTPS редирект, реальное проксирование на `whoami` и basic-auth дашборда
   (`traefik-dashboard.yml.j2`) — как с валидными credentials, так и без них (401).
+- `extensions/molecule/infra_dns/` — сценарий для роли `infra_dns`, тоже `driver: docker`, той же
+  структуры, что `nginx_multidomain`/`reverse_proxy_npm`/`reverse_proxy_traefik`. Роль не
+  разворачивает вложенный docker (bind9 — обычный systemd-сервис из apt), поэтому, в отличие от
+  `reverse_proxy_traefik`/`reverse_proxy_npm`, никакого docker-in-docker/vfs-обхода не нужно.
+  Converge покрывает одну forward-зону (`dns.molecule.test`, дефолтный `soa_contact`,
+  `include_hosts` по умолчанию `true`) и одну reverse-зону (`10.10.10.in-addr.arpa`, явный
+  `soa_contact` — обязателен для reverse-зон, P2-20, — `include_hosts: false`). `verify.yml`
+  гоняет реальные `named-checkconf` на полном `/etc/bind/named.conf` и `named-checkzone` на обоих
+  зона-файлах (поймал бы P2-19/P2-20), плюс функциональные `dig`-запросы (A, CNAME, `-x`/PTR) —
+  named реально резолвит то, что задеплоено, а не просто «конфиг синтаксически верен». `group_vars/
+  all.yml` дублирует дефолт роли `infra_dns_zone_dir` явно — `verify.yml` не подключает роль и не
+  видит её `defaults/`, а путь к зона-файлам нужен для `stat`/`named-checkzone`.
 - `extensions/molecule/docker/` — сценарий для роли `docker` (`docs/adr/0002-docker-role.md`).
   Намеренно **не** `driver: docker` — образ `geerlingguy/docker-debian12-ansible`, используемый
   другими docker-сценариями, уже содержит предустановленный Docker Engine (нужен для запуска

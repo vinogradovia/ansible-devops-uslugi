@@ -1,0 +1,10 @@
+---
+- name: Converge
+  hosts: all
+  become: true
+  collections:
+    - devops.uslugi
+  tasks:
+    - name: Прогнать роль infra_dns (переменные — см. group_vars/all.yml)
+      ansible.builtin.import_role:
+        name: infra_dns

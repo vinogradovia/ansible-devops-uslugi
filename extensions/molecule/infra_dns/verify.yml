@@ -1,0 +1,108 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    # --- Сервис ---------------------------------------------------------------------------------
+    - name: Собрать факты о службе named
+      ansible.builtin.service_facts:
+
+    - name: Служба named должна быть running и enabled
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.services['named.service'].state == 'running'
+          - ansible_facts.services['named.service'].status == 'enabled'
+        quiet: true
+
+    # --- named-checkconf на реальном /etc/bind/named.conf ----------------------------------------
+    # Стоковый /etc/bind/named.conf (из пакета bind9) уже подключает named.conf.options и
+    # named.conf.local через include — проверка всего файла целиком, а не по отдельности,
+    # воспроизводит то, что реально парсит named при старте (поймала бы P2-19/P2-20 находки).
+    - name: Named-checkconf должен пройти на полном /etc/bind/named.conf
+      ansible.builtin.command: named-checkconf /etc/bind/named.conf
+      changed_when: false
+
+    # --- named-checkzone на обеих задеплоенных зонах -------------------------------------------
+    - name: Named-checkzone должен пройти на forward-зоне dns.molecule.test
+      ansible.builtin.command: >-
+        named-checkzone dns.molecule.test {{ infra_dns_zone_dir }}/dns.molecule.test
+      changed_when: false
+
+    - name: Named-checkzone должен пройти на reverse-зоне 10.10.10.in-addr.arpa
+      ansible.builtin.command: >-
+        named-checkzone 10.10.10.in-addr.arpa {{ infra_dns_zone_dir }}/10.10.10.in-addr.arpa
+      changed_when: false
+
+    # --- Права доступа на зона-файлы (bind:bind, 0640) -----------------------------------------
+    - name: Собрать stat зона-файлов
+      ansible.builtin.stat:
+        path: "{{ infra_dns_zone_dir }}/{{ item }}"
+      register: molecule_infra_dns_zone_stat
+      loop:
+        - dns.molecule.test
+        - 10.10.10.in-addr.arpa
+
+    - name: Зона-файлы должны принадлежать bind:bind с mode 0640
+      ansible.builtin.assert:
+        that:
+          - item.stat.pw_name == 'bind'
+          - item.stat.gr_name == 'bind'
+          - item.stat.mode == '0640'
+        quiet: true
+      loop: "{{ molecule_infra_dns_zone_stat.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    # --- $INCLUDE hosts-файл только там, где include_hosts не был выключен --------------------
+    - name: "$INCLUDE-файл должен существовать для forward-зоны (include_hosts: дефолт true)"
+      ansible.builtin.stat:
+        path: "{{ infra_dns_zone_dir }}/dns.molecule.test.hosts"
+      register: molecule_infra_dns_forward_hosts
+
+    - name: "$INCLUDE-файл НЕ должен существовать для reverse-зоны (include_hosts: false)"
+      ansible.builtin.stat:
+        path: "{{ infra_dns_zone_dir }}/10.10.10.in-addr.arpa.hosts"
+      register: molecule_infra_dns_reverse_hosts
+
+    - name: Проверить наличие/отсутствие $INCLUDE-файлов
+      ansible.builtin.assert:
+        that:
+          - molecule_infra_dns_forward_hosts.stat.exists
+          - not molecule_infra_dns_reverse_hosts.stat.exists
+        quiet: true
+
+    # --- Функциональная проверка: named реально отвечает на свои же зоны ----------------------
+    - name: Установить bind9-dnsutils (нужен dig для функциональной проверки)
+      ansible.builtin.apt:
+        name: bind9-dnsutils
+        state: present
+
+    - name: "Dig A ns1.dns.molecule.test должен вернуть 10.10.10.1"
+      ansible.builtin.command: dig @127.0.0.1 ns1.dns.molecule.test A +short
+      register: molecule_dig_ns1
+      changed_when: false
+
+    - name: "Dig A web-01.dns.molecule.test должен вернуть 10.10.10.50"
+      ansible.builtin.command: dig @127.0.0.1 web-01.dns.molecule.test A +short
+      register: molecule_dig_web01
+      changed_when: false
+
+    - name: "Dig CNAME alias.dns.molecule.test должен вернуть web-01.dns.molecule.test."
+      ansible.builtin.command: dig @127.0.0.1 alias.dns.molecule.test CNAME +short
+      register: molecule_dig_alias
+      changed_when: false
+
+    - name: "Dig -x (PTR) 10.10.10.50 должен вернуть web-01.dns.molecule.test."
+      ansible.builtin.command: dig @127.0.0.1 -x 10.10.10.50 +short
+      register: molecule_dig_ptr
+      changed_when: false
+
+    - name: Ответы named должны совпадать с записями зон
+      ansible.builtin.assert:
+        that:
+          - molecule_dig_ns1.stdout_lines == ['10.10.10.1']
+          - molecule_dig_web01.stdout_lines == ['10.10.10.50']
+          - molecule_dig_alias.stdout_lines == ['web-01.dns.molecule.test.']
+          - molecule_dig_ptr.stdout_lines == ['web-01.dns.molecule.test.']
+        quiet: true

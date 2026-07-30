@@ -1,0 +1,40 @@
+---
+# Molecule-сценарий для infra_dns — см. ROADMAP.md P4 («Molecule-сценарий с проверкой
+# named-checkconf/named-checkzone рендера forward+reverse зон, поймал бы №19, №20»). driver: docker,
+# тот же паттерн, что nginx_multidomain/reverse_proxy_npm/reverse_proxy_traefik: одноразовый
+# systemd-контейнер (geerlingguy/docker-debian12-ansible), полностью уничтожается на destroy.
+#
+# В отличие от reverse_proxy_traefik/reverse_proxy_npm, роль не разворачивает вложенный docker —
+# bind9 ставится и управляется как обычный systemd-сервис из apt, поэтому никакого
+# docker-in-docker/vfs-обхода (см. их prepare.yml/group_vars) здесь не нужно.
+driver:
+  name: docker
+
+platforms:
+  - name: infra-dns
+    image: "docker.io/geerlingguy/docker-debian12-ansible:latest"
+    pre_build_image: true
+    privileged: true
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    cgroupns_mode: host
+    command: ${MOLECULE_DOCKER_COMMAND:-""}
+
+scenario:
+  test_sequence:
+    - dependency
+    - destroy
+    - syntax
+    - create
+    - prepare
+    - converge
+    - idempotence
+    - verify
+    - destroy
+
+shared_state: false
+
+ansible:
+  executor:
+    args:
+      ansible_playbook: []
