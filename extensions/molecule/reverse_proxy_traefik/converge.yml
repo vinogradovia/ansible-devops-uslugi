@@ -1,0 +1,13 @@
+---
+- name: Converge
+  hosts: all
+  become: true
+  collections:
+    - devops.uslugi
+  tasks:
+    # Fixture-приложение (whoami) — часть compose-файла самой роли
+    # (templates/compose-reverse-proxy-traefik.yml.j2), уже в той же docker-сети proxy, что и
+    # traefik — в отличие от reverse_proxy_npm, отдельно поднимать и подключать фикстуру не нужно.
+    - name: Прогнать роль reverse_proxy_traefik (переменные — см. group_vars/all.yml)
+      ansible.builtin.import_role:
+        name: reverse_proxy_traefik

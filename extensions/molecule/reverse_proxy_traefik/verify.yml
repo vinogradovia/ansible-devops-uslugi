@@ -1,0 +1,97 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: false
+  vars:
+    reverse_proxy_traefik_whoami_host: "whoami.{{ reverse_proxy_traefik_internal_domain | default('docker.localhost') }}"
+    reverse_proxy_traefik_dashboard_host: "traefik-dashboard.{{ reverse_proxy_traefik_internal_domain | default('docker.localhost') }}"
+  tasks:
+    # --- Контейнеры запущены ------------------------------------------------------------------
+    - name: Собрать информацию о контейнере traefik
+      community.docker.docker_container_info:
+        name: traefik
+      register: molecule_traefik_container
+
+    - name: Контейнер traefik должен существовать и быть running
+      ansible.builtin.assert:
+        that:
+          - molecule_traefik_container.exists
+          - molecule_traefik_container.container.State.Status == 'running'
+        quiet: true
+
+    - name: Собрать информацию о контейнере whoami
+      community.docker.docker_container_info:
+        name: whoami
+      register: molecule_whoami_container
+
+    - name: Контейнер whoami должен существовать и быть running
+      ansible.builtin.assert:
+        that:
+          - molecule_whoami_container.exists
+          - molecule_whoami_container.container.State.Status == 'running'
+        quiet: true
+
+    # --- HTTP (:80) должен постоянно редиректить на HTTPS --------------------------------------
+    - name: "HTTP-запрос на :80 должен редиректить на HTTPS"
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:80/"
+        headers:
+          Host: "{{ reverse_proxy_traefik_whoami_host }}"
+        follow_redirects: none
+        status_code:
+          - 301
+          - 308
+        return_content: false
+      register: molecule_traefik_http_redirect
+
+    - name: "Location редиректа должен указывать на https://"
+      ansible.builtin.assert:
+        that:
+          - molecule_traefik_http_redirect.location is defined
+          - molecule_traefik_http_redirect.location is match('^https://')
+        quiet: true
+
+    # --- Функциональная проверка: Traefik реально проксирует на whoami по Docker-провайдеру ----
+    - name: "HTTPS-запрос через Traefik на whoami должен отвечать 200: {{ reverse_proxy_traefik_whoami_host }}"
+      ansible.builtin.uri:
+        url: "https://127.0.0.1:443/"
+        headers:
+          Host: "{{ reverse_proxy_traefik_whoami_host }}"
+        validate_certs: false
+        status_code:
+          - 200
+        return_content: true
+      register: molecule_traefik_whoami_response
+
+    - name: "Ответ должен быть от контейнера whoami (fixture-приложение), а не заглушка"
+      ansible.builtin.assert:
+        that:
+          - "'Hostname' in molecule_traefik_whoami_response.content"
+        quiet: true
+
+    # --- Дашборд Traefik должен быть закрыт basic-auth (traefik-dashboard.yml.j2) --------------
+    - name: "Дашборд без credentials должен отвечать 401"
+      ansible.builtin.uri:
+        url: "https://127.0.0.1:443/"
+        headers:
+          Host: "{{ reverse_proxy_traefik_dashboard_host }}"
+        validate_certs: false
+        status_code:
+          - 401
+        return_content: false
+      changed_when: false
+
+    - name: "Дашборд с настроенными credentials (reverse_proxy_traefik_dashboard_users) должен отвечать 200"
+      ansible.builtin.uri:
+        url: "https://127.0.0.1:443/"
+        headers:
+          Host: "{{ reverse_proxy_traefik_dashboard_host }}"
+        validate_certs: false
+        force_basic_auth: true
+        url_username: "monitor"
+        url_password: "{{ (reverse_proxy_traefik_dashboard_users | selectattr('name', 'equalto', 'monitor') | first).password }}"
+        status_code:
+          - 200
+        return_content: false
+      changed_when: false

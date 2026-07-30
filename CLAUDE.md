@@ -28,11 +28,8 @@ poetry run ansible-lint     # линтинг коллекции (использ�
 
 - `extensions/molecule/default/` — сценарий только с `create`/`destroy` (проверка провижининга хоста),
   использует общий inventory из `extensions/molecule/inventory/`.
-- `extensions/molecule/reverse_proxy_traefik/` — сценарий для конкретной роли, гоняется против
-  статического реального хоста из `extensions/molecule/inventory/hosts.yml` (driver по умолчанию,
-  `create`/`destroy` — no-op).
 - `extensions/molecule/nginx_multidomain/` — сценарий для роли `nginx_multidomain`,
-  единственный использующий `driver: docker` (требует dev-зависимость
+  использует `driver: docker` (требует dev-зависимость
   `molecule-plugins[docker]` и Docker на хосте, где запускается molecule): создаёт одноразовый
   systemd-контейнер (`geerlingguy/docker-debian12-ansible`), converge покрывает `type: static`
   и `type: proxy`, verify гоняет реальный `nginx -t` + ansible-based проверки (аналог testinfra).
@@ -49,6 +46,19 @@ poetry run ansible-lint     # линтинг коллекции (использ�
   проверки реального проксирования. `verify.yml` намеренно не проверяет
   `reverse_proxy_npm_admin_ui_expose_host: true` — этот путь дёргает настоящий Let's Encrypt
   HTTP-01 через API NPM, а у тестового контейнера нет публичной сети/DNS.
+- `extensions/molecule/reverse_proxy_traefik/` — сценарий для роли `reverse_proxy_traefik`, тоже
+  `driver: docker`, той же структуры, что `nginx_multidomain`/`reverse_proxy_npm`. Отличие от
+  `reverse_proxy_npm`: `reverse_proxy_traefik/meta/main.yml` безусловно зависит от роли `docker`
+  (сама ставит Docker Engine пинненой версией из `download.docker.com`), поэтому `prepare.yml`
+  сценария Docker Engine вручную не ставит — это делает зависимость роли при `converge`.
+  `group_vars/all.yml` передаёт `docker_daemon_json_options: {storage-driver: vfs}` (переменная
+  роли `docker`, единственного владельца `/etc/docker/daemon.json`, ADR-0002 §6) — без неё
+  повторная установка Docker Engine поверх уже предустановленного в образе конфликтует
+  overlay2-на-overlay2, как и в `reverse_proxy_npm`. Fixture-приложение (`traefik/whoami`) не
+  нужно поднимать отдельно — оно уже часть compose-файла самой роли
+  (`templates/compose-reverse-proxy-traefik.yml.j2`) в той же docker-сети `proxy`. `verify.yml`
+  проверяет HTTP→HTTPS редирект, реальное проксирование на `whoami` и basic-auth дашборда
+  (`traefik-dashboard.yml.j2`) — как с валидными credentials, так и без них (401).
 - `extensions/molecule/docker/` — сценарий для роли `docker` (`docs/adr/0002-docker-role.md`).
   Намеренно **не** `driver: docker` — образ `geerlingguy/docker-debian12-ansible`, используемый
   другими docker-сценариями, уже содержит предустановленный Docker Engine (нужен для запуска
