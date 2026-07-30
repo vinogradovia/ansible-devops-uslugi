@@ -407,8 +407,10 @@
    файлов, отдельный PR.~~ — **сделано**: заодно закрыт весь раздел P1 целиком (пункты 12-14 —
    assert на дефолтные S3-credentials, checksum для бинарников экспортеров, requirements.yml для
    `xanmanning.k3s`), см. раздел P1 выше.
-4. **monitoring_server P0 №1-5** — требуют решения по P5 №33 (поддерживать ли алертинг в docker
-   вообще) перед тем как чинить scrape-конфиги и dashboard provisioning.
+4. ~~**monitoring_server P0 №1-5** — требуют решения по P5 №33 (поддерживать ли алертинг в docker
+   вообще) перед тем как чинить scrape-конфиги и dashboard provisioning.~~ — **сделано**: решение
+   P5-33 принято («k3s-only», без реализации `vmalert` в docker-compose), все пять пунктов
+   исправлены, см. раздел P0 выше.
 5. **Тестовое покрытие (P4)** — начиная с `nginx_multidomain` (самый дешёвый сценарий: реальный
    `nginx -t` в verify сразу ловит находки §9 её архитектурного документа) — ~~сделано~~:
    `extensions/molecule/nginx_multidomain/` (docker driver), см. таблицу P4 выше; попутно нашёл
