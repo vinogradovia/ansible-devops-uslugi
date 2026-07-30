@@ -73,6 +73,28 @@ poetry run ansible-lint     # линтинг коллекции (использ�
   named реально резолвит то, что задеплоено, а не просто «конфиг синтаксически верен». `group_vars/
   all.yml` дублирует дефолт роли `infra_dns_zone_dir` явно — `verify.yml` не подключает роль и не
   видит её `defaults/`, а путь к зона-файлам нужен для `stat`/`named-checkzone`.
+- `extensions/molecule/monitoring_agent/` — сценарий для роли `monitoring_agent`, `driver: docker`,
+  но **две платформы в одном сценарии** (паттерн `mysql_replication`: несколько хостов,
+  per-group `group_vars/<group>.yml`), а не отдельные сценарии на каждый оркестратор, как у
+  `monitoring_server`/`monitoring_server_k3s` — оба пути `monitoring_agent` достаточно лёгкие для
+  контейнера. `monitoring-agent-docker` (`monitoring_agent_orchestrator: docker`): роль тянет
+  зависимость на роль `docker` сама (как `reverse_proxy_traefik`), `group_vars` задаёт
+  `storage-driver: vfs` — тот же docker-in-docker обход, что и там; `node_exporter` +
+  `docker_exporter` (проверка ключа `metrics-addr` в `/etc/docker/daemon.json`); дополнительно
+  `verify.yml` изолированно вызывает `exporters-pve-exporter.yml` с `pve_exporter_enabled: true`
+  через `block/rescue`, проверяя P0-10 regression (fail-fast, а не молчаливый no-op).
+  `monitoring-agent-systemd` (`monitoring_agent_orchestrator: systemd`): `node_exporter` (socket
+  activation — `service_facts` не видит `.socket`-юниты, поэтому `node_exporter.socket`
+  проверяется напрямую через `systemctl is-active`/`is-enabled`) + `pve_exporter` (позитивный
+  путь, `prepare.yml` ставит `python3-venv` внешним провижинингом — роль сама этот пакет не
+  ставит). `prepare.yml` докер-хоста дополнительно делает `mount --make-rshared /` — без этого
+  вложенный `node_exporter`'у бинд `/:/host:ro,rslave` (официальный паттерн prometheus/node_exporter)
+  падает на "path / is mounted on / but it is not a shared or slave mount" (мount-namespace
+  тестового контейнера по умолчанию private, а не shared/slave). Первый же прогон поймал реальный
+  P0-баг (ROADMAP №36): `pve_exporter`/`mysqld_exporter` крашились сразу после старта под systemd
+  (`PermissionError`, читая свой config-файл, который рендерился `root:root`, а сервис работает
+  под выделенным `User=`) — исправлено в `roles/monitoring_agent/tasks/{exporters-pve-exporter,
+  monitoring-agent,systemd-mysqld-exporter}.yml`.
 - `extensions/molecule/docker/` — сценарий для роли `docker` (`docs/adr/0002-docker-role.md`, §8).
   Намеренно **не** `driver: docker` — образ `geerlingguy/docker-debian12-ansible` Docker Engine
   не содержит (проверено эмпирически, вопреки более ранней версии этого документа/ADR-0002 §8),

@@ -1,0 +1,142 @@
+---
+- name: Verify (docker orchestrator)
+  hosts: monitoring_agent_docker
+  become: true
+  # true, а не false: P0-10-проверка ниже дёргает include_role → её meta-зависимость на роль
+  # docker (monitoring_agent/meta/main.yml) требует ansible_distribution при повторном прогоне.
+  gather_facts: true
+  collections:
+    - devops.uslugi
+  tasks:
+    - name: Собрать информацию о контейнере node_exporter
+      community.docker.docker_container_info:
+        name: node_exporter
+      register: molecule_node_exporter_container
+
+    - name: Контейнер node_exporter должен существовать и быть running
+      ansible.builtin.assert:
+        that:
+          - molecule_node_exporter_container.exists
+          - molecule_node_exporter_container.container.State.Status == 'running'
+        quiet: true
+
+    - name: "Node_exporter (network_mode: host) должен реально отдавать метрики на :9100"
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:9100/metrics"
+        return_content: true
+      register: molecule_node_exporter_metrics
+
+    - name: Ответ должен содержать реальные node-метрики
+      ansible.builtin.assert:
+        that:
+          - "'node_exporter_build_info' in molecule_node_exporter_metrics.content"
+        quiet: true
+
+    - name: Прочитать /etc/docker/daemon.json
+      ansible.builtin.slurp:
+        path: /etc/docker/daemon.json
+      register: molecule_docker_daemon_json_raw
+
+    - name: "/etc/docker/daemon.json должен содержать оба ключа (storage-driver, metrics-addr)"
+      ansible.builtin.assert:
+        that:
+          - (molecule_docker_daemon_json_raw.content | b64decode | from_json)['storage-driver'] == 'vfs'
+          - (molecule_docker_daemon_json_raw.content | b64decode | from_json)['metrics-addr'] == '0.0.0.0:9323'
+        quiet: true
+
+    # --- P0-10 regression: monitoring_agent_pve_exporter_enabled под docker раньше молча
+    # игнорировался (не было сервиса в compose-monitoring-agent.yml.j2 для docker-оркестратора) —
+    # теперь явный ansible.builtin.fail в самом начале exporters-pve-exporter.yml. Проверяем это,
+    # изолированно вызывая только этот tasks-файл роли с переопределённым enabled: true — сама
+    # задача падает раньше, чем что-либо реально меняется на хосте, откатывать нечего.
+    - name: "P0-10: pve-exporter под docker должен падать, а не молча игнорироваться"
+      block:
+        - name: Попытка (ожидаем явный fail)
+          ansible.builtin.include_role:
+            name: monitoring_agent
+            tasks_from: exporters-pve-exporter.yml
+          vars:
+            monitoring_agent_pve_exporter_enabled: true
+      rescue:
+        - name: Зафиксировать, что fail-fast сработал
+          ansible.builtin.set_fact:
+            molecule_pve_docker_fail_fast_triggered: true
+
+    - name: Assert, что fail-fast реально сработал (а не просто пропустился)
+      ansible.builtin.assert:
+        that:
+          - molecule_pve_docker_fail_fast_triggered | default(false)
+        fail_msg: >-
+          pve-exporter под monitoring_agent_orchestrator=docker должен падать явным fail (P0-10),
+          а не молча игнорироваться — регрессия в exporters-pve-exporter.yml.
+        quiet: true
+
+- name: Verify (systemd orchestrator)
+  hosts: monitoring_agent_systemd
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Собрать факты о службах
+      ansible.builtin.service_facts:
+
+    # service_facts (backend systemd) перечисляет только *.service — *.socket в него не попадает,
+    # поэтому node_exporter.socket проверяется напрямую через systemctl, а не через ansible_facts.
+    - name: "Systemctl is-active/is-enabled node_exporter.socket"
+      ansible.builtin.command: "systemctl {{ item }} node_exporter.socket"
+      register: molecule_node_exporter_socket_state
+      changed_when: false
+      failed_when: false
+      loop:
+        - is-active
+        - is-enabled
+
+    - name: Node_exporter.socket должен быть active/enabled
+      ansible.builtin.assert:
+        that:
+          - molecule_node_exporter_socket_state.results[0].stdout == 'active'
+          - molecule_node_exporter_socket_state.results[1].stdout == 'enabled'
+        quiet: true
+
+    - name: Node-exporter.service должен быть running/enabled
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.services['node_exporter.service'].state == 'running'
+          - ansible_facts.services['node_exporter.service'].status == 'enabled'
+        quiet: true
+
+    - name: "Node-exporter (socket activation) должен реально отдавать метрики на :9100"
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:9100/metrics"
+        return_content: true
+      register: molecule_node_exporter_metrics_systemd
+
+    - name: Ответ должен содержать реальные node-метрики
+      ansible.builtin.assert:
+        that:
+          - "'node_exporter_build_info' in molecule_node_exporter_metrics_systemd.content"
+        quiet: true
+
+    - name: Pve_exporter.service должен быть running/enabled (позитивный путь под systemd)
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.services['pve_exporter.service'].state == 'running'
+          - ansible_facts.services['pve_exporter.service'].status == 'enabled'
+        quiet: true
+
+    - name: Pve-exporter должен реально слушать :9221 (сервис не упал сразу после старта)
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: 9221
+        timeout: 10
+
+    - name: Собрать stat конфига pve.yml (секреты — no_log на самой задаче рендера в роли)
+      ansible.builtin.stat:
+        path: /opt/monitoring-agent/pve_exporter/pve.yml
+      register: molecule_pve_yml_stat
+
+    - name: Pve.yml должен существовать с mode 0600 (содержит token_value)
+      ansible.builtin.assert:
+        that:
+          - molecule_pve_yml_stat.stat.exists
+          - molecule_pve_yml_stat.stat.mode == '0600'
+        quiet: true

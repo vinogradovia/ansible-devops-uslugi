@@ -107,6 +107,27 @@
     `monitoring_agent_orchestrator != 'systemd'` (конфиг для docker по-прежнему не поддержан —
     это осознанный fail-fast, а не молчаливый no-op, полная поддержка pve-exporter под docker
     остаётся отдельной задачей архитектурного уровня).
+36. ~~**`pve_exporter`/`mysqld_exporter` под systemd крашатся сразу после старта —
+    `PermissionError` при чтении собственного config-файла.**~~ — **найдено и исправлено** при
+    сборке `extensions/molecule/monitoring_agent` (idempotence не проходил: systemd постоянно
+    перезапускал упавший сервис). Оба файла (`pve.yml`, `.mysqld_exporter_my.cnf`) рендерились
+    `root:root:0600`, а сами сервисы запускаются под выделенным непривилегированным
+    `User=` (`pve_exporter`/`mysqld_exporter`, P1-11) — процесс не мог прочитать собственный
+    config.file/`--config.my-cnf`. Исправлено переносом создания пользователя ДО рендера файла и
+    рендером сразу с правильным владельцем (не последующим `chown`-патчем поверх — так было бы
+    неидемпотентно: рендер каждый раз возвращал бы `root:root`, а патч — откатывал обратно):
+    - `tasks/exporters-pve-exporter.yml` — `pve.yml` рендерится только когда
+      `monitoring_agent_orchestrator == systemd` гарантирован предыдущим fail-fast'ом (№10), поэтому
+      пользователь создаётся безусловно перед рендером, owner/group — сразу имя пользователя.
+    - `tasks/monitoring-agent.yml` — `.mysqld_exporter_my.cnf` рендерится для ОБОИХ оркестраторов
+      (под docker монтируется в контейнер, там `root:root` корректен), поэтому owner/group
+      вычисляются условно (`... if monitoring_agent_orchestrator == 'systemd' else 'root'`), а
+      пользователь создаётся заранее только для systemd-ветки.
+    Проверено полным прогоном `molecule test -s monitoring_agent`: converge → idempotence (0
+    изменений на обоих хостах) → verify (реальный `curl :9100/metrics`, `pve_exporter` слушает
+    `:9221`, `.venv`/pip-путь). До этой находки роль ни разу не тестировалась с
+    `monitoring_agent_pve_exporter_enabled: true` под systemd — баг существовал с момента
+    появления pve-exporter в коллекции.
 
 ---
 
@@ -263,7 +284,7 @@
 | Роль | Что есть сейчас | Чего не хватает |
 |---|---|---|
 | `monitoring_server` | ~~Нет molecule-сценария вообще~~ — **сделано**: два независимых сценария, `extensions/molecule/monitoring_server/` (`monitoring_server_orchestrator: docker`) и `extensions/molecule/monitoring_server_k3s/` (`monitoring_server_orchestrator: k3s`), оба `driver: vagrant`/`libvirt` (см. CLAUDE.md, раздел «Molecule-тесты»). docker-сценарий — full-стек (VM + Grafana + Loki + MinIO), verify проверяет реальный scrape node-exporter. k3s-сценарий крупнее (k3s + VictoriaMetrics Operator + grafana-operator + grafana-alloy через реальный `Helmwave up`) и без idempotence в `test_sequence` (`Helmwave up` — `ansible.builtin.command` без `changed_when`-анализа, всегда `changed=true`). | `meta/main.yml` для роли по-прежнему отсутствует. Idempotence для k3s-сценария не достижима без переписывания задачи `Helmwave up` на `changed_when`-анализ stdout `helmwave` — отдельная задача. |
-| `monitoring_agent` | `tests/test.yml` — аналогично, все экспортеры выключены по умолчанию, ничего не проверяет. Нет molecule-сценария. | Molecule-сценарий, включающий хотя бы по одному экспортеру на docker- и systemd-путях, plus pve-exporter под обоими оркестраторами (поймал бы №9, №10). |
+| `monitoring_agent` | ~~Нет molecule-сценария~~ — **сделано**: `extensions/molecule/monitoring_agent/` (docker driver, две платформы в одном сценарии — паттерн `mysql_replication`/`group_vars/<group>.yml`, а не два отдельных сценария). `monitoring-agent-docker`: `node_exporter` + `docker_exporter` (проверка ключа `metrics-addr` в `/etc/docker/daemon.json`, storage-driver vfs для docker-in-docker) + regression-проверка P0-10 (pve-exporter под docker падает fail-fast, а не молча игнорируется). `monitoring-agent-systemd`: `node_exporter` (socket activation) + `pve_exporter` (позитивный путь). Первый же прогон поймал реальный, ранее не описанный P0-баг (№36) — `pve_exporter`/`mysqld_exporter` крашились под systemd с `PermissionError`, читая собственный config-файл (`root:root:0600` против `User=<exporter>`), исправлено в том же PR. | `meta/main.yml` для роли по-прежнему отсутствует. Остальные экспортеры (redis/nginx/nginxlog/php-fpm/ipa) в сценарий не включены — за пределами формулировки задачи («хотя бы по одному»). |
 | `infra_dns` | ~~Только ручной `tests/deploy_infra_dns.yml`~~ — **сделано**: `extensions/molecule/infra_dns/` (docker driver, одноразовый systemd-контейнер geerlingguy/docker-debian12-ansible, без docker-in-docker — bind9 обычный systemd-сервис). Converge покрывает forward-зону (дефолтный `soa_contact`, `include_hosts: true`) и reverse-зону (явный `soa_contact`, `include_hosts: false`). Verify гоняет реальный `named-checkconf` на полном `/etc/bind/named.conf` + `named-checkzone` на обоих зона-файлах (ловит P2-19/P2-20), права `bind:bind`/`0640`, наличие/отсутствие `$INCLUDE`-файла и функциональные `dig`-запросы (A, CNAME, `-x`/PTR) через реально поднятый `named`. Прогон зелёный, включая `idempotence` (0 изменений на повторном converge) — багов не найдено. | `meta/main.yml` для роли по-прежнему отсутствует. Негативный путь (reverse-зона без `soa_contact` → `assert`-fail, P2-20) сценарий не проверяет — только структурно валидные зоны. |
 | `nginx_multidomain` | ~~Роль `nginx` удалена (п.31)~~ — **сделано**: `extensions/molecule/nginx_multidomain/` (docker driver, одноразовый systemd-контейнер geerlingguy/docker-debian12-ansible). Converge покрывает `type: static` и `type: proxy` (upstream-пул, `extra_upstreams`, custom-сертификаты, rate-limit/proxy-cache зоны, `conf_d_files`, `stub_status`, `enabled: false`). Verify гоняет реальный `nginx -t` + ansible-проверки (сервис running, symlink'и, дедуп зон, регрессия §9.1, функциональные `uri`-запросы на override-location и 502 от недоступного backend'а). `basic_auth`/`json`-логи (§8.3/8.4/9.3) намеренно не включены в сценарий — они по-прежнему ломают `nginx -t`, это осознанно задокументированный пробел, а не забытый. Первый же прогон сценария поймал реальный, ранее не описанный баг: `proxy_cache_zones.yml` не создавал `zone.path` (`nginx -t` падал на `mkdir()` для любого использования `nginx_proxy_cache_zones`) — исправлено в том же PR, см. архитектурный документ роли, раздел 6. | `meta/main.yml` для роли по-прежнему отсутствует (см. §8.5 документа). Когда баги §9.3 (basic_auth/json-логи) будут починены — добавить в сценарий домен, покрывающий оба случая, вместо текущего осознанного исключения. |
 | `reverse_proxy_traefik` | ~~Нет molecule-сценария вообще~~ — **сделано**: `extensions/molecule/reverse_proxy_traefik/` (docker driver, одноразовый systemd-контейнер geerlingguy/docker-debian12-ansible, та же структура, что `nginx_multidomain`/`reverse_proxy_npm`). Converge реально вызывает роль (`import_role`); в отличие от удалённого нерабочего каркаса (см. P3 №27), fixture-приложение (`traefik/whoami`) не поднимается отдельно — оно уже часть compose-файла роли. Verify проверяет HTTP→HTTPS редирект, реальный ответ `whoami` через Traefik (вместо скопипащенного и никогда не совпадающего ассерта `"Welcome to nginx"` из старого каркаса) и basic-auth дашборда (401 без credentials, 200 с ними). | — |
@@ -397,8 +418,10 @@
    `nginx -t` (сама функциональность по-прежнему не реализована — это отдельная задача §8).
    `monitoring_server` (самый рискованный по числу найденных P0) — ~~сделано~~: два сценария,
    `docker` и `k3s` (#40), см. таблицу P4 выше. `reverse_proxy_traefik` (сборка с нуля) — тоже
-   ~~сделано~~ (#41). `infra_dns` — тоже ~~сделано~~, см. таблицу P4 выше. Остаётся:
-   `monitoring_agent`.
+   ~~сделано~~ (#41). `infra_dns` и `monitoring_agent` — тоже ~~сделано~~, см. таблицу P4 выше
+   (сценарий `monitoring_agent` заодно нашёл и исправил реальный P0-баг №36 — pve/mysqld-exporter
+   крашились под systemd с `PermissionError`). **Раздел P4 закрыт целиком** — все пять ролей
+   коллекции покрыты molecule-сценариями.
 6. **Чистка мусора (P3)** — низкий риск, можно делать параллельно отдельными мелкими PR в любой
    момент. Основной объём (роль `nginx` и её дубликаты документации/scratch-тестов) уже снят
    вместе с решением P5-31.

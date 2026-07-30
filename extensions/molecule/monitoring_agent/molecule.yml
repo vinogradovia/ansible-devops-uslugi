@@ -1,0 +1,64 @@
+---
+# Molecule-сценарий для monitoring_agent — см. ROADMAP.md P4 («Molecule-сценарий, включающий хотя
+# бы по одному экспортеру на docker- и systemd-путях, plus pve-exporter под обоими оркестраторами,
+# поймал бы №9, №10»). Оба пути покрыты ДВУМЯ платформами в одном сценарии — тот же паттерн, что
+# extensions/molecule/mysql_replication (несколько хостов, per-group `group_vars/<group>.yml`),
+# только здесь оба хоста используют driver: docker (roли monitoring_agent на обоих оркестраторах
+# достаточно лёгкие для контейнера, в отличие от monitoring_server, которому под docker понадобилась
+# полноценная ВМ, см. extensions/molecule/monitoring_server/molecule.yml).
+#
+# monitoring-agent-docker: monitoring_agent_orchestrator: docker — роль сама тянет зависимость на
+# роль docker (meta/main.yml, when: orchestrator == docker), поэтому, как и в
+# reverse_proxy_traefik, prepare.yml Docker Engine вручную не ставит. docker_daemon_json_options
+# в group_vars задаёт storage-driver: vfs — без него свежеустановленный Docker Engine не может
+# смонтировать overlay2 поверх уже overlay2-смонтированной файловой системы самого тестового
+# контейнера (docker-in-docker, см. ADR-0002 §8).
+#
+# monitoring-agent-systemd: monitoring_agent_orchestrator: systemd — никакого docker-in-docker,
+# обычные systemd-юниты (как infra_dns), но pve-exporter ставится через pip/venv
+# (systemd-pve-exporter.yml), поэтому prepare.yml для этого хоста ставит python3-venv как внешний
+# провижининг (роль сама этот пакет не ставит).
+driver:
+  name: docker
+
+platforms:
+  - name: monitoring-agent-docker
+    image: "docker.io/geerlingguy/docker-debian12-ansible:latest"
+    pre_build_image: true
+    privileged: true
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    cgroupns_mode: host
+    command: ${MOLECULE_DOCKER_COMMAND:-""}
+    groups:
+      - monitoring_agent_docker
+
+  - name: monitoring-agent-systemd
+    image: "docker.io/geerlingguy/docker-debian12-ansible:latest"
+    pre_build_image: true
+    privileged: true
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    cgroupns_mode: host
+    command: ${MOLECULE_DOCKER_COMMAND:-""}
+    groups:
+      - monitoring_agent_systemd
+
+scenario:
+  test_sequence:
+    - dependency
+    - destroy
+    - syntax
+    - create
+    - prepare
+    - converge
+    - idempotence
+    - verify
+    - destroy
+
+shared_state: false
+
+ansible:
+  executor:
+    args:
+      ansible_playbook: []

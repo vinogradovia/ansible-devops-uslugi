@@ -1,0 +1,13 @@
+---
+monitoring_agent_orchestrator: systemd
+
+monitoring_agent_node_exporter_enabled: true
+
+# pve-exporter (P0-10 — раньше молча игнорировался под docker, теперь явный fail-fast, см.
+# roles/monitoring_agent/tasks/exporters-pve-exporter.yml). Под systemd — единственный
+# поддерживаемый оркестратор, реальный позитивный путь: pip install в venv + systemd-юнит.
+# token_value не обязан быть валидным токеном реального Proxmox VE — pve_exporter поднимает HTTP
+# сервер независимо от того, сможет ли он опросить реальный PVE API (это происходит только при
+# реальном scrape запроса /pve, не при старте процесса).
+monitoring_agent_pve_exporter_enabled: true
+monitoring_agent_pve_exporter_token_value: "molecule-test-token"

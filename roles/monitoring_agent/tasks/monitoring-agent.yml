@@ -71,6 +71,22 @@
         mode: '0644'
 
 # mysqld-exporter
+# Под systemd сервис работает под User={{ monitoring_agent_mysqld_exporter_systemd_name }} (не
+# root, systemd-mysqld-exporter.yml) и без владения этим пользователем падает с PermissionError,
+# читая --config.my-cnf (тот же баг и фикс, что у pve-exporter, найдено при сборке
+# extensions/molecule/monitoring_agent). Под docker пользователь не существует (создаётся только
+# в systemd-ветке) — там файл монтируется в контейнер, root:root корректен, как и раньше.
+# Пользователь должен существовать ДО рендера (иначе template не может резолвить owner) —
+# создаётся здесь заранее для systemd, а не только позже в systemd-mysqld-exporter.yml (там тот же
+# вызов идемпотентен и вдобавок отвечает за удаление пользователя при disable).
+- name: Add the user for mysqld-exporter (нужен заранее для владения .my.cnf под systemd)
+  when: monitoring_agent_mysqld_exporter_enabled and monitoring_agent_orchestrator == 'systemd'
+  ansible.builtin.user:
+    name: "{{ monitoring_agent_mysqld_exporter_systemd_name }}"
+    create_home: false
+    shell: /bin/false
+    state: present
+
 - name: Render .my.cnf for mysqld-exporter
   when: monitoring_agent_mysqld_exporter_enabled
   register: monitoring_agent_mysqld_exporter_my_cnf_stat
@@ -78,8 +94,10 @@
   ansible.builtin.template:
     src: exporters/mysqld-exporter/mysqld_exporter_my.cnf.j2
     dest: "{{ monitoring_agent_config_dir }}/.mysqld_exporter_my.cnf"
-    owner: root
-    group: root
+    owner: >-
+      {{ monitoring_agent_mysqld_exporter_systemd_name if monitoring_agent_orchestrator == 'systemd' else 'root' }}
+    group: >-
+      {{ monitoring_agent_mysqld_exporter_systemd_name if monitoring_agent_orchestrator == 'systemd' else 'root' }}
     mode: '0600'
 
 # monitoring-agent in docker

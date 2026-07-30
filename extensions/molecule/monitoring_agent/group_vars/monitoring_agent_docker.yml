@@ -1,0 +1,16 @@
+---
+monitoring_agent_orchestrator: docker
+
+monitoring_agent_node_exporter_enabled: true
+
+# docker_exporter: покрывает передачу ключа metrics-addr в /etc/docker/daemon.json через
+# зависимость на роль docker (ADR-0002 §6, monitoring_agent сама файл не пишет).
+monitoring_agent_docker_exporter_enabled: true
+
+# Полностью переопределяем итоговый dict (а не полагаемся на формулу в defaults/main.yml) — нужно
+# добавить ещё storage-driver: vfs, без которого свежеустановленный внутри тестового контейнера
+# Docker Engine не может смонтировать overlay2 поверх уже overlay2-смонтированной файловой системы
+# самого контейнера (docker-in-docker, см. molecule.yml/ADR-0002 §8).
+monitoring_agent_docker_daemon_json_options:
+  storage-driver: vfs
+  metrics-addr: "{{ monitoring_agent_docker_exporter_docker_daemon_metrics_addr }}"
