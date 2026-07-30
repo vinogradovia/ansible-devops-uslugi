@@ -53,8 +53,10 @@ poetry run ansible-lint     # линтинг коллекции (использ�
   сценария Docker Engine вручную не ставит — это делает зависимость роли при `converge`.
   `group_vars/all.yml` передаёт `docker_daemon_json_options: {storage-driver: vfs}` (переменная
   роли `docker`, единственного владельца `/etc/docker/daemon.json`, ADR-0002 §6) — без неё
-  повторная установка Docker Engine поверх уже предустановленного в образе конфликтует
-  overlay2-на-overlay2, как и в `reverse_proxy_npm`. Fixture-приложение (`traefik/whoami`) не
+  свежеустановленный Docker Engine не может смонтировать overlay2 поверх уже overlay2-смонтированной
+  файловой системы самого тестового контейнера (классическое ограничение Docker-in-Docker, не
+  связанное с тем, стоял ли в образе Docker до этого — см. ADR-0002 §8), как и в
+  `reverse_proxy_npm`. Fixture-приложение (`traefik/whoami`) не
   нужно поднимать отдельно — оно уже часть compose-файла самой роли
   (`templates/compose-reverse-proxy-traefik.yml.j2`) в той же docker-сети `proxy`. `verify.yml`
   проверяет HTTP→HTTPS редирект, реальное проксирование на `whoami` и basic-auth дашборда
@@ -71,11 +73,14 @@ poetry run ansible-lint     # линтинг коллекции (использ�
   named реально резолвит то, что задеплоено, а не просто «конфиг синтаксически верен». `group_vars/
   all.yml` дублирует дефолт роли `infra_dns_zone_dir` явно — `verify.yml` не подключает роль и не
   видит её `defaults/`, а путь к зона-файлам нужен для `stat`/`named-checkzone`.
-- `extensions/molecule/docker/` — сценарий для роли `docker` (`docs/adr/0002-docker-role.md`).
-  Намеренно **не** `driver: docker` — образ `geerlingguy/docker-debian12-ansible`, используемый
-  другими docker-сценариями, уже содержит предустановленный Docker Engine (нужен для запуска
-  вложенных контейнеров), и ставить поверх него ещё один Docker означало бы Docker-in-Docker с
-  конфликтом версий, а не чистую проверку установки с нуля. `test_sequence` ограничен
+- `extensions/molecule/docker/` — сценарий для роли `docker` (`docs/adr/0002-docker-role.md`, §8).
+  Намеренно **не** `driver: docker` — образ `geerlingguy/docker-debian12-ansible` Docker Engine
+  не содержит (проверено эмпирически, вопреки более ранней версии этого документа/ADR-0002 §8),
+  но его собственная файловая система уже смонтирована host-Docker'ом через overlay2, и родной
+  overlay2-driver вложенного dockerd поверх неё не монтируется (`failed to mount ...`,
+  классическое ограничение Docker-in-Docker) без `storage-driver: vfs` — то есть тестировать саму
+  роль `docker` в этом образе упёрлось бы в то же ограничение, что и `reverse_proxy_npm`/
+  `reverse_proxy_traefik` (см. их сценарии ниже), не добавляя нового покрытия. `test_sequence` ограничен
   `syntax`/`create`/`destroy` (driver по умолчанию, без реального хоста); реальная установка
   проверяется вручную (`molecule converge -s docker`) против хоста из группы `docker_hosts`,
   которую нужно завести в inventory самостоятельно — вне автоматического тестового контура.

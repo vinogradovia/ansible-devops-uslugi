@@ -1,13 +1,16 @@
 ---
 # Molecule-сценарий для роли docker — см. docs/adr/0002-docker-role.md, §8.
 #
-# Намеренно НЕ использует driver: docker (как nginx_multidomain/reverse_proxy_npm): те сценарии
-# гоняются в образе geerlingguy/docker-debian12-ansible, у которого Docker Engine уже предустановлен
-# для запуска вложенных контейнеров — устанавливать поверх него ещё один Docker (сама роль) означало
-# бы Docker-in-Docker и конфликт версий с тем, что уже запечено в базовый образ, а не чистую
-# проверку установки с нуля. Поэтому test_sequence ограничен syntax/create/destroy (driver:
-# default, без реального хоста) — реальная установка проверяется вручную (`molecule converge`)
-# против целевого хоста, заданного в inventory (группа docker_hosts), вне автоматического CI-контура.
+# Намеренно НЕ использует driver: docker (как reverse_proxy_npm/reverse_proxy_traefik, которые
+# сами разворачивают вложенные docker-контейнеры): образ geerlingguy/docker-debian12-ansible
+# Docker Engine не содержит (проверено эмпирически), но его собственная файловая система уже
+# смонтирована host-Docker'ом через overlay2 — установка самой роли docker внутри такого
+# контейнера упёрлась бы в то же ограничение Docker-in-Docker (overlay2-на-overlay2 не
+# монтируется без storage-driver: vfs, см. reverse_proxy_npm/reverse_proxy_traefik), не добавляя
+# нового покрытия по сравнению с тем, что уже проверяется через эти роли. Поэтому test_sequence
+# ограничен syntax/create/destroy (driver: default, без реального хоста) — реальная установка
+# проверяется вручную (`molecule converge`) против целевого хоста, заданного в inventory
+# (группа docker_hosts), вне автоматического CI-контура.
 
 scenario:
   test_sequence:

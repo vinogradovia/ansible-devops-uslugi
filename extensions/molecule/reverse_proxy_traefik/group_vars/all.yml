@@ -4,8 +4,10 @@
 
 # reverse_proxy_traefik/meta/main.yml безусловно зависит от роли docker, которая ставит Docker
 # Engine пинненой версией (roles/docker/defaults/main.yml: docker_ce_package_version) поверх
-# образа geerlingguy/docker-debian12-ansible, у которого Docker Engine уже предустановлен на
-# overlay2 (см. extensions/molecule/docker/molecule.yml). Без vfs здесь та же ошибка
+# образа geerlingguy/docker-debian12-ansible. Образ Docker Engine не содержит (проверено
+# эмпирически), но его собственная файловая система уже смонтирована host-Docker'ом через
+# overlay2 — родной overlay2-driver вложенного dockerd поверх неё не монтируется без vfs
+# (см. extensions/molecule/docker/molecule.yml, ADR-0002 §8). Без vfs здесь та же ошибка
 # docker-in-docker "failed to mount ... invalid argument", которую reverse_proxy_npm/prepare.yml
 # решает точно так же (там — вручную, здесь — через переменную роли docker: она единственный
 # владелец /etc/docker/daemon.json, ADR-0002 §6, рендерит файл из docker_daemon_json_options).

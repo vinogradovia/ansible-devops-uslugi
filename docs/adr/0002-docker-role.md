@@ -118,11 +118,22 @@ append: true`). Пусто по умолчанию — остальные рол
 
 **Решение:** сценарий только `create`/`destroy` (или синтаксис/idempotence через `--check`), по
 образцу `extensions/molecule/default/`. Реальную установку Docker Engine в CI не проверяем:
-остальные docker-сценарии коллекции (`extensions/molecule/nginx_multidomain/`) сами используют
-`driver: docker` с образом `geerlingguy/docker-debian12-ansible`, где Docker уже предустановлен
-для запуска *других* контейнеров изнутри — ставить ещё один Docker поверх (Docker-in-Docker)
-внутри этого же контейнера потребовал бы `privileged`-запуска и вносил бы хрупкую связку версий
-Docker/ядра хоста. Ручная/staging-проверка реальной установки — вне автоматического тестового
+роли, которые сами разворачивают вложенные docker-контейнеры (`reverse_proxy_npm`,
+`reverse_proxy_traefik` — через зависимость от роли `docker`), тестируются `driver: docker` с
+образом `geerlingguy/docker-debian12-ansible` и требуют `docker_daemon_json_options:
+{storage-driver: vfs}` — **не** потому, что в образе уже есть предустановленный Docker (проверено
+эмпирически: его там нет), а из-за классического ограничения Docker-in-Docker — файловая система
+самого тестового контейнера уже смонтирована внешним Docker-хоста через overlay2, и родной
+overlay2-driver вложенного dockerd поверх неё (overlay2-на-overlay2) не монтируется
+(`failed to mount ... invalid argument`). Тестировать саму роль `docker` (устанавливающую Docker
+Engine) в таком контейнере означало бы упереться в то же ограничение — не потому, что она
+конфликтовала бы с уже стоящим Docker, а потому, что свежеустановленный Docker всё равно уткнулся
+бы в overlay2-на-overlay2, если не задать тот же `storage-driver: vfs`. Раз обходной путь всё
+равно нужен, а сама установка Docker Engine уже покрыта empirически через зависящие от неё роли
+(`reverse_proxy_npm`/`reverse_proxy_traefik`, где `docker`-роль реально устанавливает Docker
+Engine в рамках их `converge`), отдельная `driver: docker`-проверка для самой роли `docker`
+не добавляет покрытия, а только усложняет сценарий. Ручная/staging-проверка на реальном хосте
+(`molecule converge -s docker` против группы `docker_hosts`) — вне автоматического тестового
 контура этой роли.
 
 ### 9. Наименование роли

@@ -8,7 +8,9 @@
 # docker (сама ставит Docker Engine из download.docker.com пинненой версией), поэтому prepare.yml
 # здесь НЕ ставит Docker Engine вручную — это делает зависимость роли при converge (см.
 # group_vars/all.yml — docker_daemon_json_options: storage-driver vfs, нужно, чтобы избежать
-# конфликта overlay2-на-overlay2 с Docker, уже предустановленным в базовом образе).
+# конфликта overlay2-на-overlay2: файловая система самого тестового контейнера уже смонтирована
+# host-Docker'ом через overlay2, и родной overlay2-driver вложенного dockerd поверх неё не
+# монтируется — независимо от того, стоял ли в базовом образе Docker до этого, см. ADR-0002 §8).
 #
 # ansible.executor.args.ansible_playbook обнуляется, как в nginx_multidomain/molecule.yml, чтобы
 # не подмешивать статический inventory monitoring_servers/monitoring_agents из ../config.yml.
