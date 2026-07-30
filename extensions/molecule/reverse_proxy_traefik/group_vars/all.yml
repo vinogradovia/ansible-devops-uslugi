@@ -1,0 +1,23 @@
+---
+# Переменные для converge/verify этого сценария. Лежат в group_vars/, а не в vars: playbook'ов —
+# тот же паттерн, что extensions/molecule/{nginx_multidomain,reverse_proxy_npm}/group_vars/all.yml.
+
+# reverse_proxy_traefik/meta/main.yml безусловно зависит от роли docker, которая ставит Docker
+# Engine пинненой версией (roles/docker/defaults/main.yml: docker_ce_package_version) поверх
+# образа geerlingguy/docker-debian12-ansible, у которого Docker Engine уже предустановлен на
+# overlay2 (см. extensions/molecule/docker/molecule.yml). Без vfs здесь та же ошибка
+# docker-in-docker "failed to mount ... invalid argument", которую reverse_proxy_npm/prepare.yml
+# решает точно так же (там — вручную, здесь — через переменную роли docker: она единственный
+# владелец /etc/docker/daemon.json, ADR-0002 §6, рендерит файл из docker_daemon_json_options).
+docker_daemon_json_options:
+  storage-driver: vfs
+
+# Роль падает в check-and-install-requirements.yml, если пароль пользователя с state: present
+# совпадает с reverse_proxy_traefik_default_password. olduser/state: absent оставлен как в
+# дефолтах роли — сценарий покрывает и ветку удаления пользователя (htpasswd state: absent).
+reverse_proxy_traefik_dashboard_users:
+  - name: monitor
+    password: "Molecule_Test_ChangeMe!23"
+  - name: olduser
+    password: 'null'
+    state: absent
