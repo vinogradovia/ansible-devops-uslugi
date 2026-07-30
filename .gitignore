@@ -8,3 +8,8 @@
 helm/.claude/
 helm/.helmwave/
 helm/tmp/
+
+# extensions/molecule/default/create.yml пишет сюда per-host дамп hostvars (tmp_dir из
+# extensions/molecule/inventory/hosts.yml) — рабочий артефакт прогона, не фикстура. Раньше уже
+# протекал в git при пустом TMPDIR (см. коммит, удаливший test-host-k3s_created.yml).
+extensions/molecule/default/*_created.yml
