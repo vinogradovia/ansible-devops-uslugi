@@ -330,8 +330,10 @@ notify'ятся точечно из задач рендеринга конфиг
    т.е. авто-рендер `helmwave.yml.tpl` → `helmwave.yml`; выключить, если у пользователя коллекции
    лежит только статический `helmwave.yml`), `monitoring_server_helmwave_templater` (дефолт
    `gomplate` — `helmwave.yml.tpl` использует `requiredEnv`/`readFile`/`fromYaml`, которых нет в
-   дефолтном для helmwave шаблонизаторе `sprig`), `monitoring_server_helmwave_tags` (дефолт `[]` —
-   ставить все releases из env-файла; можно ограничить списком тегов helmwave).
+   дефолтном для helmwave шаблонизаторе `sprig`), `monitoring_server_helmwave_tags` (по умолчанию
+   вычисляется в `[]` — ставить все releases из env-файла; можно ограничить списком тегов helmwave
+   напрямую, либо через `monitoring_server_helmwave_other_tags` +
+   `monitoring_server_grafana_loki_enabled`, см. §6 ниже и P5-35 в `ROADMAP.md`).
 
    **`NO_PROXY` — неочевидный, но обязательный нюанс.** `helm`/`helmwave` — Go-бинарники, уважающие
    `(NO_)PROXY` из окружения control-хоста. Если там настроен HTTP(S)-прокси для доступа в интернет
@@ -393,10 +395,25 @@ notify'ятся точечно из задач рендеринга конфиг
 **Grafana Loki под k3s — реализовано 2026-07-14, без правок кода роли.** Новый Helm-релиз `loki`
 (`grafana/loki` 6.54.0, `deploymentMode: SingleBinary`) в `helm/envs/k3s-monitoring.yaml`,
 разворачивается тем же `Helmwave up` — роль не знает о его существовании, просто вызывает
-helmwave. `monitoring_server_grafana_loki_enabled` (docker-only) сознательно **не** прокидывается
-в `monitoring_server_helmwave_tags` для контроля этого релиза — причина и решение зафиксированы в
-`ROADMAP.md`, П5 №35 (helmwave фильтрует только по inclusion-тегам, роль не должна знать
-содержимое `envs/<cluster>.yaml` пользователя); вопрос остаётся открытым на будущее.
+helmwave.
+
+**Обновление (ROADMAP.md P5-35 закрыт):** `monitoring_server_grafana_loki_enabled` теперь может
+управлять релизом `loki` под k3s через `monitoring_server_helmwave_tags`, но не безусловно —
+helmwave по-прежнему фильтрует только по inclusion-тегам (нет "исключить один"), поэтому роль
+не может достоверно вывести список "всех остальных" релизов пользователя. Механизм — opt-in:
+новая переменная `monitoring_server_helmwave_other_tags` (пусто по умолчанию) должна содержать
+теги всех релизов пользователя, кроме `loki`; `monitoring_server_helmwave_tags` вычисляется как
+`other_tags + ([loki_tag] if grafana_loki_enabled else [])`, но **только если** `other_tags`
+не пуст — иначе (дефолт) `monitoring_server_helmwave_tags` остаётся `[]`, `--tags` вообще не
+передаётся, и поведение полностью совпадает с тем, что было до этого пункта (helmwave ставит всё
+из env-файла, `grafana_loki_enabled` под k3s ни на что не влияет). Для комплектного
+`helm/envs/k3s-monitoring.yaml`: `monitoring_server_helmwave_other_tags: [vm, grafana-alloy,
+grafana-alloy-blackbox, grafana-alloy-redis, grafana-operator]` включает управление `loki` через
+`monitoring_server_grafana_loki_enabled`, не трогая остальные релизы. Проверено вычислением
+Jinja-выражения напрямую (`ansible-playbook` + `include_vars` + `debug`) для всех трёх веток —
+не отдельным k3s molecule-прогоном (дорогой vagrant/libvirt-сценарий, а логика не зависит от
+реального кластера, `extensions/molecule/monitoring_server_k3s/` не задаёт `other_tags` — дефолт
+`[]` доказуемо не меняет её поведение).
 
 Фактическая реализация (`helm/values/k3s-monitoring/namespaces/monitoring/loki/values.yaml`):
 - Storage — S3 через **бандлованный MinIO-сабчарт самого чарта grafana/loki**

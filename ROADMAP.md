@@ -371,25 +371,33 @@
     `vmalert` в docker-compose (это осталась отдельная задача архитектурного уровня, при желании
     заводится отдельным пунктом бэклога). Реализация решения — см. P0-1 выше: дефолты алертов
     гейтятся по оркестратору, добавлен fail-fast на явное включение под docker.
-35. **Нужен ли `monitoring_server_grafana_loki_enabled` для k3s-оркестратора — отложено (Loki под
-    k3s теперь реализован, 2026-07-14).** Grafana Loki под `monitoring_server_orchestrator: k3s`
-    реализован — новый Helm-релиз `loki` (`grafana/loki` 6.54.0, SingleBinary + бандлованный
-    MinIO-сабчарт) в `helm/envs/k3s-monitoring.yaml`, ставится через уже существующий
-    `Helmwave up`, без правок кода роли (см. `docs/adr/0007-monitoring-server-role.md` §6/§11 —
-    там же два побочных фикса схемы helmwave, найденных при реализации: `depends_on` не
-    пробрасывался из `.tpl`, и ownership-конфликт `GrafanaDatasource loki` с уже существующим
-    ресурсом в `grafana-operator/values.yaml`). Сам вопрос из заголовка пункта остаётся
-    **открытым**: сознательно решено **не** прокидывать `monitoring_server_grafana_loki_enabled`
-    (сейчас docker-only переменная) в `monitoring_server_helmwave_tags` — под k3s включение/
-    выключение Loki определяется только присутствием release в пользовательском
-    `envs/<cluster>.yaml` (та же логика, что уже у `grafana-alloy*`), а не ansible-переменной роли.
-    Причина отказа: `helmwave` фильтрует релизы только по inclusion-тегам (нет exclusion), поэтому
-    исключить один релиз, ничего не зная про остальные в файле пользователя, роль не может, не
-    сделав предположений о его структуре — architecturally роль не должна знать содержимое
-    `helm/`. Вернуться к вопросу, если реальная потребность появится — оценить, стоит ли всё-таки
-    завести единый флаг (например, через `monitoring_server_helmwave_tags` по умолчанию
-    вычисляемый из `monitoring_server_grafana_loki_enabled` + явный список остальных релизов) или
-    оставить как есть.
+35. ~~**Нужен ли `monitoring_server_grafana_loki_enabled` для k3s-оркестратора — отложено.**~~ —
+    **решено и реализовано**. Grafana Loki под `monitoring_server_orchestrator: k3s` реализован —
+    Helm-релиз `loki` (`grafana/loki` 6.54.0, SingleBinary + бандлованный MinIO-сабчарт) в
+    `helm/envs/k3s-monitoring.yaml`, ставится через уже существующий `Helmwave up`, без правок кода
+    роли (см. `docs/adr/0007-monitoring-server-role.md` §6/§11 — там же два побочных фикса схемы
+    helmwave, найденных при реализации: `depends_on` не пробрасывался из `.tpl`, и
+    ownership-конфликт `GrafanaDatasource loki` с уже существующим ресурсом в
+    `grafana-operator/values.yaml`).
+
+    Сам вопрос из заголовка пункта — теперь тоже закрыт: добавлен **opt-in** механизм, а не прямой
+    проброс `monitoring_server_grafana_loki_enabled` в `monitoring_server_helmwave_tags` (прямой
+    проброс был бы некорректен — `helmwave` фильтрует релизы только по inclusion-тегам, нет
+    "исключить один", поэтому без явного перечисления всех остальных релизов пользователя роль не
+    может достоверно вывести, что ещё нужно оставить). Новая переменная
+    `monitoring_server_helmwave_other_tags` (пусто по умолчанию) — теги всех релизов пользователя,
+    кроме `loki`; `monitoring_server_helmwave_tags` теперь вычисляется как `other_tags +
+    ([loki_tag] if grafana_loki_enabled else [])`, но только когда `other_tags` не пуст — иначе
+    (дефолт) `monitoring_server_helmwave_tags` остаётся `[]`, `--tags` не передаётся вовсе,
+    поведение полностью совпадает с тем, что было до этого пункта (архитектурная граница из ADR —
+    роль не парсит и не предполагает содержимое `helm/` пользователя — соблюдена: список
+    "остального" по-прежнему явно задаёт сам пользователь). Для комплектного
+    `helm/envs/k3s-monitoring.yaml`: `monitoring_server_helmwave_other_tags: [vm, grafana-alloy,
+    grafana-alloy-blackbox, grafana-alloy-redis, grafana-operator]`. Логика проверена прямым
+    вычислением Jinja-выражения (`ansible-playbook` + `include_vars` + `debug`) для всех трёх
+    веток (дефолт/exclude/include) — не отдельным k3s molecule-прогоном: он не задаёт `other_tags`,
+    дефолт `[]` доказуемо не меняет его поведение, а гонять дорогой vagrant/libvirt-сценарий ради
+    логики, не зависящей от реального кластера, избыточно.
 
 ---
 

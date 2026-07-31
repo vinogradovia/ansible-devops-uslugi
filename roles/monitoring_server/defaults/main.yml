@@ -20,9 +20,32 @@ monitoring_server_helmwave_k8s_cluster: k3s-monitoring
 # только статический helmwave.yml, выставьте monitoring_server_helmwave_auto_yml: false.
 monitoring_server_helmwave_auto_yml: true
 monitoring_server_helmwave_templater: gomplate
-# Пусто — helmwave up ставит все releases из env-файла. Ограничить можно списком тегов
-# (см. helm/helmwave.yml — у каждого release уже есть теги name/namespace-name).
-monitoring_server_helmwave_tags: []
+# Механизм управления Loki-релизом под k3s через monitoring_server_grafana_loki_enabled
+# (ROADMAP.md P5-35, docs/adr/0007-monitoring-server-role.md §6). helmwave фильтрует релизы
+# ТОЛЬКО по тегам включения (whitelist) — нет способа сказать "всё, кроме loki", не перечислив
+# явно все остальные релизы пользователя. Поэтому:
+#   - monitoring_server_helmwave_other_tags пуст по умолчанию → monitoring_server_helmwave_tags
+#     вычисляется в [] → --tags вообще не передаётся → helmwave ставит ВСЁ из env-файла как
+#     раньше, monitoring_server_grafana_loki_enabled под k3s ни на что не влияет (поведение
+#     полностью совместимо с версией роли до этого пункта).
+#   - Как только пользователь явно перечисляет там теги ВСЕХ остальных релизов своего
+#     envs/<cluster>.yaml (например, для комплектного helm/envs/k3s-monitoring.yaml — [vm,
+#     grafana-alloy, grafana-alloy-blackbox, grafana-alloy-redis, grafana-operator]),
+#     monitoring_server_grafana_loki_enabled начинает реально управлять релизом loki: true
+#     добавляет его тег в список включения, false — оставляет только other_tags (loki
+#     отфильтровывается наравне с любым не перечисленным релизом).
+# Не читает и не парсит helm/-каталог пользователя — та архитектурная граница, о которой
+# написано в ADR, соблюдена: список "остального" сознательно остаётся ответственностью
+# пользователя, а не автоматически выводится ролью.
+monitoring_server_helmwave_other_tags: []
+monitoring_server_helmwave_loki_tag: loki
+monitoring_server_helmwave_tags: >-
+  {{
+    (monitoring_server_helmwave_other_tags
+     + ([monitoring_server_helmwave_loki_tag] if monitoring_server_grafana_loki_enabled else []))
+    if monitoring_server_helmwave_other_tags | length > 0
+    else []
+  }}
 
 monitoring_server_docker_proxy_network_external: true
 monitoring_server_docker_proxy_network_name: proxy
