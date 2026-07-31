@@ -231,7 +231,7 @@ ansible-playbook -i inventory.yml monitoring-server.yml \
   `docs/adr/0003-ginx-multidomain-role.md`, который описывает
   фактическую реализацию (не задуманную архитектуру) и явно фиксирует, что ещё не сделано
   (`validate_domains.yml`, `certificates_letsencrypt.yml`, генерация htpasswd для `basic_auth`,
-  `logrotate.yml`, шаблон php-fpm vhost'а, `meta/main.yml`), а также известные баги в уже
+  `logrotate.yml`, шаблон php-fpm vhost'а), а также известные баги в уже
   существующем коде (включение `basic_auth`/`logs.format: json` ломает `nginx -t`, утечка
   `set_fact` между итерациями цикла доменов). Molecule-покрытие теперь есть —
   `extensions/molecule/nginx_multidomain/` (см. раздел «Molecule-тесты» выше). Перед доработкой роли сверяйтесь с этим

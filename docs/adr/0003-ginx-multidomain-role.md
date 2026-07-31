@@ -48,10 +48,10 @@ nginx_multidomain/
 каталог `roles/nginx_multidomain/docs/` пуст (см. ROADMAP.md, пункт P3-25 — раньше там лежали
 нерабочие черновики-артефакты первой скелетной генерации роли, удалены).
 
-Отсутствует по сравнению с первоначальным замыслом (и не появилось взамен): `meta/main.yml`,
-`vars/Debian.yml`/`vars/Ubuntu.yml`, `templates/nginx.conf.j2`, `templates/snippets/*.j2`,
-`templates/logrotate.j2`, `templates/vhost/php-fpm.conf.j2`, `molecule/` (или запись в
-`extensions/molecule/`). Подробности — раздел 8.
+Отсутствует по сравнению с первоначальным замыслом (и не появилось взамен): `vars/Debian.yml`/
+`vars/Ubuntu.yml`, `templates/nginx.conf.j2`, `templates/snippets/*.j2`, `templates/logrotate.j2`,
+`templates/vhost/php-fpm.conf.j2`. `meta/main.yml` и `extensions/molecule/nginx_multidomain/`
+с тех пор появились (ROADMAP.md, таблица P4). Подробности — раздел 8.
 
 Layout конфигов — классический Debian-стиль: `sites-available/<domain>.conf` → symlink в
 `sites-enabled/`. Роль **не подключает** `sites-enabled/*` в главном `nginx.conf` — это должно
@@ -362,14 +362,13 @@ nginx_conf_d_files: []                 # произвольные http{}-уро�
 который нигде не объявлен — не «будущая фича», а гарантированный `nginx -t` fail при первом же
 использовании json-логов.
 
-### 8.5. Не реализовано: `logrotate.yml`, `vhost/php-fpm.conf.j2`, `meta/main.yml`,
-`vars/Debian.yml`/`vars/Ubuntu.yml`
+### 8.5. Не реализовано: `logrotate.yml`, `vhost/php-fpm.conf.j2`, `vars/Debian.yml`/`vars/Ubuntu.yml`
 - `type: php_fpm` объявлен в схеме переменных, но цикл в `tasks/main.yml` фильтрует только
   `['static', 'proxy']` — домен с `type: php_fpm` молча игнорируется, без ошибки/предупреждения.
 - Логротация вообще не настраивается этой ролью.
-- `meta/main.yml` отсутствует (доп. риск: `.ansible-lint` в `profile: production` обычно требует
-  этот файл; сейчас роль не объявляет зависимость от `community.general`, хотя фактически её не
-  использует напрямую — модули все из `ansible.builtin`).
+- ~~`meta/main.yml` отсутствует~~ — **сделано**, добавлен (`dependencies: []` — роль не объявляет
+  зависимость от `community.general`, хотя фактически её не использует напрямую, модули все из
+  `ansible.builtin`).
 - Дистрибутив-специфичные переменные (`vars/Debian.yml`/`Ubuntu.yml`) не понадобились — вся
   специфика свелась к одной строке в `install_repo.yml` (`ansible_distribution | lower`).
 
