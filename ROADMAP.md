@@ -368,6 +368,18 @@
 
 ## P4 — Тестовое покрытие
 
+**Проверено 2026-07-31:** все сценарии из таблицы ниже, а также `extensions/molecule/
+mysql_replication/` и `extensions/molecule/proxysql/` (не входят в эту таблицу, но тоже часть
+покрытия P4), перепрогнаны целиком на реальных libvirt ВМ после миграции №44/№45 и подтверждены
+зелёными: `monitoring_server` (docker-оркестратор — полный стек VictoriaMetrics/Grafana/Loki/MinIO,
+реальный scrape node-exporter), `monitoring_server_k3s` (реальный `Helmwave up`, все 6 helm-релизов
+`deployed`, поды готовы, VMRule/GrafanaDashboard/GrafanaDatasource на месте, тестовая запись реально
+прошла через Loki), `monitoring_agent` (обе платформы, включая idempotence), `infra_dns`,
+`nginx_multidomain`, `reverse_proxy_traefik`, `reverse_proxy_npm` (включая повторный прогон после
+№45), `mysql_replication` (реальная GTID-репликация primary → read/DR-реплики) и `proxysql`
+(реальная маршрутизация SELECT/INSERT через ProxySQL). Единственные failed-строки в логах —
+штатные `FAILED - RETRYING` на `until`/retry-ожиданиях (scrape, готовность подов, API), не баги.
+
 | Роль | Что есть сейчас | Чего не хватает |
 |---|---|---|
 | `monitoring_server` | ~~Нет molecule-сценария вообще~~ — **сделано**: два независимых сценария, `extensions/molecule/monitoring_server/` (`monitoring_server_orchestrator: docker`) и `extensions/molecule/monitoring_server_k3s/` (`monitoring_server_orchestrator: k3s`), оба `driver: vagrant`/`libvirt` (см. CLAUDE.md, раздел «Molecule-тесты»). docker-сценарий — full-стек (VM + Grafana + Loki + MinIO), verify проверяет реальный scrape node-exporter. k3s-сценарий крупнее (k3s + VictoriaMetrics Operator + grafana-operator + grafana-alloy через реальный `Helmwave up`) и без idempotence в `test_sequence` (`Helmwave up` — `ansible.builtin.command` без `changed_when`-анализа, всегда `changed=true`). | ~~`meta/main.yml` для роли по-прежнему отсутствует~~ — неверно, у роли уже есть `meta/main.yml` (`dependencies: docker`/`xanmanning.k3s`). Idempotence для k3s-сценария не достижима без переписывания задачи `Helmwave up` на `changed_when`-анализ stdout `helmwave` — отдельная задача. |
