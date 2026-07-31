@@ -35,6 +35,19 @@ poetry run ansible-lint     # линтинг коллекции (использ�
 (box `cloud-image/ubuntu-24.04`, `prepare.yml` ждёт `cloud-init status --wait`, а не готовности
 systemd в контейнере).
 
+**Все molecule-сценарии, которым для converge нужен Docker на хосте (ВМ), обязаны получать его
+через роль `docker` этой коллекции, а не через отдельные ad-hoc apt-задачи в `prepare.yml`.** Цель —
+переиспользовать уже проверенную логику установки (пиннинг версии, arch/distro-выбор пакета,
+`docs/adr/0002-docker-role.md`) и получать одинаково настроенное Docker-окружение во всех
+сценариях, а не N разных копий одной и той же логики. Практически это уже так для сценариев, чья
+роль сама зависит от `docker` через `meta/main.yml` (`reverse_proxy_traefik`, `monitoring_agent`
+docker-путь, `monitoring_server` docker-путь — Docker ставится в рамках `converge`). Единственное
+исключение было в `reverse_proxy_npm` (роль сама Docker не ставит, см. её `README.md`) —
+`prepare.yml` раньше вручную повторял apt-репозиторий/GPG-ключ/пакеты; теперь вместо этого
+`ansible.builtin.include_role: name: docker` (роль коллекции). При добавлении нового сценария,
+которому нужен Docker на хосте, но сама роль его не ставит — используйте тот же приём, а не
+пишите apt-задачи заново.
+
 Несколько независимых molecule-наборов (список ниже не исчерпывающий — см. `extensions/molecule/`
 целиком):
 
@@ -49,7 +62,8 @@ systemd в контейнере).
 - `extensions/molecule/reverse_proxy_npm/` — сценарий для роли `reverse_proxy_npm`, той же структуры,
   что и `nginx_multidomain` (одноразовая ВМ, `group_vars/all.yml`, обнулённый `ansible_playbook`).
   Роль сама разворачивает docker-контейнер (NPM), поэтому `prepare.yml` сценария ставит Docker
-  Engine на ВМ как внешний провижининг хоста (сама роль Docker не устанавливает, см.
+  Engine на ВМ через `include_role: name: docker` (роль коллекции, см. требование выше) как
+  внешний провижининг хоста (сама роль reverse_proxy_npm Docker не устанавливает, см.
   `roles/reverse_proxy_npm/README.md`) и поднимает fixture-бэкенд (`traefik/whoami`) для проверки
   реального проксирования. `verify.yml` намеренно не проверяет
   `reverse_proxy_npm_admin_ui_expose_host: true` — этот путь дёргает настоящий Let's Encrypt

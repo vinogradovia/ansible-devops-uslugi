@@ -15,53 +15,15 @@
         cache_valid_time: 3600
 
     # --- Docker Engine — роль reverse_proxy_npm сама Docker не ставит (см. molecule.yml), поэтому
-    # для сценария это готовим здесь, как внешний провижининг хоста.
-    - name: Установить пакеты, нужные для добавления apt-репозитория Docker
-      ansible.builtin.apt:
-        pkg:
-          - ca-certificates
-          - curl
-          - gnupg
-
-    - name: Создать каталог для ключей apt
-      ansible.builtin.file:
-        path: /etc/apt/keyrings
-        state: directory
-        mode: '0755'
-
-    - name: Скачать GPG-ключ репозитория Docker
-      ansible.builtin.get_url:
-        url: "https://download.docker.com/linux/{{ ansible_distribution | lower }}/gpg"
-        dest: /etc/apt/keyrings/docker.asc
-        mode: '0644'
-
-    - name: Подключить apt-репозиторий Docker
-      # ansible_distribution | lower (тот же приём, что roles/docker/tasks/install-repo.yml) —
-      # box сценария Ubuntu (см. molecule.yml), а не Debian, поэтому путь репозитория должен быть
-      # linux/ubuntu, а не захардкоженный linux/debian.
-      ansible.builtin.apt_repository:
-        repo: >-
-          deb [arch={{ 'amd64' if ansible_architecture == 'x86_64' else ansible_architecture }}
-          signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/{{ ansible_distribution | lower }}
-          {{ ansible_distribution_release }} stable
-        state: present
-        filename: docker
-
-    - name: Установить Docker Engine + docker compose plugin
-      ansible.builtin.apt:
-        update_cache: true
-        pkg:
-          - docker-ce
-          - docker-ce-cli
-          - containerd.io
-          - docker-buildx-plugin
-          - docker-compose-plugin
-
-    - name: Убедиться, что служба docker включена и запущена
-      ansible.builtin.systemd:
-        name: docker
-        state: started
-        enabled: true
+    # для сценария это готовим здесь, как внешний провижининг хоста. Через роль docker коллекции
+    # (а не ad-hoc apt-задачи), а не наоборот — единое требование для всех molecule-сценариев,
+    # которым нужен Docker на хосте (см. CLAUDE.md, «Molecule-тесты»): переиспользует уже
+    # проверенную установку (пиннинг версии, arch/distro-логика, ADR-0002) и даёт то же самое
+    # Docker-окружение, что и в reverse_proxy_traefik/monitoring_agent/monitoring_server, где эту
+    # роль подключает зависимость самой роли.
+    - name: Установить Docker Engine через роль docker
+      ansible.builtin.include_role:
+        name: devops.uslugi.docker
 
     - name: Установить python3-docker (нужен community.docker.docker_container для fixture-бэкенда)
       ansible.builtin.apt:

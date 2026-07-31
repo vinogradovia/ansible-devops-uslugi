@@ -4,8 +4,10 @@
 # «Molecule-тесты» — раньше был driver: docker, одноразовый systemd-контейнер) — полноценная
 # одноразовая ВМ, полностью уничтожается на destroy.
 # Роль сама разворачивает docker-контейнер (NPM), поэтому prepare.yml дополнительно устанавливает
-# Docker Engine на ВМ — сама роль (как и reverse_proxy_traefik, monitoring_server) Docker не
-# ставит, это ответственность внешнего провижининга хоста, см. defaults roles/reverse_proxy_npm/README.md.
+# Docker Engine на ВМ через роль docker коллекции (см. CLAUDE.md, «Molecule-тесты» — единое
+# требование для всех molecule-сценариев, которым нужен Docker на хосте) — сама роль
+# reverse_proxy_npm (как и reverse_proxy_traefik, monitoring_server) Docker не ставит, это
+# ответственность внешнего провижининга хоста, см. defaults roles/reverse_proxy_npm/README.md.
 #
 # ansible.executor.args.ansible_playbook обнуляется, как в nginx_multidomain/molecule.yml, чтобы
 # не подмешивать статический inventory monitoring_servers/monitoring_agents из ../config.yml.
