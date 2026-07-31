@@ -44,6 +44,25 @@
   ansible.builtin.include_tasks: install_repo.yml
   when: nginx_install_method == "repo"
 
+# Роль не рендерит главный nginx.conf сама и полагается на то, что стоковый конфиг уже подключает
+# sites-enabled/* (docs/adr/0003-ginx-multidomain-role.md §9.4) — раньше это никак не проверялось,
+# и без такого include все задеплоенные vhost'ы молча не читались бы nginx, хотя роль отработала
+# бы "успешно".
+- name: Прочитать главный nginx.conf
+  ansible.builtin.slurp:
+    path: "{{ nginx_conf_dir }}/nginx.conf"
+  register: nginx_multidomain_main_conf_raw
+
+- name: "Проверить, что nginx.conf подключает sites-enabled (см. §9.4 архитектурного документа)"
+  ansible.builtin.assert:
+    that:
+      - "'sites-enabled' in (nginx_multidomain_main_conf_raw.content | b64decode)"
+    fail_msg: >-
+      {{ nginx_conf_dir }}/nginx.conf не содержит "sites-enabled" — эта роль не рендерит главный
+      nginx.conf сама и полагается на то, что он уже подключает sites-enabled/* (стоковый конфиг
+      Debian/Ubuntu это делает по умолчанию). См. docs/adr/0003-ginx-multidomain-role.md §9.4.
+    quiet: true
+
 - name: Создать базовые директории (sites-*, conf.d, логи)
   ansible.builtin.file:
     path: "{{ item }}"
