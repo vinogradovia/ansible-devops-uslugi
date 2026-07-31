@@ -215,6 +215,23 @@
     `when: ansible_host is defined`**~~ — все три файла удалены вместе с ролью `nginx`
     (`roles/nginx/tasks/deploy-site-templates.yml`, `tests/deploy_nginx_sites.yml`,
     `tests/deploy_nginx_sites_test.yml`). `nginx_multidomain` деплоит vhost'ы без такого гейта.
+37. ~~**`monitoring_server`: `loki_backend` не объявляет `depends_on: [s3]`**~~ (найдено при ревью
+    `docs/adr/0007-monitoring-server-role.md` §10.1, не было в `ROADMAP.md`) — **исправлено**:
+    в отличие от `loki_read`/`loki_write`, `loki_backend` в `compose-monitoring-server.yml.j2` не
+    имел `depends_on`, хотя тоже обращается к S3 (компактор). Добавлен `depends_on: - s3`.
+38. ~~**`monitoring_server`: версии `victoria-metrics`/`grafana` не закреплены (`:latest`)**~~
+    (ADR-0007 §10.2) — **исправлено**: добавлены `monitoring_server_victoria_metrics_image_version`
+    (`v1.148.0`) и `monitoring_server_grafana_image_version` (`13.1.1`, без `v` — тег образа
+    отличается от схемы `victoria-metrics`/`loki`, обе версии проверены через Docker Hub API),
+    тот же паттерн `_registry`/`_name`/`_version`/`_image`, что у `loki`/`s3`.
+39. ~~**`monitoring_server`: нет проверки существования внешней docker-сети `proxy`**~~ (ADR-0007
+    §10.3) — **исправлено**: `victoria-metrics`/`grafana` безусловно подключены к внешней сети
+    `monitoring_server_docker_proxy_network_name` (`external: true` по умолчанию) — если её нет,
+    `docker compose config`-валидация это не ловит (проверяет только синтаксис), и падает уже
+    `community.docker.docker_compose_v2` с менее очевидной ошибкой. Новая проверка в
+    `check-and-install-requirements.docker.yml` — `docker network inspect` через
+    `ansible.builtin.command` (не `community.docker.docker_network_info` — тому нужен python-пакет
+    `docker` на целевом хосте, которого роль `docker` не ставит), падает понятной ошибкой заранее.
 
 ---
 
@@ -277,6 +294,12 @@
       ~~`tests/deploy_nginx_sites.yml`/`tests/deploy_nginx_sites_test.yml` — scratch-файлы,
       ссылка на несуществующую `ansible_env_vars`~~ — все три файла удалены вместе с ролью
       `nginx`.
+40. ~~**Забытые артефакты `helm/tmp/`/`helm/.claude/` не в `.gitignore`**~~ (ADR-0007 §10.4, не
+    было в `ROADMAP.md`) — при проверке оказалось уже **сделано**: обе директории (kubeconfig-и
+    от `Fetch k3s context`, vendor-кэш `helmwave build`, локальные настройки Claude Code) уже
+    в `.gitignore` корня коллекции. Сама находка была про риск случайного попадания в git — он
+    снят; физически оставшиеся на диске артефакты прошлых прогонов — локальная уборка рабочей
+    директории, не задача коллекции.
 
 ---
 

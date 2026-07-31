@@ -33,3 +33,33 @@
     monitoring_server_local_storage_s3_enabled and
     (monitoring_server_local_storage_s3.access_key == 'local_storage_s3' or
      monitoring_server_local_storage_s3.secret_key == 'supersecret_local_storage_s3')
+
+# ADR-0007 §10.3: victoria-metrics/grafana в compose-monitoring-server.yml.j2 безусловно
+# подключены к внешней сети proxy (external: true по умолчанию) — если её нет, "docker compose
+# config"-валидация в задаче рендера это не ловит (проверяет только синтаксис, не существование
+# внешних ресурсов), и падает уже community.docker.docker_compose_v2 с менее очевидной ошибкой.
+# docker network inspect (CLI), а не community.docker.docker_network_info — последнему нужен
+# python-пакет docker на целевом хосте, которого роль docker не ставит (тот же класс проблемы,
+# что и с community.docker.docker_container_info в extensions/molecule/*/verify.yml).
+- name: Check external proxy docker network exists
+  when: >-
+    monitoring_server_docker_proxy_network_external and
+    (monitoring_server_victoria_metrics_enabled or monitoring_server_grafana_enabled)
+  ansible.builtin.command: docker network inspect {{ monitoring_server_docker_proxy_network_name }}
+  register: monitoring_server_docker_proxy_network_check
+  changed_when: false
+  failed_when: false
+
+- name: Fail if external proxy docker network does not exist
+  ansible.builtin.fail:
+    msg: >-
+      monitoring_server_docker_proxy_network_external: true, но docker-сеть
+      "{{ monitoring_server_docker_proxy_network_name }}" не существует — victoria-metrics/grafana
+      подключены к ней безусловно в compose-monitoring-server.yml.j2 (external: true означает "уже
+      создана где-то ещё", например ролью reverse_proxy_traefik, которая ей и владеет). Создайте
+      сеть заранее (примените reverse_proxy_traefik) или поставьте
+      monitoring_server_docker_proxy_network_external: false, чтобы роль создала её сама.
+  when: >-
+    monitoring_server_docker_proxy_network_external and
+    (monitoring_server_victoria_metrics_enabled or monitoring_server_grafana_enabled) and
+    monitoring_server_docker_proxy_network_check.rc != 0

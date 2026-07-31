@@ -4,7 +4,7 @@ x-logging: &logging-defaults
 services:
 {% if monitoring_server_victoria_metrics_enabled %}
   victoria-metrics:
-    image: victoriametrics/victoria-metrics:latest
+    image: {{ monitoring_server_victoria_metrics_image }}
     container_name: vm_single_node
     ports:
       - "8428:8428"
@@ -24,7 +24,7 @@ services:
 {% endif %}
 {% if monitoring_server_grafana_enabled %}
   grafana:
-    image: grafana/grafana:latest
+    image: {{ monitoring_server_grafana_image }}
     container_name: grafana
     ports:
       - "3000:3000"
@@ -134,6 +134,8 @@ services:
       - "3100"
       - "7946"
     command: "-config.file=/etc/loki/config.yaml -target=backend -legacy-read-mode=false"
+    depends_on:
+      - s3
     networks:
       - monitoring_net
     logging:

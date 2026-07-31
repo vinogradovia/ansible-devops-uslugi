@@ -542,26 +542,34 @@ compose обычно стартует контейнеры быстрее, че�
 (в отличие от `victoria-metrics`/`grafana`). Первый же прогон роли рендерит `/etc/docker/
 daemon.json` (роль `docker`) и триггерит `Restart Docker daemon` — рестарт демона убивает все
 контейнеры, и без restart-policy эти пять не поднимаются сами. Добавлен `restart: unless-stopped`
-всем пяти сервисам в `compose-monitoring-server.yml.j2`. `depends_on: [s3]` у `loki_backend`
-по-прежнему отсутствует — это отдельный, всё ещё не исправленный пункт.
+всем пяти сервисам в `compose-monitoring-server.yml.j2`. ~~`depends_on: [s3]` у `loki_backend`
+по-прежнему отсутствует~~ — **исправлено**, добавлено.
 
 ### 10.2. Версии `victoria-metrics` и `grafana` не закреплены (`:latest`)
-В отличие от всех остальных образов роли (`monitoring_server_grafana_loki_image_version: 3.6.4`,
+~~В отличие от всех остальных образов роли (`monitoring_server_grafana_loki_image_version: 3.6.4`,
 `monitoring_server_local_storage_s3_image_version: RELEASE.2025-09-07T16-13-09Z` — оба закреплены
 явной переменной), `compose-monitoring-server.yml.j2` хардкодит
 `victoriametrics/victoria-metrics:latest` и `grafana/grafana:latest` прямо в шаблоне, без
-собственной `_image_version`-переменной. Несогласованно с паттерном остальной роли и с тем, как
-`docker`-путь `monitoring_agent` фиксирует версии экспортёров — при обновлении образов на сервере
-поведение/API может неожиданно измениться между прогонами роли без явного контроля со стороны
-оператора.
+собственной `_image_version`-переменной.~~ — **исправлено**: добавлены
+`monitoring_server_victoria_metrics_image_version` (`v1.148.0`) и
+`monitoring_server_grafana_image_version` (`13.1.1`, без префикса `v` — тег образа `grafana/grafana`
+отличается от схемы `victoriametrics/victoria-metrics`/`grafana/loki`, обе версии проверены
+напрямую через Docker Hub API перед фиксацией), тот же паттерн `_registry`/`_name`/`_version`/
+`_image`, что и у `loki`/`s3`.
 
 ### 10.3. Отсутствие проверки внешней сети `proxy`
-Grafana в docker-compose безусловно подключена к внешней сети `monitoring_server_docker_proxy_
+~~Grafana в docker-compose безусловно подключена к внешней сети `monitoring_server_docker_proxy_
 network_name` (`external: true` по умолчанию, §2.2) — если эта сеть не создана заранее (например,
 `reverse_proxy_traefik` ещё не применён к хосту), `docker compose -f %s config`-валидация в задаче
 рендера **не поймает** эту проблему (валидация синтаксиса конфига, не наличия внешних ресурсов),
 и упадёт уже `community.docker.docker_compose_v2` с менее очевидной ошибкой. Нет `assert`/явной
-проверки существования сети перед стартом сервисов.
+проверки существования сети перед стартом сервисов.~~ — **исправлено**: новая проверка в
+`check-and-install-requirements.docker.yml` (`docker network inspect` через `ansible.builtin.command`,
+а не `community.docker.docker_network_info` — последнему нужен python-пакет `docker` на целевом
+хосте, которого роль `docker` не ставит) падает понятной ошибкой, если
+`monitoring_server_docker_proxy_network_external: true`, а сети фактически нет, до попытки
+`docker_compose_v2` её поднять. `victoria-metrics` тоже безусловно подключена к этой сети (не
+только grafana, как было написано изначально) — проверка гейтится на любую из двух.
 
 ### 10.4. Забытые артефакты в `helm/tmp/` и `helm/.claude/`
 Untracked-содержимое (см. `git status` коллекции), накопившееся в `helm/tmp/` минимум с трёх разных
@@ -577,9 +585,10 @@ k3s context` и не подчищенная финальной задачей о
 `helmwave` (векендорит чарты локально при `helmwave build`), а не мусор в том же смысле, что
 kubeconfig-и, но тоже не предназначен для коммита в репозиторий. Отдельно — `helm/.claude/
 settings.local.json`, локальный файл настроек Claude Code, тоже не относящийся к Ansible-контенту.
-Рекомендация: добавить `helm/tmp/` (или как минимум `helm/tmp/*/etc/`, `helm/tmp/*_targets.json`)
-и `helm/.claude/` в `.gitignore`, раз `helm/tmp/` используется и как рабочий каталог самой роли, и
-как build-кэш helmwave.
+~~Рекомендация: добавить `helm/tmp/`... и `helm/.claude/` в `.gitignore`~~ — **сделано**, оба уже
+в `.gitignore` (корень коллекции). Сама находка была про риск случайного попадания в git — он
+снят; физически оставшиеся на диске артефакты прошлых прогонов (kubeconfig-и, vendor-кэш) — это
+локальная уборка рабочей директории, не задача этого ADR.
 
 ---
 

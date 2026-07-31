@@ -9,9 +9,10 @@
 # в будущем.
 monitoring_server_orchestrator: docker
 
-# В сценарии нет reverse_proxy_traefik — сеть "proxy" создаёт сама роль (ADR-0007 §10.3: роль не
-# проверяет её существование при external: true, поэтому external: false здесь обязателен, а не
-# просто удобство).
+# В сценарии нет reverse_proxy_traefik — сеть "proxy" создаёт сама роль. external: true без
+# реально существующей внешней сети теперь явно падает fail-fast (ADR-0007 §10.3,
+# check-and-install-requirements.docker.yml) — здесь external: false, чтобы роль создала сеть
+# сама, а не потому что проверки не было.
 monitoring_server_docker_proxy_network_external: false
 
 monitoring_server_victoria_metrics_enabled: true

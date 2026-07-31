@@ -35,6 +35,14 @@ monitoring_server_docker_logging_defaults:
 monitoring_server_victoria_metrics_enabled: false
 monitoring_server_victoria_metrics_config_dir: "{{ monitoring_server_config_dir }}/victoria-metrics"
 
+# Версия закреплена явно (ADR-0007 §10.2) — раньше compose-monitoring-server.yml.j2 хардкодил
+# :latest, в отличие от всех остальных образов роли (loki/minio), у которых своя _image_version.
+monitoring_server_victoria_metrics_image_registry: docker.io
+monitoring_server_victoria_metrics_image_name: victoriametrics/victoria-metrics
+monitoring_server_victoria_metrics_image_version: v1.148.0
+monitoring_server_victoria_metrics_image: >-
+  {{ monitoring_server_victoria_metrics_image_registry }}/{{ monitoring_server_victoria_metrics_image_name }}:{{ monitoring_server_victoria_metrics_image_version }}
+
 # Alert-правила (VMAlert/VMRule) реализованы только для monitoring_server_orchestrator: k3s
 # (см. ROADMAP.md, P0-1 и P5-33) — в docker-режиме нет ни vmalert-сервиса, ни рендера alert-rules
 # в compose. Поэтому ..._alerts_rules_*_default ниже дополнительно гейтятся на
@@ -114,6 +122,14 @@ monitoring_server_victoria_metrics_alerts_rules_nodejs_exporter_default: "{{ mon
 
 # -- start grafana block ----
 monitoring_server_grafana_enabled: false
+
+# Версия закреплена явно (ADR-0007 §10.2, тот же паттерн, что victoria-metrics выше) — обратите
+# внимание, у образа grafana/grafana тег без префикса "v" (в отличие от victoria-metrics/loki).
+monitoring_server_grafana_image_registry: docker.io
+monitoring_server_grafana_image_name: grafana/grafana
+monitoring_server_grafana_image_version: "13.1.1"
+monitoring_server_grafana_image: >-
+  {{ monitoring_server_grafana_image_registry }}/{{ monitoring_server_grafana_image_name }}:{{ monitoring_server_grafana_image_version }}
 
 monitoring_server_default_password: "PleAse_Change_ME!"
 
