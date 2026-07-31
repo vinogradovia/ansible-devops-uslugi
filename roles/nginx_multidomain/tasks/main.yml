@@ -20,6 +20,22 @@
     fail_msg: "nginx_domains должен быть списком (list) доменов"
     quiet: true
 
+# type: php_fpm заявлен в схеме переменных (defaults/main.yml), но не реализован — циклы ниже
+# фильтруют только ['static', 'proxy'], поэтому без этой проверки домен с неподдерживаемым type
+# (php_fpm, опечатка и т.п.) молча пропускался бы вообще без vhost'а и без единой ошибки/warning'а.
+- name: "Проверить domain.type"
+  ansible.builtin.assert:
+    that:
+      - item.type in ['static', 'proxy']
+    fail_msg: >-
+      nginx_domains[{{ item.name }}].type == '{{ item.type }}' не поддерживается — реализованы
+      только static и proxy (php_fpm заявлен в схеме defaults/main.yml, но ещё не реализован, см.
+      docs/adr/0003-ginx-multidomain-role.md §8.5). Без этой проверки домен молча пропускался бы.
+    quiet: true
+  loop: "{{ nginx_domains }}"
+  loop_control:
+    label: "{{ item.name }}"
+
 - name: "Установка Nginx: {{ nginx_install_method }}"
   ansible.builtin.include_tasks: install_package.yml
   when: nginx_install_method == "package"
