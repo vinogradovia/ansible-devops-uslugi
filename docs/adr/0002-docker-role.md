@@ -70,8 +70,8 @@ Engine + compose-плагин; не разворачивает никаких п
 
 **Решение:** только Debian/Ubuntu (apt) — совпадает с текущим scope всей коллекции (единственный
 прецедент подключения стороннего репозитория, `nginx_multidomain/tasks/install_repo.yml`, тоже
-apt-only; molecule-хосты коллекции — `geerlingguy/docker-debian12-ansible`). RHEL/dnf — вне
-scope, не начинать вторую ветку логики без реального запроса.
+apt-only; molecule-хосты коллекции — vagrant/libvirt ВМ, box `cloud-image/ubuntu-24.04`).
+RHEL/dnf — вне scope, не начинать вторую ветку логики без реального запроса.
 
 ### 5. Версионирование
 
@@ -117,22 +117,17 @@ append: true`). Пусто по умолчанию — остальные рол
 ### 8. Molecule-тестирование
 
 **Решение:** сценарий только `create`/`destroy` (или синтаксис/idempotence через `--check`), по
-образцу `extensions/molecule/default/`. Реальную установку Docker Engine в CI не проверяем:
-роли, которые сами разворачивают вложенные docker-контейнеры (`reverse_proxy_npm`,
-`reverse_proxy_traefik` — через зависимость от роли `docker`), тестируются `driver: docker` с
-образом `geerlingguy/docker-debian12-ansible` и требуют `docker_daemon_json_options:
-{storage-driver: vfs}` — **не** потому, что в образе уже есть предустановленный Docker (проверено
-эмпирически: его там нет), а из-за классического ограничения Docker-in-Docker — файловая система
-самого тестового контейнера уже смонтирована внешним Docker-хоста через overlay2, и родной
-overlay2-driver вложенного dockerd поверх неё (overlay2-на-overlay2) не монтируется
-(`failed to mount ... invalid argument`). Тестировать саму роль `docker` (устанавливающую Docker
-Engine) в таком контейнере означало бы упереться в то же ограничение — не потому, что она
-конфликтовала бы с уже стоящим Docker, а потому, что свежеустановленный Docker всё равно уткнулся
-бы в overlay2-на-overlay2, если не задать тот же `storage-driver: vfs`. Раз обходной путь всё
-равно нужен, а сама установка Docker Engine уже покрыта empirически через зависящие от неё роли
+образцу `extensions/molecule/default/`. Реальную установку Docker Engine в CI не проверяем отдельным
+сценарием: роли, которые сами разворачивают вложенные docker-контейнеры (`reverse_proxy_npm`,
+`reverse_proxy_traefik` — через зависимость от роли `docker`), тестируются на полноценной ВМ
+(`driver: vagrant`/`libvirt`, box `cloud-image/ubuntu-24.04` — единое требование для всех
+molecule-сценариев коллекции, см. CLAUDE.md, «Molecule-тесты») — установка Docker Engine на
+реальной ВМ не упирается ни в какие ограничения Docker-in-Docker (overlay2-на-overlay2 и т.п.,
+актуальные только для прежнего `driver: docker`-контейнера, от которого коллекция отказалась).
+Раз сама установка Docker Engine уже покрыта эмпирически через зависящие от неё роли
 (`reverse_proxy_npm`/`reverse_proxy_traefik`, где `docker`-роль реально устанавливает Docker
-Engine в рамках их `converge`), отдельная `driver: docker`-проверка для самой роли `docker`
-не добавляет покрытия, а только усложняет сценарий. Ручная/staging-проверка на реальном хосте
+Engine в рамках их `converge`), отдельный полноценный ВМ-сценарий для самой роли `docker`
+не добавляет покрытия, а только усложняет тестовый контур. Ручная/staging-проверка на реальном хосте
 (`molecule converge -s docker` против группы `docker_hosts`) — вне автоматического тестового
 контура этой роли.
 

@@ -4,14 +4,10 @@
   become: true
   gather_facts: true
   tasks:
-    - name: Дождаться готовности systemd внутри контейнера
-      ansible.builtin.command: systemctl is-system-running
-      register: molecule_systemd_status
+    - name: Дождаться завершения cloud-init
+      ansible.builtin.command: cloud-init status --wait
       changed_when: false
       failed_when: false
-      until: molecule_systemd_status.stdout in ['running', 'degraded']
-      retries: 15
-      delay: 2
 
     - name: Обновить apt-кэш
       ansible.builtin.apt:
@@ -32,23 +28,11 @@
         name: python3-venv
         state: present
 
-- name: Prepare (docker-хост — mount propagation для node_exporter)
+- name: Prepare (docker-хост)
   hosts: monitoring_agent_docker
   become: true
   gather_facts: false
   tasks:
-    # compose-monitoring-agent.yml.j2 монтирует node_exporter'у '/:/host:ro,rslave' (официальный
-    # рекомендованный паттерн от prometheus/node_exporter) — rslave требует, чтобы точка монтирования
-    # "/" САМОГО тестового контейнера уже была shared/slave, а не private (дефолт для bind-mount
-    # контейнера в Docker). Без этого вложенный dockerd падает на "path / is mounted on / but it is
-    # not a shared or slave mount". Проверено эмпирически: privileged-контейнер может сам себе
-    # сделать rshared. Это специфика docker-in-docker тестового окружения, не баг роли — тот же
-    # общий класс ограничений, что и storage-driver: vfs (см. group_vars/monitoring_agent_docker.yml,
-    # ADR-0002 §8).
-    - name: Сделать точку монтирования "/" shared (нужно для rslave-бинда node_exporter)
-      ansible.builtin.command: mount --make-rshared /
-      changed_when: false
-
     # verify.yml использует community.docker.docker_container_info — модулям community.docker
     # нужен python-пакет docker (зависит от requests) на ЦЕЛЕВОМ хосте, тот же паттерн, что
     # extensions/molecule/reverse_proxy_npm/prepare.yml.

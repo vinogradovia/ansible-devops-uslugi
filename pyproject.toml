@@ -18,10 +18,10 @@ package-mode = false
 dev = [
     "molecule (>=26.3.0,<27.0.0)",
     "ansible-dev-tools (>=26.2.0,<27.0.0)",
-    "molecule-plugins[docker] (>=25.8.0,<26.0.0)",
-    # vagrant/libvirt — только для extensions/molecule/mysql_replication (ADR-0004 §10).
-    # Требует Vagrant + плагин vagrant-libvirt на хосте, где запускается molecule — см.
-    # roles/mysql_replication/README.md, "Локальное тестирование".
+    # vagrant/libvirt — обязательный driver для ВСЕХ molecule-сценариев коллекции (см. CLAUDE.md,
+    # «Molecule-тесты»). Требует Vagrant + плагин vagrant-libvirt на хосте, где запускается
+    # molecule — см. roles/mysql_replication/README.md, "Локальное тестирование".
+    # molecule-plugins[docker] больше не нужен — ни один сценарий не использует driver: docker.
     "molecule-plugins[vagrant] (>=25.8.0,<26.0.0)",
     # Python-клиент, без которого модули коллекции kubernetes.core (kubernetes.core.k8s и т.д.)
     # не работают — используются в roles/monitoring_server/tasks/monitoring-server.k3s.yml

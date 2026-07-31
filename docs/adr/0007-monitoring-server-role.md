@@ -633,13 +633,14 @@ targets.json.j2` использовал `monitoring_agent_node_exporter_port` (�
 всегда зелёный независимо от реального состояния кода.
 
 **Обновление:** появился `extensions/molecule/monitoring_server/` — покрывает
-`monitoring_server_orchestrator: docker`. Отличия от остальных docker-сценариев коллекции
-(`nginx_multidomain`, `reverse_proxy_npm`): `driver: vagrant`/`libvirt` (Ubuntu 24.04,
-`cloud-image/ubuntu-24.04`), а не `driver: docker` — роль под `docker`-оркестратором сама
-разворачивает многосервисный docker-compose стек (VictoriaMetrics, Grafana, 4 сервиса Loki, MinIO),
-и гонять это внутри systemd-контейнера означало бы docker-in-docker с конфликтом overlay2 (см.
-комментарии в `extensions/molecule/monitoring_server/molecule.yml`); полноценная ВМ снимает
-ограничение целиком, ценой более тяжёлого/медленного прогона (vagrant-libvirt, а не docker driver).
+`monitoring_server_orchestrator: docker`. `driver: vagrant`/`libvirt` (Ubuntu 24.04,
+`cloud-image/ubuntu-24.04`) — единое требование для всех molecule-сценариев коллекции (см.
+CLAUDE.md, «Molecule-тесты»); на момент написания этого раздела остальные тогда ещё docker-driver
+сценарии коллекции (`nginx_multidomain`, `reverse_proxy_npm`) впоследствии тоже мигрировали на
+vagrant/libvirt (2026-07-31). Здесь полноценная ВМ была нужна с самого начала: роль под
+`docker`-оркестратором сама разворачивает многосервисный docker-compose стек (VictoriaMetrics,
+Grafana, 4 сервиса Loki, MinIO), и гонять это внутри тогдашнего docker-driver контейнера означало
+бы docker-in-docker с конфликтом overlay2.
 
 Сценарий — одна ВМ, которая мониторит сама себя (`groups: [monitoring_servers,
 monitoring_agents]`, тот же паттерн, что `tests/inventory.yml` в корне коллекции): поднимает

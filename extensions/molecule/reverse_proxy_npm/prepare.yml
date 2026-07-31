@@ -4,22 +4,18 @@
   become: true
   gather_facts: true
   tasks:
-    - name: Дождаться готовности systemd внутри контейнера
-      ansible.builtin.command: systemctl is-system-running
-      register: molecule_systemd_status
+    - name: Дождаться завершения cloud-init
+      ansible.builtin.command: cloud-init status --wait
       changed_when: false
       failed_when: false
-      until: molecule_systemd_status.stdout in ['running', 'degraded']
-      retries: 15
-      delay: 2
 
     - name: Обновить apt-кэш
       ansible.builtin.apt:
         update_cache: true
         cache_valid_time: 3600
 
-    # --- Docker Engine (docker-in-docker) — роль reverse_proxy_npm сама Docker не ставит
-    # (см. molecule.yml), поэтому для сценария это готовим здесь, как внешний провижининг хоста.
+    # --- Docker Engine — роль reverse_proxy_npm сама Docker не ставит (см. molecule.yml), поэтому
+    # для сценария это готовим здесь, как внешний провижининг хоста.
     - name: Установить пакеты, нужные для добавления apt-репозитория Docker
       ansible.builtin.apt:
         pkg:
@@ -35,15 +31,18 @@
 
     - name: Скачать GPG-ключ репозитория Docker
       ansible.builtin.get_url:
-        url: https://download.docker.com/linux/debian/gpg
+        url: "https://download.docker.com/linux/{{ ansible_distribution | lower }}/gpg"
         dest: /etc/apt/keyrings/docker.asc
         mode: '0644'
 
     - name: Подключить apt-репозиторий Docker
+      # ansible_distribution | lower (тот же приём, что roles/docker/tasks/install-repo.yml) —
+      # box сценария Ubuntu (см. molecule.yml), а не Debian, поэтому путь репозитория должен быть
+      # linux/ubuntu, а не захардкоженный linux/debian.
       ansible.builtin.apt_repository:
         repo: >-
           deb [arch={{ 'amd64' if ansible_architecture == 'x86_64' else ansible_architecture }}
-          signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian
+          signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/{{ ansible_distribution | lower }}
           {{ ansible_distribution_release }} stable
         state: present
         filename: docker
@@ -58,23 +57,10 @@
           - docker-buildx-plugin
           - docker-compose-plugin
 
-    - name: Заставить вложенный dockerd использовать storage-driver vfs
-      # Тестовый контейнер сам работает поверх overlay2 (host Docker), а нативный overlay2
-      # внутри overlay2 ломается на "failed to mount ... invalid argument" — классическое
-      # ограничение docker-in-docker, не имеющее отношения к роли reverse_proxy_npm. vfs медленнее,
-      # но не зависит от файловой системы хоста и всегда работает во вложенном контейнере.
-      ansible.builtin.copy:
-        dest: /etc/docker/daemon.json
-        content: |
-          {"storage-driver": "vfs"}
-        mode: '0644'
-
-    - name: Перезапустить docker с storage-driver vfs и убедиться, что служба включена
-      # restarted (не started): apt уже мог запустить dockerd с дефолтным overlay2 до того,
-      # как выше появился daemon.json — нужен рестарт, чтобы vfs реально применился.
+    - name: Убедиться, что служба docker включена и запущена
       ansible.builtin.systemd:
         name: docker
-        state: restarted
+        state: started
         enabled: true
 
     - name: Установить python3-docker (нужен community.docker.docker_container для fixture-бэкенда)

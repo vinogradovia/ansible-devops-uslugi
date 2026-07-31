@@ -37,10 +37,9 @@
         path: /etc/docker/daemon.json
       register: molecule_docker_daemon_json_raw
 
-    - name: "/etc/docker/daemon.json должен содержать оба ключа (storage-driver, metrics-addr)"
+    - name: "/etc/docker/daemon.json должен содержать ключ metrics-addr"
       ansible.builtin.assert:
         that:
-          - (molecule_docker_daemon_json_raw.content | b64decode | from_json)['storage-driver'] == 'vfs'
           - (molecule_docker_daemon_json_raw.content | b64decode | from_json)['metrics-addr'] == '0.0.0.0:9323'
         quiet: true
 

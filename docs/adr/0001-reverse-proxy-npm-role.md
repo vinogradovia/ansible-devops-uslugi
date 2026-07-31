@@ -132,11 +132,12 @@ env при первом старте контейнера. Для NPM смена
 
 **Решение:** molecule-сценарий закладывается сразу при реализации роли, а не откладывается (в
 отличие от исторического долга `reverse_proxy_traefik`, см. ROADMAP P4/№27). Сценарий —
-`extensions/molecule/reverse_proxy_npm/`, `driver: docker` (одноразовый контейнер), по образцу
-`nginx_multidomain`: converge поднимает NPM + прогоняет management-слой на тестовый proxy-host,
-verify проверяет: контейнер запущен, admin-пароль сменён (API логин дефолтными credentials
-возвращает 401), тестовый proxy-host создан и отвечает, admin UI недоступен на внешнем интерфейсе
-по умолчанию.
+`extensions/molecule/reverse_proxy_npm/`, `driver: vagrant`/`libvirt` (полноценная одноразовая ВМ —
+единое требование для всех molecule-сценариев коллекции, см. CLAUDE.md, «Molecule-тесты»), по
+образцу `nginx_multidomain`: converge поднимает NPM + прогоняет management-слой на тестовый
+proxy-host, verify проверяет: контейнер запущен, admin-пароль сменён (API логин дефолтными
+credentials возвращает 401), тестовый proxy-host создан и отвечает, admin UI недоступен на внешнем
+интерфейсе по умолчанию.
 
 ## Открытые вопросы / вне скоупа
 

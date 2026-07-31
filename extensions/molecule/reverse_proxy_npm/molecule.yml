@@ -1,27 +1,24 @@
 ---
 # Molecule-сценарий для reverse_proxy_npm — см. docs/adr/0001-reverse-proxy-npm-role.md, §11.
-# Как и extensions/molecule/nginx_multidomain, изолирован через driver: docker (одноразовый
-# systemd-контейнер, полностью уничтожается на destroy) — в отличие от extensions/molecule/
-# {default,reverse_proxy_traefik}, которые гоняются против статического реального хоста.
-# Отличие от nginx_multidomain: роль сама разворачивает docker-контейнер (docker-in-docker),
-# поэтому prepare.yml дополнительно устанавливает Docker Engine внутри тестового контейнера —
-# сама роль (как и reverse_proxy_traefik, monitoring_server) Docker не ставит, это ответственность
-# внешнего провижининга хоста, см. defaults roles/reverse_proxy_npm/README.md.
+# driver: vagrant/libvirt (единое требование для всех molecule-сценариев коллекции, см. CLAUDE.md,
+# «Molecule-тесты» — раньше был driver: docker, одноразовый systemd-контейнер) — полноценная
+# одноразовая ВМ, полностью уничтожается на destroy.
+# Роль сама разворачивает docker-контейнер (NPM), поэтому prepare.yml дополнительно устанавливает
+# Docker Engine на ВМ — сама роль (как и reverse_proxy_traefik, monitoring_server) Docker не
+# ставит, это ответственность внешнего провижининга хоста, см. defaults roles/reverse_proxy_npm/README.md.
 #
 # ansible.executor.args.ansible_playbook обнуляется, как в nginx_multidomain/molecule.yml, чтобы
 # не подмешивать статический inventory monitoring_servers/monitoring_agents из ../config.yml.
 driver:
-  name: docker
+  name: vagrant
+  provider:
+    name: libvirt
 
 platforms:
   - name: reverse-proxy-npm
-    image: "docker.io/geerlingguy/docker-debian12-ansible:latest"
-    pre_build_image: true
-    privileged: true
-    volumes:
-      - /sys/fs/cgroup:/sys/fs/cgroup:rw
-    cgroupns_mode: host
-    command: ${MOLECULE_DOCKER_COMMAND:-""}
+    box: cloud-image/ubuntu-24.04
+    memory: 2048
+    cpus: 1
 
 scenario:
   test_sequence:

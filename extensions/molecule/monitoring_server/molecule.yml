@@ -1,13 +1,10 @@
 ---
 # Molecule-сценарий для monitoring_server — см. docs/adr/0007-monitoring-server-role.md, раздел 11
-# («Molecule-сценария нет вовсе»). driver: vagrant/libvirt (как extensions/molecule/mysql_replication
-# и .../proxysql), а НЕ driver: docker (как nginx_multidomain/reverse_proxy_npm): роль под
+# («Molecule-сценария нет вовсе»). driver: vagrant/libvirt — единое требование для всех
+# molecule-сценариев коллекции (см. CLAUDE.md, «Molecule-тесты»): роль под
 # monitoring_server_orchestrator: docker сама разворачивает многосервисный docker-compose стек
-# (VictoriaMetrics, Grafana, Loki read/write/backend/gateway, MinIO) — гонять это внутри
-# systemd-контейнера означало бы docker-in-docker с нативным overlay2-конфликтом (то же
-# ограничение, что описано в extensions/molecule/reverse_proxy_npm/prepare.yml, но там стек проще
-# и обходится storage-driver: vfs; здесь той обходной путь усложнил бы и без того тяжёлый стек).
-# Полноценная ВМ убирает проблему целиком: Docker Engine ставится один раз, самой ролью docker
+# (VictoriaMetrics, Grafana, Loki read/write/backend/gateway, MinIO) — полноценная ВМ снимает
+# любые docker-in-docker ограничения целиком: Docker Engine ставится один раз, самой ролью docker
 # (её зависимость через meta/main.yml monitoring_server/monitoring_agent), поверх ubuntu24.04.
 #
 # Единственная ВМ: сама себя мониторит (тот же паттерн, что tests/inventory.yml в корне

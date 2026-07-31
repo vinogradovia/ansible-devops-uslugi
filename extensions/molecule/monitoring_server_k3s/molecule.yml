@@ -4,9 +4,9 @@
 # самой роли — этот сценарий проверяет реальный деплой стека (VictoriaMetrics Operator +
 # grafana-operator + grafana-alloy x3 через helm/, envs/k3s-monitoring.yaml).
 #
-# driver: vagrant/libvirt (Ubuntu 24.04) — тот же выбор, что extensions/molecule/monitoring_server
-# (docker), но здесь ещё и потому, что k3s не имеет смысла гонять внутри systemd-контейнера поверх
-# другого контейнера (двойная виртуализация control-plane).
+# driver: vagrant/libvirt (Ubuntu 24.04) — единое требование для всех molecule-сценариев коллекции
+# (см. CLAUDE.md, «Molecule-тесты»); здесь ещё и потому, что k3s не имеет смысла гонять внутри
+# контейнера поверх другого контейнера (двойная виртуализация control-plane).
 #
 # Активация xanmanning.k3s (зависимость monitoring_server, meta/main.yml, tags: init/never) —
 # проверено эмпирически на минимальном примере, что "--tags init" один активирует ТОЛЬКО

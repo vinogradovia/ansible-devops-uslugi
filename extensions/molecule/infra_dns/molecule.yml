@@ -1,24 +1,19 @@
 ---
 # Molecule-сценарий для infra_dns — см. ROADMAP.md P4 («Molecule-сценарий с проверкой
-# named-checkconf/named-checkzone рендера forward+reverse зон, поймал бы №19, №20»). driver: docker,
-# тот же паттерн, что nginx_multidomain/reverse_proxy_npm/reverse_proxy_traefik: одноразовый
-# systemd-контейнер (geerlingguy/docker-debian12-ansible), полностью уничтожается на destroy.
-#
-# В отличие от reverse_proxy_traefik/reverse_proxy_npm, роль не разворачивает вложенный docker —
-# bind9 ставится и управляется как обычный systemd-сервис из apt, поэтому никакого
-# docker-in-docker/vfs-обхода (см. их prepare.yml/group_vars) здесь не нужно.
+# named-checkconf/named-checkzone рендера forward+reverse зон, поймал бы №19, №20»). driver:
+# vagrant/libvirt (единое требование для всех molecule-сценариев коллекции, см. CLAUDE.md,
+# «Molecule-тесты» — раньше был driver: docker, одноразовый systemd-контейнер): полноценная
+# одноразовая ВМ, полностью уничтожается на destroy.
 driver:
-  name: docker
+  name: vagrant
+  provider:
+    name: libvirt
 
 platforms:
   - name: infra-dns
-    image: "docker.io/geerlingguy/docker-debian12-ansible:latest"
-    pre_build_image: true
-    privileged: true
-    volumes:
-      - /sys/fs/cgroup:/sys/fs/cgroup:rw
-    cgroupns_mode: host
-    command: ${MOLECULE_DOCKER_COMMAND:-""}
+    box: cloud-image/ubuntu-24.04
+    memory: 1024
+    cpus: 1
 
 scenario:
   test_sequence:

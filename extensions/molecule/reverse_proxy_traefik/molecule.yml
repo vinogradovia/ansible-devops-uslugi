@@ -1,31 +1,27 @@
 ---
 # Molecule-сценарий для reverse_proxy_traefik — см. ROADMAP.md P4 («собрать сценарий с нуля»).
-# Как и extensions/molecule/{nginx_multidomain,reverse_proxy_npm}, изолирован через driver: docker
-# (одноразовый systemd-контейнер, полностью уничтожается на destroy) — раньше рабочего сценария
-# не было вообще (нерабочий untracked-каркас удалён, см. ROADMAP.md P3 №27).
+# driver: vagrant/libvirt (единое требование для всех molecule-сценариев коллекции, см. CLAUDE.md,
+# «Molecule-тесты» — раньше был driver: docker, одноразовый systemd-контейнер) — раньше рабочего
+# сценария не было вообще (нерабочий untracked-каркас удалён, см. ROADMAP.md P3 №27).
 #
-# Отличие от reverse_proxy_npm: reverse_proxy_traefik/meta/main.yml безусловно зависит от роли
-# docker (сама ставит Docker Engine из download.docker.com пинненой версией), поэтому prepare.yml
-# здесь НЕ ставит Docker Engine вручную — это делает зависимость роли при converge (см.
-# group_vars/all.yml — docker_daemon_json_options: storage-driver vfs, нужно, чтобы избежать
-# конфликта overlay2-на-overlay2: файловая система самого тестового контейнера уже смонтирована
-# host-Docker'ом через overlay2, и родной overlay2-driver вложенного dockerd поверх неё не
-# монтируется — независимо от того, стоял ли в базовом образе Docker до этого, см. ADR-0002 §8).
+# reverse_proxy_traefik/meta/main.yml безусловно зависит от роли docker (сама ставит Docker Engine
+# из download.docker.com пинненой версией), поэтому prepare.yml здесь НЕ ставит Docker Engine
+# вручную — это делает зависимость роли при converge. На полноценной ВМ (в отличие от прежнего
+# docker-in-docker контейнера) overlay2-driver дочернего dockerd монтируется без проблем, поэтому
+# group_vars/all.yml больше не передаёт storage-driver: vfs.
 #
 # ansible.executor.args.ansible_playbook обнуляется, как в nginx_multidomain/molecule.yml, чтобы
 # не подмешивать статический inventory monitoring_servers/monitoring_agents из ../config.yml.
 driver:
-  name: docker
+  name: vagrant
+  provider:
+    name: libvirt
 
 platforms:
   - name: reverse-proxy-traefik
-    image: "docker.io/geerlingguy/docker-debian12-ansible:latest"
-    pre_build_image: true
-    privileged: true
-    volumes:
-      - /sys/fs/cgroup:/sys/fs/cgroup:rw
-    cgroupns_mode: host
-    command: ${MOLECULE_DOCKER_COMMAND:-""}
+    box: cloud-image/ubuntu-24.04
+    memory: 2048
+    cpus: 1
 
 scenario:
   test_sequence:
