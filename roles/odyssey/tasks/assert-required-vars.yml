@@ -1,0 +1,23 @@
+---
+# Fail-fast на обязательные переменные без дефолтов — тот же паттерн, что и в
+# roles/postgresql_replication (ADR §9) и roles/proxysql.
+
+- name: Assert backend hosts are declared
+  ansible.builtin.assert:
+    that:
+      - odyssey_write_backend_host | length > 0
+      - odyssey_read_backend_host | length > 0
+    fail_msg: >-
+      odyssey_write_backend_host и odyssey_read_backend_host обязательны, без дефолта — обычно
+      заполняются плейбуком-оркестратором из hostvars групп postgresql_primary/
+      postgresql_read_replica/postgresql_dr_replica (см. README, fallback-логика read-источника).
+
+- name: Assert backend credentials are declared
+  ansible.builtin.assert:
+    that:
+      - odyssey_backend_user | length > 0
+      - odyssey_backend_password | length > 0
+    fail_msg: >-
+      odyssey_backend_user и odyssey_backend_password обязательны, без дефолта — задать через
+      Ansible Vault (ADR §9). Учётная запись должна существовать на серверах PostgreSQL — эта роль
+      её не создаёт (ADR §11, композиция на уровне инвентаря/плейбука).

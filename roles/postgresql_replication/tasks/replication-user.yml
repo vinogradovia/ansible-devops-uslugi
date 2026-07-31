@@ -1,0 +1,60 @@
+---
+# Репликационный и repmgr-пользователи + БД repmgr на primary (ADR §4). Используется обеими
+# репликами (read_replica, dr_replica) для streaming-репликации (repl_user) и командами repmgr
+# (repmgr_user/repmgr_db).
+#
+# Аутентификация к самому PostgreSQL — через unix-сокет с peer-auth от имени OS-пользователя
+# postgres (become_user), как это принято для локального administrative-доступа на Debian/Ubuntu
+# пакетах PostgreSQL (запись "local all postgres peer" в pg_hba.conf по умолчанию).
+
+- name: Create replication user (REPLICATION privilege)
+  become: true
+  become_user: postgres
+  community.postgresql.postgresql_user:
+    login_unix_socket: /var/run/postgresql
+    name: "{{ postgresql_replication_repl_user }}"
+    password: "{{ postgresql_replication_repl_password }}"
+    role_attr_flags: LOGIN,REPLICATION
+    state: present
+
+- name: Create repmgr user (SUPERUSER — required by repmgr itself, ADR §4)
+  become: true
+  become_user: postgres
+  community.postgresql.postgresql_user:
+    login_unix_socket: /var/run/postgresql
+    name: "{{ postgresql_replication_repmgr_user }}"
+    password: "{{ postgresql_replication_repmgr_password }}"
+    role_attr_flags: LOGIN,SUPERUSER
+    state: present
+
+- name: Create repmgr database owned by repmgr user
+  become: true
+  become_user: postgres
+  community.postgresql.postgresql_db:
+    login_unix_socket: /var/run/postgresql
+    name: "{{ postgresql_replication_repmgr_db }}"
+    owner: "{{ postgresql_replication_repmgr_user }}"
+    state: present
+
+- name: Render repmgr.conf
+  ansible.builtin.template:
+    src: repmgr.conf.j2
+    dest: /etc/repmgr.conf
+    owner: postgres
+    group: postgres
+    mode: '0600'
+
+- name: Check whether this node is already registered with repmgr
+  become: true
+  become_user: postgres
+  ansible.builtin.command: repmgr -f /etc/repmgr.conf node check --role
+  register: postgresql_replication_primary_node_check
+  changed_when: false
+  failed_when: false
+
+- name: Register primary with repmgr
+  when: postgresql_replication_primary_node_check.rc != 0
+  become: true
+  become_user: postgres
+  ansible.builtin.command: repmgr -f /etc/repmgr.conf primary register
+  changed_when: true

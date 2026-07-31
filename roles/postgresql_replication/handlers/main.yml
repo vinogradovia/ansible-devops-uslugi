@@ -1,0 +1,33 @@
+---
+# handlers file for postgresql_replication
+
+# Гейт на postgresql_replication_allow_restart (ADR §2) применяется ТОЛЬКО к adopt-хосту — на
+# боевом primary, который роль не переустанавливала, конфигурация, требующая рестарта
+# (wal_level/shared_preload_libraries=repmgr/listen_addresses), не должна применяться вне
+# согласованного окна: defaults/main.yml держит postgresql_replication_allow_restart в false, без
+# явного -e postgresql_replication_allow_restart=true рестарт не выполнится.
+#
+# На fresh-install хосте (read_replica/dr_replica) гейт не нужен и вреден — сервис только что
+# поставлен этой же ролью и не может содержать боевые данные, значит рестарт всегда безопасен (тот
+# же паттерн, что и в mysql_replication/handlers/main.yml).
+- name: Restart PostgreSQL
+  when: (postgresql_replication_allow_restart | bool) or not postgresql_replication_existing_instance
+  ansible.builtin.systemd:
+    name: "{{ postgresql_replication_service_name }}"
+    state: restarted
+
+# pg_hba.conf применяется через reload (SIGHUP), не требует рестарта службы и безопасно на боевом
+# primary без согласованного окна — в отличие от Restart PostgreSQL выше, гейт не нужен.
+- name: Reload PostgreSQL
+  ansible.builtin.systemd:
+    name: "{{ postgresql_replication_service_name }}"
+    state: reloaded
+
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart postgresql-backup.timer
+  ansible.builtin.systemd:
+    name: postgresql-backup.timer
+    state: restarted

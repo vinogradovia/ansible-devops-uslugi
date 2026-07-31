@@ -1,0 +1,10 @@
+---
+# handlers file for odyssey
+#
+# Odyssey перечитывает конфигурацию только при рестарте (в отличие от ProxySQL, у которого есть
+# admin SQL-интерфейс с LOAD ... TO RUNTIME) — рестарт при любом изменении конфига безопасен, т.к.
+# роль разворачивается на отдельных выделенных хостах-пулерах без собственного состояния (ADR §6).
+- name: Restart Odyssey
+  ansible.builtin.systemd:
+    name: "{{ odyssey_service_name }}"
+    state: restarted

@@ -1,0 +1,59 @@
+---
+# defaults file for odyssey
+#
+# Единая точка подключения для PostgreSQL (ADR §6, docs/adr/0005-postgresql-ha-replication-role.md):
+# DNS (db-write/db-read) указывает на эти хосты, Odyssey маршрутизирует по имени БД подключения
+# (не по содержимому запроса, как ProxySQL — ограничение Odyssey, определяющее весь дизайн роли,
+# см. ADR §6). Устанавливается нативным пакетом (apt, PGDG) на отдельных выделенных хостах — не
+# через docker и не на самих серверах PostgreSQL.
+
+# --- Установка (apt, signed-by keyring, PGDG — тот же источник, что и postgresql_replication) ---
+odyssey_apt_keyring_path: /etc/apt/keyrings/postgresql.asc
+odyssey_package_name: odyssey
+
+# Версия НЕ пиннится (ADR §6, осознанный компромисс — единственное место в коллекции без строгого
+# пиннинга версии пакета) — ставится, что актуально в PGDG на момент прогона.
+
+odyssey_service_name: odyssey
+odyssey_config_path: /etc/odyssey/odyssey.conf
+
+# --- Listener, на который приложения шлют трафик через db-write/db-read ---
+odyssey_listen_host: "0.0.0.0"
+odyssey_listen_port: 6432
+
+# --- Backend'ы (ADR §6) ---
+#
+# Заполняются плейбуком-оркестратором из hostvars групп postgresql_primary/
+# postgresql_read_replica/postgresql_dr_replica, а не руками — см. README, пример. Без дефолта —
+# роль падает через assert, если не заданы.
+#
+# odyssey_read_backend_host — ключевое отличие дизайна от roles/proxysql: read-источник
+# определяется составом инвентаря НА МОМЕНТ ПРОГОНА роли (playbook вычисляет через Jinja-
+# тернарник на groups['postgresql_read_replica'] | length), а не рантайм-переключением внутри
+# Odyssey (ADR §6). Odyssey ничего не знает про fallback — он просто получает один готовый адрес.
+odyssey_write_backend_host: ""
+odyssey_write_backend_port: 5432
+odyssey_read_backend_host: ""
+odyssey_read_backend_port: 5432
+
+# Имена БД маршрутов — под них создаются DNS-записи db-write.<zone>/db-read.<zone> (ADR §6,
+# record.ttl из infra_dns переиспользуется без изменений). ВАЖНО: конфигурация Odyssey
+# (templates/odyssey.conf.j2) не переопределяет имя базы на стороне backend'а отдельным полем —
+# Odyssey подключается к backend'у с тем же именем БД, что запросил клиент. Поэтому фактическая
+# PostgreSQL-база на write/read backend'ах должна называться так же, как эти переменные (обычно —
+# переопределить обе под реальное имя базы приложения, а не оставлять "db-write"/"db-read"
+# буквально).
+odyssey_write_database_name: db-write
+odyssey_read_database_name: db-read
+
+# Пользователь/пароль, которым Odyssey одновременно (а) аутентифицирует клиентские подключения
+# db-write/db-read и (б) подключается к backend-серверам PostgreSQL — та же учётная запись с обеих
+# сторон (простейшая рабочая схема, ADR не требует более сложной ACL-модели). Заведение этого
+# пользователя на серверах PostgreSQL — забота оператора/плейбука-оркестратора, не этой роли (тот
+# же принцип, что и proxysql_monitor_user в roles/proxysql — ADR §11, "композиция, а не
+# meta-зависимость"). Без дефолта.
+odyssey_backend_user: ""
+odyssey_backend_password: ""
+
+# session | transaction | statement — режим пулинга (Odyssey/PgBouncer-терминология).
+odyssey_pool_mode: transaction

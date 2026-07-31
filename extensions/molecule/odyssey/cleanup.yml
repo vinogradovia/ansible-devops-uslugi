@@ -1,0 +1,18 @@
+---
+# Fixture-бэкенды (prepare.yml) создаются НЕ как molecule-платформа (delegate_to: localhost, на
+# хостовом Docker), поэтому обычный destroy их не трогает — сам molecule знает только про
+# платформу "odyssey". Без этого шага контейнеры-фикстуры остаются висеть на хосте после каждого
+# прогона (найдено реальным прогоном molecule).
+- name: Cleanup
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Остановить и удалить fixture-бэкенды PostgreSQL
+      delegate_to: localhost
+      become: false
+      community.docker.docker_container:
+        name: "{{ item }}"
+        state: absent
+      loop:
+        - odyssey-fixture-write
+        - odyssey-fixture-read

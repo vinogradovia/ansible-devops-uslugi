@@ -5,7 +5,7 @@
 Каждый пункт содержит ссылку `файл:строка` и конкретный сценарий отказа — без общих
 рекомендаций.
 
-> **Обновление:** по решению P5-31 роль `nginx` удалена из коллекции целиком (была
+> **Обновление:** по решению P5-32 роль `nginx` удалена из коллекции целиком (была
 > экспериментом; `nginx_multidomain` — её замена и единственный путь вперёд для nginx). Вместе
 > с ролью удалены: `roles/nginx/` (включая устаревшую копию документации в `roles/nginx/docs/`),
 > пустой сценарий `extensions/molecule/nginx/` и нерабочие scratch-плейбуки
@@ -33,7 +33,7 @@
 ### monitoring_server
 
 1. ~~**Alert-правила вообще не применяются в docker-режиме** (дефолтный оркестратор).~~ —
-   **закрыто по P5-33 решением «документировать как k3s-only»** (реализация `vmalert` в
+   **закрыто по P5-34 решением «документировать как k3s-only»** (реализация `vmalert` в
    docker-compose осталась отдельной задачей архитектурного уровня, не патчем):
    - Все `monitoring_server_victoria_metrics_alerts_rules_*_default` в `defaults/main.yml` теперь
      дополнительно гейтятся на `monitoring_server_orchestrator == 'k3s'` (раньше просто наследовали
@@ -41,7 +41,7 @@
      бы «включены» по умолчанию и для docker, где `vmalert` не существует).
    - Добавлен fail-fast в `check-and-install-requirements.docker.yml`: если пользователь явно
      включает `alert_rules_default_enabled` для экспортера под `docker`, играется понятная ошибка
-     со ссылкой на этот пункт и на P5-33, а не молчаливый no-op.
+     со ссылкой на этот пункт и на P5-34, а не молчаливый no-op.
    - Проверено тремя сценариями: дефолтная docker-установка (список экспортеров с
      `alert_rules_default_enabled: true` — пустой, fail-fast не срабатывает); k3s (алерты
      по умолчанию включены для экспортеров со `scrape: true`, поведение не изменилось); explicit
@@ -79,7 +79,7 @@
    Проверка добавлена в `check-and-install-requirements.docker.yml`. Оба флага по умолчанию
    `false` — дефолтная конфигурация не затронута.
 
-### nginx / nginx_multidomain — закрыто удалением роли `nginx` (см. P5-31)
+### nginx / nginx_multidomain — закрыто удалением роли `nginx` (см. P5-32)
 
 6. ~~**`roles/nginx/templates/nginx.conf.j2` не является валидным nginx-конфигом (3 независимых
    бага)**~~ — файл удалён вместе с ролью. Баги (отсутствующая `;` после `gzip_types`, неверный
@@ -232,24 +232,42 @@
     `check-and-install-requirements.docker.yml` — `docker network inspect` через
     `ansible.builtin.command` (не `community.docker.docker_network_info` — тому нужен python-пакет
     `docker` на целевом хосте, которого роль `docker` не ставит), падает понятной ошибкой заранее.
+46. **`postgresql_replication`/`mysql_replication`: идемпотентная регистрация в `repmgr` не
+    сверяет `node_id`.** `tasks/replication-user.yml`/`configure-replica.yml` пропускают `repmgr
+    primary register`/`standby register`, если `node check --role` уже успешен (узел уже
+    зарегистрирован) — но не проверяют, что зарегистрированный в кластере `node_id`/`node_name`
+    совпадает с текущим `postgresql_replication_node_id`/`repmgr.conf`. При этом `repmgr.conf`
+    перетемплейтится безусловно на каждом прогоне (`template`-задача без гейта) — если
+    `group_vars` хоста поменяли задним числом (например, поправили `node_id` уже после первичной
+    регистрации), локальный конфиг молча разъезжается с тем, что реально числится в
+    `repmgr.nodes`. Обнаруживается не сразу, а обычно в разгар аварии/failback, когда `repmgr node
+    rejoin`/`standby register` падает с `ERROR: unable to retrieve node record for the local
+    node` — воспроизведено на реальном инциденте (failback по
+    `docs/runbooks/postgresql-failover.md`, раздел 3, шаг 3: у хоста в `repmgr.conf` был
+    `node_id=1`, а в кластере он значился под `node_id=2`, ровно как и в `group_vars`, откуда
+    `repmgr.conf` рендерится). Чинить: `assert`/явная проверка перед пропуском
+    register-задачи — сравнить `node_id` из `postgresql_replication_node_id` с тем, что вернёт
+    `repmgr node check --role` (или прямой запрос к `repmgr.nodes`), fail-fast при расхождении
+    вместо молчаливого дрейфа. Тот же паттерн регистрации (`node check` → skip-if-ok) используется
+    и в `mysql_replication` — стоит проверить и там.
 
 ---
 
 ## P3 — Мёртвый код и репозиторный мусор
 
-22. ~~**`roles/monitoring_server/templates/__delete/`**~~ — **исправлено удалением**: каталог
+23. ~~**`roles/monitoring_server/templates/__delete/`**~~ — **исправлено удалением**: каталог
     полностью не использовался ни одной задачей (подтверждено grep), `GrafanaDashboard.j2` внутри
     к тому же был синтаксически битый (два ключа `spec:`) — удалён целиком.
-23. ~~**Файлы alert-правил с подчёркиванием в имени — повторяющийся паттерн черновиков, не
+24. ~~**Файлы alert-правил с подчёркиванием в имени — повторяющийся паттерн черновиков, не
     единичный случай.**~~ — **исправлено**: все три файла
     (`templates/alert-rules/proxmox-ve/prometheus-pve-exporter_.yml`,
     `templates/alert-rules/redis/oliver006-redis-exporter_.yml`,
     `templates/alert-rules/blackbox/blackbox-exporter_.yml`) удалены — решение владельца
     коллекции: черновики, никогда не подключённые через `vars/main.yml`, не оформлять как
     альтернативу, а убрать как мусор.
-24. ~~**`templates/alert-rules/grafana-alloy/embedded-exporter.yml` полностью не подключён**~~ —
-    перенесено в «Backlog фич» ниже (не мёртвый код, а незавершённая функциональность — см. п. 34).
-25. ~~**Дублированная документация `nginx_multidomain` в двух местах**~~ — `roles/nginx/docs/`
+25. ~~**`templates/alert-rules/grafana-alloy/embedded-exporter.yml` полностью не подключён**~~ —
+    перенесено в «Backlog фич» ниже (не мёртвый код, а незавершённая функциональность — см. п. 35).
+26. ~~**Дублированная документация `nginx_multidomain` в двух местах**~~ — `roles/nginx/docs/`
     удалён вместе с ролью `nginx`, дублирования больше нет. **Уборка `roles/nginx_multidomain/docs/`
     тоже сделана**: помимо упомянутых `files.zip`/`nginx_multidomain_role_skeleton.tar.gz`, в
     каталоге обнаружились их же распакованные копии (`main.yml`, `static.conf.j2`,
@@ -259,26 +277,26 @@
     ставшая битой после переименования/переноса ссылка на архитектурный документ: он живёт в
     `docs/adr/0003-ginx-multidomain-role.md` в корне коллекции, а не в `roles/nginx_multidomain/docs/`
     (обновлены CLAUDE.md и собственное дерево каталогов внутри самого документа).
-26. ~~**Два висячих (никогда не вызываемых) handler'а**~~ — **исправлено**: подтверждено `grep`
+27. ~~**Два висячих (никогда не вызываемых) handler'а**~~ — **исправлено**: подтверждено `grep`
     по `notify:` во всех `tasks/systemd-*-exporter.yml`, что `State service node-exporter.socket`/
     `State service nginx-exporter.socket` нигде не notify'ятся (задачи в `systemd-node-exporter.yml`/
     `systemd-nginx-exporter.yml` дублируют их содержимое inline), оба handler'а удалены из
     `roles/monitoring_agent/handlers/main.yml`.
-27. ~~**Молёкула-сценарий `reverse_proxy_traefik` фактически не рабочий, а не просто неполный**~~
+28. ~~**Молёкула-сценарий `reverse_proxy_traefik` фактически не рабочий, а не просто неполный**~~
     — **исправлено удалением**: `extensions/molecule/reverse_proxy_traefik/` был untracked-каркасом
     (`molecule.yml` нулевого размера — не распознаётся molecule как сценарий вообще,
     `converge.yml` не вызывал роль, `test_traefik.py` падал на `NameError` при сборе тестов, плюс
     копипаст-ассерт `"Welcome to nginx"` против приложения `traefik/whoami`). Удаление не убавляет
     покрытия — рабочего сценария и не было. Пересборка с нуля остаётся отдельной P4-задачей (см.
     таблицу P4 ниже).
-28. ~~**`roles/nginx/README.md:42-49` отсылает к `extensions/molecule/nginx`, у которого нет
+29. ~~**`roles/nginx/README.md:42-49` отсылает к `extensions/molecule/nginx`, у которого нет
     `molecule.yml`**~~ — оба файла удалены вместе с ролью `nginx`.
-29. ~~**`roles/reverse_proxy_traefik/README.md`** — неотредактированная заготовка
+30. ~~**`roles/reverse_proxy_traefik/README.md`** — неотредактированная заготовка
     `ansible-galaxy init`~~ — **исправлено**: написан реальный README (назначение роли,
     взаимоисключаемость с `nginx_multidomain`/`reverse_proxy_npm`, обязательная проверка пароля
     дашборда, устройство дашборда/fixture-приложения `whoami`, известные ограничения — TLS не
     автоматизирован).
-30. ~~**Мелкие огрехи, не блокирующие, но стоящие отдельного PR:**~~ — **исправлено**:
+31. ~~**Мелкие огрехи, не блокирующие, но стоящие отдельного PR:**~~ — **исправлено**:
     - `roles/reverse_proxy_traefik/tasks/check-and-install-requirements.yml` — опечатка в тексте
       ошибки («hange default_passwors» → «change reverse_proxy_traefik_default_password») и в
       имени задачи; проверка дефолтного пароля теперь пропускает пользователей с
@@ -387,21 +405,22 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
 | `infra_dns` | ~~Только ручной `tests/deploy_infra_dns.yml`~~ — **сделано**: `extensions/molecule/infra_dns/` (`driver: vagrant`/`libvirt`, см. №44 — bind9 обычный systemd-сервис, без docker вообще). Converge покрывает forward-зону (дефолтный `soa_contact`, `include_hosts: true`) и reverse-зону (явный `soa_contact`, `include_hosts: false`). Verify гоняет реальный `named-checkconf` на полном `/etc/bind/named.conf` + `named-checkzone` на обоих зона-файлах (ловит P2-19/P2-20), права `bind:bind`/`0640`, наличие/отсутствие `$INCLUDE`-файла и функциональные `dig`-запросы (A, CNAME, `-x`/PTR) через реально поднятый `named`. Прогон зелёный, включая `idempotence` (0 изменений на повторном converge) — багов не найдено. | ~~`meta/main.yml` для роли по-прежнему отсутствует~~ — **сделано**, `roles/infra_dns/meta/main.yml` добавлен (`dependencies: []`). Негативный путь (reverse-зона без `soa_contact` → `assert`-fail, P2-20) сценарий не проверяет — только структурно валидные зоны. |
 | `nginx_multidomain` | ~~Роль `nginx` удалена (п.31)~~ — **сделано**: `extensions/molecule/nginx_multidomain/` (`driver: vagrant`/`libvirt`, см. №44). Converge покрывает `type: static` и `type: proxy` (upstream-пул, `extra_upstreams`, custom-сертификаты, rate-limit/proxy-cache зоны, `conf_d_files`, `stub_status`, `enabled: false`). Verify гоняет реальный `nginx -t` + ansible-проверки (сервис running, symlink'и, дедуп зон, регрессия §9.1, функциональные `uri`-запросы на override-location и 502 от недоступного backend'а). `basic_auth`/`json`-логи (§8.3/8.4/9.3) намеренно не включены в сценарий — они по-прежнему ломают `nginx -t`, это осознанно задокументированный пробел, а не забытый. Первый же прогон сценария поймал реальный, ранее не описанный баг: `proxy_cache_zones.yml` не создавал `zone.path` (`nginx -t` падал на `mkdir()` для любого использования `nginx_proxy_cache_zones`) — исправлено в том же PR, см. архитектурный документ роли, раздел 6. | ~~`meta/main.yml` для роли по-прежнему отсутствует (см. §8.5 документа)~~ — **сделано**, `roles/nginx_multidomain/meta/main.yml` добавлен (`dependencies: []`). Когда баги §9.3 (basic_auth/json-логи) будут починены — добавить в сценарий домен, покрывающий оба случая, вместо текущего осознанного исключения. |
 | `reverse_proxy_traefik` | ~~Нет molecule-сценария вообще~~ — **сделано**: `extensions/molecule/reverse_proxy_traefik/` (`driver: vagrant`/`libvirt`, та же структура, что `nginx_multidomain`/`reverse_proxy_npm`; см. №44). Converge реально вызывает роль (`import_role`); в отличие от удалённого нерабочего каркаса (см. P3 №27), fixture-приложение (`traefik/whoami`) не поднимается отдельно — оно уже часть compose-файла роли. Verify проверяет HTTP→HTTPS редирект, реальный ответ `whoami` через Traefik (вместо скопипащенного и никогда не совпадающего ассерта `"Welcome to nginx"` из старого каркаса) и basic-auth дашборда (401 без credentials, 200 с ними). | — |
+| `mysql_replication` | `extensions/molecule/mysql_replication/` — converge+verify покрывают штатную репликацию (primary/read_replica/dr_replica), но **не** ручной promote (`tasks/promote.yml`, теги `mysql_replication_promote`+`never`, ADR-0004 §7) — молекула этот путь вообще не запускает. | Добавить в `verify.yml` последний шаг по образцу `extensions/molecule/postgresql_replication/verify.yml` (реализовано для ADR-0005): негативный тест (promote должен быть отклонён assert'ом на хосте, где `mysql_replication_role != 'dr_replica'`) + позитивный (реальный `RESET REPLICA ALL` на dr_replica через `include_role`/`tasks_from: promote`, проверка `read_only=OFF` и записи после promote). Не просто «для полноты» — именно эта работа для `postgresql_replication` вскрыла реальный баг (`include_tasks` + `tags`/`never` без `apply.tags` молча не выполнял promote при `--tags ..._promote --limit <host>`, задача-include матчилась, а вложенные задачи — нет), который идентично воспроизводится и в `mysql_replication/tasks/main.yml` (уже исправлено отдельным патчем — добавлен `apply.tags` — но регрессионного теста на этот конкретный баг пока нет, потому что нет молекулы для promote вообще). |
 
 ---
 
 ## P5 — Архитектурные развилки (требуют решения, не только патча)
 
-31. ~~**Судьба роли `nginx` vs `nginx_multidomain`**~~ — **решено и выполнено**: роль `nginx`
+32. ~~**Судьба роли `nginx` vs `nginx_multidomain`**~~ — **решено и выполнено**: роль `nginx`
     была экспериментом и удалена из коллекции полностью
     (`roles/nginx/`, `extensions/molecule/nginx/`, `tests/deploy_nginx_sites.yml`,
     `tests/deploy_nginx_sites_test.yml`). `nginx_multidomain` — единственная и окончательная
-    nginx-роль коллекции; конфликт №8 и находки №6/№7/№21/№25/№27(nginx-часть)/№28/№30(nginx-часть)
+    nginx-роль коллекции; конфликт №8 и находки №6/№7/№21/№26/№28(nginx-часть)/№29/№31(nginx-часть)
     сняты вместе с удалением. CLAUDE.md обновлён, чтобы не упоминать `nginx` как отдельную роль.
     Риск §9.4 архитектурного документа `nginx_multidomain` (роль полагается на нетронутый
     стоковый `nginx.conf` с `include sites-enabled/*`) был внешней предпосылкой для деплоя, а не
     межролевым конфликтом — с тех пор тоже закрыт явным `assert`'ом (см. п. 8 выше).
-32. ~~`nginx_multidomain` уже разошлась с собственным архитектурным документом~~ — **решено и
+33. ~~`nginx_multidomain` уже разошлась с собственным архитектурным документом~~ — **решено и
     выполнено**: документ (`roles/nginx_multidomain/docs/nginx_multidomain_role_architecture.md`)
     переписан под фактическую реализацию, а не наоборот. Новая версия документа фиксирует:
     - реальную структуру задач/шаблонов (`snippets/*.j2` и `_default_locations` заменены на
@@ -423,7 +442,7 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
       документа были задокументированы как известные риски; **с тех пор устранены в коде** (см.
       ниже).
     Раздел 10 документа фиксирует рекомендованный порядок: сначала §9.1–9.3 (баги в существующем
-    коде), затем архитектурное решение по конфликту с `roles/nginx` (P5-31), и только потом —
+    коде), затем архитектурное решение по конфликту с `roles/nginx` (P5-32), и только потом —
     достройка отсутствующих кусков (§8).
 
     ~~Баги §9.1–9.3~~ — **исправлены** в `roles/nginx_multidomain/tasks/vhosts.yml`:
@@ -441,7 +460,7 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
     Регрессия §9.1 проверяется в `extensions/molecule/nginx_multidomain/` (verify:
     «static-plain не должен содержать ssl-директив (нет утечки `_domain_ssl_cert`/`_key`)») —
     прогон `molecule test -s nginx_multidomain` зелёный.
-33. ~~**Механизм `alert_rules_src`/VMAlert для docker-оркестратора monitoring_server отсутствует
+34. ~~**Механизм `alert_rules_src`/VMAlert для docker-оркестратора monitoring_server отсутствует
     как класс.**~~ — **решено**: выбран вариант «документировать как k3s-only» вместо реализации
     `vmalert` в docker-compose (это осталась отдельная задача архитектурного уровня, при желании
     заводится отдельным пунктом бэклога). Реализация решения — см. P0-1 выше: дефолты алертов
@@ -525,21 +544,21 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
 
 ## Предлагаемая последовательность работ
 
-1. ~~**Решить архитектурную развилку nginx/nginx_multidomain (P5, №31)**~~ — сделано: роль
+1. ~~**Решить архитектурную развилку nginx/nginx_multidomain (P5, №32)**~~ — сделано: роль
    `nginx` удалена, `nginx_multidomain` — единственный путь вперёд.
 2. ~~**Быстрые критические фиксы (P0), без архитектурных решений** — пункты 9, 10 (monitoring_agent)
    чинятся точечными однострочными правками~~ — **сделано**: №9 (Jinja-скобки в пути к
    `daemon.json`) и №10 (fail-fast для `pve_exporter` под docker-оркестратором) исправлены.
-   Из P5-32 (§9 документа `nginx_multidomain`) баги 9.1–9.3 (утечка `set_fact`, асимметричная
-   валидация `root`, `basic_auth`/`json`-логи, ломающие `nginx -t`) — **тоже сделано**, см. P5-32
+   Из P5-33 (§9 документа `nginx_multidomain`) баги 9.1–9.3 (утечка `set_fact`, асимметричная
+   валидация `root`, `basic_auth`/`json`-логи, ломающие `nginx -t`) — **тоже сделано**, см. P5-33
    выше и `extensions/molecule/nginx_multidomain/` (verify зелёный).
 3. ~~**Security-патч секретов (P1, пункт 11)** — механическая правка `mode:`/`no_log:` по списку
    файлов, отдельный PR.~~ — **сделано**: заодно закрыт весь раздел P1 целиком (пункты 12-14 —
    assert на дефолтные S3-credentials, checksum для бинарников экспортеров, requirements.yml для
    `xanmanning.k3s`), см. раздел P1 выше.
-4. ~~**monitoring_server P0 №1-5** — требуют решения по P5 №33 (поддерживать ли алертинг в docker
+4. ~~**monitoring_server P0 №1-5** — требуют решения по P5 №34 (поддерживать ли алертинг в docker
    вообще) перед тем как чинить scrape-конфиги и dashboard provisioning.~~ — **сделано**: решение
-   P5-33 принято («k3s-only», без реализации `vmalert` в docker-compose), все пять пунктов
+   P5-34 принято («k3s-only», без реализации `vmalert` в docker-compose), все пять пунктов
    исправлены, см. раздел P0 выше.
 5. **Тестовое покрытие (P4)** — начиная с `nginx_multidomain` (самый дешёвый сценарий: реальный
    `nginx -t` в verify сразу ловит находки §9 её архитектурного документа) — ~~сделано~~:
@@ -556,4 +575,4 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
    коллекции покрыты molecule-сценариями.
 6. **Чистка мусора (P3)** — низкий риск, можно делать параллельно отдельными мелкими PR в любой
    момент. Основной объём (роль `nginx` и её дубликаты документации/scratch-тестов) уже снят
-   вместе с решением P5-31.
+   вместе с решением P5-32.

@@ -1,0 +1,56 @@
+# {{ ansible_managed }}
+#
+# Единая точка подключения PostgreSQL (ADR §6). Маршрут определяется на этапе подключения — по
+# имени БД (database "db-write"/"db-read"), не по содержимому запроса (ограничение Odyssey в
+# отличие от ProxySQL, см. README). Read-источник ({{ odyssey_read_backend_host }}) — read-реплика
+# либо (fallback) DR-реплика, выбор посчитан плейбуком-оркестратором ДО рендера этого файла, не
+# самим Odyssey в рантайме.
+
+daemonize no
+log_format "%p %t %l [%i %s] (%c) %m\n"
+# Логи — в stdout (journald подхватывает через systemd, Type=notify), не в файл: процесс
+# запускается как непривилегированный User=odyssey (пакет), которому /var/log недоступен на
+# запись — найдено реальным прогоном molecule ("failed to open log file '/var/log/odyssey.log'").
+# pid_file по той же причине не используется — systemd отслеживает PID сам (Type=notify).
+log_to_stdout yes
+log_syslog no
+log_debug no
+
+listen {
+    host "{{ odyssey_listen_host }}"
+    port {{ odyssey_listen_port }}
+}
+
+storage "write_backend" {
+    type "remote"
+    host "{{ odyssey_write_backend_host }}"
+    port {{ odyssey_write_backend_port }}
+}
+
+storage "read_backend" {
+    type "remote"
+    host "{{ odyssey_read_backend_host }}"
+    port {{ odyssey_read_backend_port }}
+}
+
+database "{{ odyssey_write_database_name }}" {
+    user "{{ odyssey_backend_user }}" {
+        authentication "md5"
+        password "{{ odyssey_backend_password }}"
+        storage "write_backend"
+        storage_user "{{ odyssey_backend_user }}"
+        storage_password "{{ odyssey_backend_password }}"
+        pool "{{ odyssey_pool_mode }}"
+    }
+}
+
+database "{{ odyssey_read_database_name }}" {
+    user "{{ odyssey_backend_user }}" {
+        authentication "md5"
+        password "{{ odyssey_backend_password }}"
+        storage "read_backend"
+        storage_user "{{ odyssey_backend_user }}"
+        storage_password "{{ odyssey_backend_password }}"
+        pool "{{ odyssey_pool_mode }}"
+    }
+}

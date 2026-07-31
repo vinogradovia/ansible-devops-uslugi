@@ -119,6 +119,11 @@ monitoring_server_victoria_metrics_scrape_mysqld_exporter: true
 monitoring_server_victoria_metrics_scrape_mysqld_exporter_port_default: 9104
 monitoring_server_victoria_metrics_alerts_rules_mysqld_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_mysqld_exporter and monitoring_server_orchestrator == 'k3s' }}"
 
+# postgres_exporter
+monitoring_server_victoria_metrics_scrape_postgres_exporter: true
+monitoring_server_victoria_metrics_scrape_postgres_exporter_port_default: 9187
+monitoring_server_victoria_metrics_alerts_rules_postgres_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_postgres_exporter and monitoring_server_orchestrator == 'k3s' }}"
+
 # prom_client
 monitoring_server_victoria_metrics_scrape_prom_client: false
 monitoring_server_victoria_metrics_scrape_prom_client_port_default: 9464

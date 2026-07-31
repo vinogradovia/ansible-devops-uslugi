@@ -1,0 +1,33 @@
+# {{ ansible_managed }}
+#
+# pgBackRest со встроенным S3-driver (ADR §8, не rclone, как в mysql_replication) — доставка в
+# Selectel S3-совместимое хранилище. Ретеншн — через нативные repo1-retention-full/diff, WAL
+# сегменты, ставшие ненужными после экспирации бэкапа, pgBackRest удаляет сам (expire).
+#
+# Бэкап снимается ЛОКАЛЬНО на этом хосте ({{ postgresql_replication_backup_source_role }}, ADR
+# §8) — без отдельного repository-хоста и без "backup from standby"-режима pgBackRest (pg2-*):
+# pg1-path указывает на локальный datadir, archive_command на этом же хосте (см.
+# templates/postgresql-replication.conf.j2, archive_mode=always для реплик) сам поставляет WAL в
+# тот же репозиторий.
+
+[global]
+repo1-type=s3
+repo1-s3-endpoint={{ postgresql_replication_backup_s3_endpoint }}
+repo1-s3-bucket={{ postgresql_replication_backup_s3_bucket }}
+repo1-s3-region={{ postgresql_replication_backup_s3_region }}
+repo1-s3-key={{ postgresql_replication_backup_s3_access_key }}
+repo1-s3-key-secret={{ postgresql_replication_backup_s3_secret_key }}
+# Path-style URI — большинство S3-совместимых хранилищ вне AWS (включая Selectel) не поддерживают
+# virtual-hosted-style по бакету на произвольном домене.
+repo1-s3-uri-style=path
+repo1-retention-full={{ postgresql_replication_backup_retention_full }}
+repo1-retention-diff={{ postgresql_replication_backup_retention_diff }}
+# Шифрование бэкапов at rest — не требуется (явный ответ на уточняющий вопрос, ADR §8).
+start-fast=y
+log-path=/var/log/pgbackrest
+
+[{{ postgresql_replication_pgbackrest_stanza }}]
+pg1-path={{ postgresql_replication_datadir }}
+pg1-port={{ postgresql_replication_port }}
+pg1-socket-path=/var/run/postgresql
+pg1-user=postgres

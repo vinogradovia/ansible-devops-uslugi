@@ -1,0 +1,41 @@
+---
+# Официальный репозиторий apt.postgresql.org (PGDG), signed-by keyring — тот же паттерн, что и
+# roles/docker/tasks/install-repo.yml и roles/mysql_replication/tasks/install-mysql.yml, НЕ
+# apt_key (ADR §2). Один источник пакетов на PostgreSQL, repmgr и pgBackRest (все три — из PGDG),
+# что уменьшает поверхность обслуживания репозиториев по сравнению с отдельными источниками для
+# каждого компонента (тот же принцип, что и для odyssey, ADR §6).
+
+- name: "[repo] Установить пакеты, необходимые для подключения репозитория"
+  ansible.builtin.apt:
+    name:
+      - curl
+      - ca-certificates
+      - gnupg
+    state: present
+    update_cache: true
+
+- name: "[repo] Создать каталог для apt keyring'ов"
+  ansible.builtin.file:
+    path: "{{ postgresql_replication_apt_keyring_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: "[repo] Скачать GPG-ключ apt.postgresql.org (PGDG)"
+  ansible.builtin.get_url:
+    url: "https://www.postgresql.org/media/keys/ACCC4CF8.asc"
+    dest: "{{ postgresql_replication_apt_keyring_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: "[repo] Подключить репозиторий apt.postgresql.org (PGDG)"
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [signed-by={{ postgresql_replication_apt_keyring_path }}]
+      https://apt.postgresql.org/pub/repos/apt
+      {{ ansible_distribution_release }}-pgdg main
+    state: present
+    filename: pgdg
+    update_cache: true

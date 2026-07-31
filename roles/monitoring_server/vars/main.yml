@@ -82,6 +82,14 @@ monitoring_server_victoria_metrics_exporters:
       - "alert-rules/mysql/mysqld-exporter.yml"
 
 
+  - name: postgres-exporter
+    src: victoria-metrics-scrape-postgres-exporter-targets.json.j2
+    dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/postgres_exporter_targets.json"
+    state: "{{ monitoring_server_victoria_metrics_scrape_postgres_exporter }}"
+    alert_rules_default_enabled: "{{ monitoring_server_victoria_metrics_alerts_rules_postgres_exporter_default }}"
+    alert_rules_src:
+      - "alert-rules/postgresql/postgres-exporter.yml"
+
   - name: pve-exporter
     src: victoria-metrics-scrape-pve-exporter-targets.json.j2
     dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/pve_exporter_targets.json"

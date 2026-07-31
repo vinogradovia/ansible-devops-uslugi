@@ -1,0 +1,14 @@
+---
+# Переменные роли postgresql_replication для converge/verify этого сценария (не боевые значения —
+# это одноразовые ВМ, уничтожаемые на destroy).
+
+postgresql_replication_role: primary
+postgresql_replication_node_id: 1
+
+# В отличие от продовых дефолтов (ADR §2, postgresql_replication_allow_restart: false) — здесь
+# рестарт разрешён всегда: это тестовая ВМ, а не боевая база, "согласованное окно" неприменимо.
+postgresql_replication_allow_restart: true
+
+# Общие тестовые пароли на все три хоста сценария — не секреты.
+postgresql_replication_repl_password: molecule-test-repl-password
+postgresql_replication_repmgr_password: molecule-test-repmgr-password

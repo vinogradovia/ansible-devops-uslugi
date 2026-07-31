@@ -1,0 +1,100 @@
+---
+- name: Prepare
+  hosts: all
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Дождаться готовности systemd внутри контейнера
+      ansible.builtin.command: systemctl is-system-running
+      register: molecule_systemd_status
+      changed_when: false
+      failed_when: false
+      until: molecule_systemd_status.stdout in ['running', 'degraded']
+      retries: 15
+      delay: 2
+
+    - name: Обновить apt-кэш
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    # postgresql-client — не нужен самой роли odyssey (нативный пулер, а не БД), только этому
+    # сценарию для функциональной проверки маршрутизации через psql (verify.yml).
+    - name: Установить postgresql-client (нужен только сценарию, для verify.yml)
+      ansible.builtin.apt:
+        name: postgresql-client
+        state: present
+
+    # --- Fixture-бэкенды PostgreSQL (write/read) — В ОТЛИЧИЕ от reverse_proxy_npm, здесь НЕТ
+    # docker-in-docker: роль odyssey сама Docker не использует (нативный apt-пакет), поэтому
+    # фикстуры создаются НЕ внутри тестового контейнера, а как контейнеры-соседи на хостовом
+    # Docker-демоне (delegate_to: localhost — том самом Docker, которым molecule управляет
+    # платформой "odyssey"), в общей сети odyssey_molecule_net (см. molecule.yml), чтобы Odyssey
+    # резолвил их по имени контейнера через Docker embedded DNS.
+    - name: Запустить fixture write-backend (PostgreSQL)
+      delegate_to: localhost
+      become: false
+      community.docker.docker_container:
+        name: odyssey-fixture-write
+        image: "postgres:17"
+        state: started
+        restart_policy: unless-stopped
+        env:
+          POSTGRES_USER: "{{ odyssey_backend_user }}"
+          POSTGRES_PASSWORD: "{{ odyssey_backend_password }}"
+          POSTGRES_DB: "{{ odyssey_write_database_name }}"
+        networks:
+          - name: odyssey_molecule_net
+
+    - name: Запустить fixture read-backend (PostgreSQL)
+      delegate_to: localhost
+      become: false
+      community.docker.docker_container:
+        name: odyssey-fixture-read
+        image: "postgres:17"
+        state: started
+        restart_policy: unless-stopped
+        env:
+          POSTGRES_USER: "{{ odyssey_backend_user }}"
+          POSTGRES_PASSWORD: "{{ odyssey_backend_password }}"
+          POSTGRES_DB: "{{ odyssey_read_database_name }}"
+        networks:
+          - name: odyssey_molecule_net
+
+    - name: Дождаться готовности write-backend
+      delegate_to: localhost
+      become: false
+      ansible.builtin.command: "docker exec odyssey-fixture-write pg_isready -U {{ odyssey_backend_user }}"
+      register: molecule_write_ready
+      until: molecule_write_ready.rc == 0
+      retries: 15
+      delay: 2
+      changed_when: false
+
+    - name: Дождаться готовности read-backend
+      delegate_to: localhost
+      become: false
+      ansible.builtin.command: "docker exec odyssey-fixture-read pg_isready -U {{ odyssey_backend_user }}"
+      register: molecule_read_ready
+      until: molecule_read_ready.rc == 0
+      retries: 15
+      delay: 2
+      changed_when: false
+
+    # Отличительная метка на каждом бэкенде — verify.yml сверяет, что db-write/db-read реально
+    # попадают на разные физические backend'ы, а не просто на один и тот же по случайности.
+    - name: Пометить write-backend отличительной меткой
+      delegate_to: localhost
+      become: false
+      changed_when: true
+      ansible.builtin.command: >-
+        docker exec odyssey-fixture-write psql -U {{ odyssey_backend_user }} -d {{ odyssey_write_database_name }}
+        -c "CREATE TABLE IF NOT EXISTS probe (source TEXT); INSERT INTO probe VALUES ('write-backend');"
+
+    - name: Пометить read-backend отличительной меткой
+      delegate_to: localhost
+      become: false
+      changed_when: true
+      ansible.builtin.command: >-
+        docker exec odyssey-fixture-read psql -U {{ odyssey_backend_user }} -d {{ odyssey_read_database_name }}
+        -c "CREATE TABLE IF NOT EXISTS probe (source TEXT); INSERT INTO probe VALUES ('read-backend');"

@@ -1,0 +1,20 @@
+---
+# Fresh install из PGDG (ADR §2). Пакет postgresql-<version> уже содержит версию в имени — в
+# отличие от repo.mysql.com, отдельный apt-пин версии (<pkg>=<version>*) не требуется.
+#
+# postgresql-common (postinst-скрипт пакета postgresql-<version>) сам создаёт кластер "main" и
+# стартует сервис — тот же эффект, что и mysql-server на Debian/Ubuntu (ADR §2).
+
+- name: "Установить PostgreSQL {{ postgresql_replication_effective_version }}"
+  ansible.builtin.apt:
+    name:
+      - "postgresql-{{ postgresql_replication_effective_version }}"
+      - "postgresql-client-{{ postgresql_replication_effective_version }}"
+    state: present
+    update_cache: true
+
+- name: "Включить и запустить сервис {{ postgresql_replication_service_name }}"
+  ansible.builtin.systemd:
+    name: "{{ postgresql_replication_service_name }}"
+    enabled: true
+    state: started

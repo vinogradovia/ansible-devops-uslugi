@@ -1,0 +1,11 @@
+---
+galaxy_info:
+  author: Ivan Vinogradov <vinogradovia@gmail.com>
+  description: install/adopt PostgreSQL, configure repmgr-managed streaming replication (primary/read-replica/DR-replica), physical backups via pgBackRest
+  license: WTFPL
+  min_ansible_version: "2.2"
+  galaxy_tags:
+    - postgresql
+    - replication
+    - database
+dependencies: []

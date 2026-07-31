@@ -1,0 +1,47 @@
+---
+# Официальный репозиторий apt.postgresql.org (PGDG), signed-by keyring — тот же паттерн, что и
+# roles/postgresql_replication/tasks/install-repo.yml (ADR §6: odyssey ставится из PGDG, а НЕ из
+# GitHub Releases проекта yandex/odyssey — там нет вложений ни у одного тега, проверено через
+# GitHub API, см. ADR, «Контекст»). Не шарим install-repo.yml с postgresql_replication намеренно —
+# роли должны оставаться независимо переносимыми/версионируемыми (тот же принцип разделения, что
+# и между mysql_replication/proxysql).
+
+- name: "[repo] Установить пакеты, необходимые для подключения репозитория"
+  ansible.builtin.apt:
+    name:
+      - curl
+      - ca-certificates
+      - gnupg
+    state: present
+    update_cache: true
+
+- name: "[repo] Создать каталог для apt keyring'ов"
+  ansible.builtin.file:
+    path: "{{ odyssey_apt_keyring_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: "[repo] Скачать GPG-ключ apt.postgresql.org (PGDG)"
+  ansible.builtin.get_url:
+    url: "https://www.postgresql.org/media/keys/ACCC4CF8.asc"
+    dest: "{{ odyssey_apt_keyring_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: "[repo] Подключить репозиторий apt.postgresql.org (PGDG)"
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [signed-by={{ odyssey_apt_keyring_path }}]
+      https://apt.postgresql.org/pub/repos/apt
+      {{ ansible_distribution_release }}-pgdg main
+    state: present
+    filename: pgdg
+    update_cache: true
+
+- name: "[repo] Установить пакет {{ odyssey_package_name }}"
+  ansible.builtin.apt:
+    name: "{{ odyssey_package_name }}"
+    state: present
