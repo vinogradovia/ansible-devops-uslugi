@@ -24,6 +24,11 @@
     state: restarted
 
 - name: Restart service nginxlog-exporter
+  # nginxlog-exporter config рендерится в общей (не systemd-only) части monitoring-agent.yml — под
+  # docker-оркестратором юнита nginxlog_exporter не существует вообще (там контейнер), поэтому без
+  # guard'а handler падает "Could not find the requested service" при любом изменении конфига
+  # (тот же баг, что и у alloy — найдено при подключении alloy, ROADMAP.md Backlog №34).
+  when: monitoring_agent_orchestrator == 'systemd'
   ansible.builtin.systemd:
     name: "{{ monitoring_agent_nginxlog_exporter_systemd_name }}"
     enabled: "{{ monitoring_agent_nginxlog_exporter_enabled }}"
@@ -58,3 +63,14 @@
     cmd: systemctl reset-failed {{ monitoring_agent_pve_exporter_systemd_name }}
   failed_when: false
   changed_when: false
+
+- name: Restart service alloy
+  # alloy config рендерится для обоих оркестраторов (нужен и docker-контейнеру, и systemd-юниту),
+  # но под docker самого systemd-юнита alloy не существует — без guard'а падает "Could not find
+  # the requested service" при любом изменении конфига (docker-путь реконсилится через сам
+  # docker_compose_v2 при converge, отдельный restart ему не нужен).
+  when: monitoring_agent_orchestrator == 'systemd'
+  ansible.builtin.systemd:
+    name: "{{ monitoring_agent_alloy_systemd_name }}"
+    enabled: "{{ monitoring_agent_alloy_enabled }}"
+    state: restarted

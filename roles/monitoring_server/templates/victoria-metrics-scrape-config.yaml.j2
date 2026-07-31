@@ -65,3 +65,9 @@ scrape_configs:
       - files:
           - pve_exporter_targets.json
 {% endif %}
+{% if monitoring_server_victoria_metrics_scrape_alloy %}
+  - job_name: alloy
+    file_sd_configs:
+      - files:
+          - alloy_targets.json
+{% endif %}

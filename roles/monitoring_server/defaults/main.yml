@@ -98,6 +98,12 @@ monitoring_server_victoria_metrics_scrape_pve_exporter: true
 monitoring_server_victoria_metrics_scrape_pve_exporter_port_default: 9221
 monitoring_server_victoria_metrics_alerts_rules_pve_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_pve_exporter and monitoring_server_orchestrator == 'k3s' }}"
 
+# alloy (grafana-alloy, embedded exporter — self-мониторинг через alloy_build_info,
+# ROADMAP.md Backlog №34)
+monitoring_server_victoria_metrics_scrape_alloy: true
+monitoring_server_victoria_metrics_scrape_alloy_port_default: 12345
+monitoring_server_victoria_metrics_alerts_rules_alloy_default: "{{ monitoring_server_victoria_metrics_scrape_alloy and monitoring_server_orchestrator == 'k3s' }}"
+
 # blackbox
 monitoring_server_victoria_metrics_scrape_blackbox: false
 monitoring_server_victoria_metrics_alerts_rules_blackbox_default: "{{ monitoring_server_orchestrator == 'k3s' }}"

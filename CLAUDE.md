@@ -94,7 +94,15 @@ poetry run ansible-lint     # линтинг коллекции (использ�
   P0-баг (ROADMAP №36): `pve_exporter`/`mysqld_exporter` крашились сразу после старта под systemd
   (`PermissionError`, читая свой config-файл, который рендерился `root:root`, а сервис работает
   под выделенным `User=`) — исправлено в `roles/monitoring_agent/tasks/{exporters-pve-exporter,
-  monitoring-agent,systemd-mysqld-exporter}.yml`.
+  monitoring-agent,systemd-mysqld-exporter}.yml`. Оба хоста дополнительно покрывают `alloy`
+  (grafana-alloy, embedded exporter, ROADMAP.md Backlog №34) — единственный экспортер роли,
+  поддержанный на обоих оркестраторах; `config.alloy` намеренно пустой (нужен только
+  `alloy_build_info` для alert-правила `GrafanaAlloyServiceDown`). Тот же прогон поймал второй
+  P0-баг: config-задача `alloy` (как и `nginxlog-exporter`) рендерится в общей части
+  `tasks/monitoring-agent.yml`, но её `notify` безусловно вёл на `ansible.builtin.systemd`
+  handler — под docker-оркестратором такого юнита нет вообще, поэтому падало `"Could not find
+  the requested service"` при любом изменении конфига. Исправлено `when: monitoring_agent_orchestrator
+  == 'systemd'` на обоих handler'ах (`roles/monitoring_agent/handlers/main.yml`).
 - `extensions/molecule/docker/` — сценарий для роли `docker` (`docs/adr/0002-docker-role.md`, §8).
   Намеренно **не** `driver: docker` — образ `geerlingguy/docker-debian12-ansible` Docker Engine
   не содержит (проверено эмпирически, вопреки более ранней версии этого документа/ADR-0002 §8),

@@ -170,4 +170,19 @@ monitoring_agent_pve_exporter_timeout: 15
 monitoring_agent_pve_exporter_systemd_name: pve_exporter
 monitoring_agent_pve_exporter_systemd_fullname: "{{ monitoring_agent_pve_exporter_systemd_name }}.service"
 
+# alloy (grafana-alloy, embedded exporter — только self-мониторинг, config.alloy без компонентов;
+# ROADMAP.md Backlog №34). Поддержаны оба оркестратора, в отличие от pve_exporter.
+monitoring_agent_alloy_enabled: false
+monitoring_agent_alloy_config_dir: "{{ monitoring_agent_config_dir }}/alloy"
+monitoring_agent_alloy_image_registry: docker.io
+monitoring_agent_alloy_image_repository: grafana/alloy
+monitoring_agent_alloy_image_version: "v1.18.0"
+monitoring_agent_alloy_image: >-
+  {{ monitoring_agent_alloy_image_registry }}/{{ monitoring_agent_alloy_image_repository }}:{{ monitoring_agent_alloy_image_version }}
+monitoring_agent_alloy_port: '12345'
+monitoring_agent_alloy_systemd_name: alloy
+monitoring_agent_alloy_binary_download_url: https://github.com/grafana/alloy/releases/download/v1.18.0/alloy-linux-amd64.zip
+monitoring_agent_alloy_binary_checksum: sha256:92f4c950aec4ec16a7fdbf6f805be4334d4d5fbbe458eecf514319c1c491bef4
+monitoring_agent_alloy_binary_install_path: /usr/sbin/alloy
+
 monitoring_agent_prom_client_enabled: false

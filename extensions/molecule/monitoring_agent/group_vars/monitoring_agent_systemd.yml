@@ -11,3 +11,6 @@ monitoring_agent_node_exporter_enabled: true
 # реальном scrape запроса /pve, не при старте процесса).
 monitoring_agent_pve_exporter_enabled: true
 monitoring_agent_pve_exporter_token_value: "molecule-test-token"
+
+# alloy (ROADMAP.md Backlog №34) — embedded exporter, покрыт на обоих оркестраторах.
+monitoring_agent_alloy_enabled: true

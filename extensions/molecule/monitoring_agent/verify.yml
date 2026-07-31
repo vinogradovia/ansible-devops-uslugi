@@ -71,6 +71,31 @@
           а не молча игнорироваться — регрессия в exporters-pve-exporter.yml.
         quiet: true
 
+    # --- alloy (ROADMAP.md Backlog №34, embedded exporter) ------------------------------------
+    - name: Собрать информацию о контейнере alloy
+      community.docker.docker_container_info:
+        name: alloy
+      register: molecule_alloy_container
+
+    - name: Контейнер alloy должен существовать и быть running
+      ansible.builtin.assert:
+        that:
+          - molecule_alloy_container.exists
+          - molecule_alloy_container.container.State.Status == 'running'
+        quiet: true
+
+    - name: "Alloy должен реально отдавать собственные метрики на :12345"
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:12345/metrics"
+        return_content: true
+      register: molecule_alloy_metrics
+
+    - name: Ответ должен содержать alloy_build_info (метрика из alert-правила GrafanaAlloyServiceDown)
+      ansible.builtin.assert:
+        that:
+          - "'alloy_build_info' in molecule_alloy_metrics.content"
+        quiet: true
+
 - name: Verify (systemd orchestrator)
   hosts: monitoring_agent_systemd
   become: true
@@ -139,4 +164,24 @@
         that:
           - molecule_pve_yml_stat.stat.exists
           - molecule_pve_yml_stat.stat.mode == '0600'
+        quiet: true
+
+    # --- alloy (ROADMAP.md Backlog №34, embedded exporter) ------------------------------------
+    - name: Alloy.service должен быть running/enabled
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.services['alloy.service'].state == 'running'
+          - ansible_facts.services['alloy.service'].status == 'enabled'
+        quiet: true
+
+    - name: "Alloy должен реально отдавать собственные метрики на :12345"
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:12345/metrics"
+        return_content: true
+      register: molecule_alloy_metrics_systemd
+
+    - name: Ответ должен содержать alloy_build_info (метрика из alert-правила GrafanaAlloyServiceDown)
+      ansible.builtin.assert:
+        that:
+          - "'alloy_build_info' in molecule_alloy_metrics_systemd.content"
         quiet: true

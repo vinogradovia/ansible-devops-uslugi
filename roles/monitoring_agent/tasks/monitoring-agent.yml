@@ -70,6 +70,40 @@
         group: root
         mode: '0644'
 
+# alloy config (needed for both docker and systemd) — только self-мониторинг (embedded exporter,
+# ROADMAP.md Backlog №34), config.alloy без компонентов.
+- name: Create alloy config dirs
+  when: monitoring_agent_alloy_enabled
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - "{{ monitoring_agent_alloy_config_dir }}"
+
+- name: Provisioning alloy config
+  notify:
+    - Restart service alloy
+  block:
+    - name: Provisioning alloy config remove
+      when: not monitoring_agent_alloy_enabled
+      ansible.builtin.file:
+        owner: root
+        group: root
+        mode: '0644'
+        state: absent
+        dest: "{{ monitoring_agent_alloy_config_dir }}/config.alloy"
+    - name: Provisioning alloy config copy
+      when: monitoring_agent_alloy_enabled
+      ansible.builtin.template:
+        src: alloy-config.alloy.j2
+        dest: "{{ monitoring_agent_alloy_config_dir }}/config.alloy"
+        owner: root
+        group: root
+        mode: '0644'
+
 # mysqld-exporter
 # Под systemd сервис работает под User={{ monitoring_agent_mysqld_exporter_systemd_name }} (не
 # root, systemd-mysqld-exporter.yml) и без владения этим пользователем падает с PermissionError,
@@ -179,6 +213,11 @@
       when: monitoring_agent_mysqld_exporter_enabled
       ansible.builtin.include_tasks:
         file: systemd-mysqld-exporter.yml
+
+    - name: Include systemd-alloy tasks
+      when: monitoring_agent_alloy_enabled
+      ansible.builtin.include_tasks:
+        file: systemd-alloy.yml
 
 # New Style of Exporters Definotions
 # pve_exporter

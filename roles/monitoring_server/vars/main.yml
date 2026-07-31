@@ -91,6 +91,15 @@ monitoring_server_victoria_metrics_exporters:
     alert_rules_src:
       - "alert-rules/proxmox-ve/prometheus-pve-exporter.yml"
 
+  - name: alloy
+    src: victoria-metrics-scrape-grafana-alloy-targets.json.j2
+    dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/alloy_targets.json"
+    state: "{{ monitoring_server_victoria_metrics_scrape_alloy }}"
+    alert_rules_default_enabled: "{{ monitoring_server_victoria_metrics_alerts_rules_alloy_default }}"
+    # alert_rules_dest: "{{ monitoring_server_victoria_metrics_config_dir }}/TODO"
+    alert_rules_src:
+      - "alert-rules/grafana-alloy/embedded-exporter.yml"
+
   - name: prom-client
     src: victoria-metrics-scrape-prom-client-targets.json.j2
     dest: "{{ monitoring_server_victoria_metrics_config_dir }}/scrape_config/prom_client_targets.json"

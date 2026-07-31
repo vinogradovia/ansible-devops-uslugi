@@ -1,0 +1,13 @@
+[Unit]
+Description=Grafana Alloy (embedded exporter)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User={{ monitoring_agent_alloy_systemd_name }}
+ExecStart={{ monitoring_agent_alloy_binary_install_path }} run {{ monitoring_agent_alloy_config_dir }}/config.alloy --storage.path={{ monitoring_agent_alloy_config_dir }}/data --server.http.listen-addr=0.0.0.0:{{ monitoring_agent_alloy_port }}
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

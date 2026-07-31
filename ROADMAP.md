@@ -375,21 +375,44 @@
 по образцу уже существующей». Вынесены отдельно от P0-P5, чтобы не смешивать их с багами/мусором:
 здесь нечего чинить, нужно реализовать с нуля по существующему шаблону.
 
-34. **Подключить экспортер `grafana-alloy` (embedded-exporter) в monitoring_server/monitoring_agent.**
-    Шаблон алертов уже есть — `roles/monitoring_server/templates/alert-rules/grafana-alloy/embedded-exporter.yml`
-    (перенесено из P3-24, где было ошибочно классифицировано как мёртвый код). Нужно пройти
-    стандартный 4-шаговый процесс подключения экспортера, описанный в CLAUDE.md/AGENTS.md:
-    1. alert-правила — уже есть, шаг сделан.
-    2. серверные переменные по умолчанию в `roles/monitoring_server/defaults/main.yml`:
-       `monitoring_server_victoria_metrics_scrape_alloy`,
-       `..._scrape_alloy_port_default`, `..._alerts_rules_alloy_default`.
+34. ~~**Подключить экспортер `grafana-alloy` (embedded-exporter) в monitoring_server/monitoring_agent.**~~
+    — **сделано**. Шаблон алертов уже был — `roles/monitoring_server/templates/alert-rules/grafana-alloy/embedded-exporter.yml`
+    (перенесено из P3-24). Пройден стандартный 4-шаговый процесс:
+    1. alert-правила — уже были.
+    2. серверные переменные в `roles/monitoring_server/defaults/main.yml`:
+       `monitoring_server_victoria_metrics_scrape_alloy` (default `true`),
+       `..._scrape_alloy_port_default` (`12345`), `..._alerts_rules_alloy_default`.
     3. переменные агента в `roles/monitoring_agent/defaults/main.yml`:
-       `monitoring_agent_alloy_enabled`, `_image_registry`, `_image_repository`, `_image_version`,
-       `_image`, `_port`, `_systemd_name`, `_binary_download_url`, `_binary_install_path`
-       (+ `_binary_checksum`, см. P1-13 — паттерн checksum теперь обязателен для новых экспортеров).
+       `monitoring_agent_alloy_enabled` (default `false`), `_image_registry`/`_repository`
+       (`docker.io`/`grafana/alloy`), `_image_version` (`v1.18.0`), `_image`, `_port` (`12345`),
+       `_systemd_name` (`alloy`), `_config_dir`, `_binary_download_url`
+       (`grafana/alloy` releases, `alloy-linux-amd64.zip`), `_binary_install_path`,
+       `_binary_checksum` (P1-13 паттерн). Поддержаны оба оркестратора — редкость среди
+       экспортеров (`pve_exporter`, например, только `systemd`).
     4. регистрация в массиве `monitoring_server_victoria_metrics_exporters`
-       (`roles/monitoring_server/vars/main.yml`): `name`, `scrape_src`, `scrape_dest`,
-       `scrape_state`, `alert_rules_default_enabled`, `alert_rules_src`.
+       (`roles/monitoring_server/vars/main.yml`): `name: alloy`.
+    Config (`config.alloy`) — намеренно пустой (без компонентов): нужен только `alloy_build_info`
+    для alert-правила `GrafanaAlloyServiceDown`, реальный сбор метрик/логов через grafana-alloy
+    уже покрыт отдельно под k3s через Helm (`helm/values/releases_common/grafana-alloy*.yaml`,
+    ADR-0007) — здесь только docker/systemd путь для оркестраторов `monitoring_agent`, где своего
+    k3s нет. Архив `grafana/alloy` — `.zip`, а не `.tar.gz`, как у остальных экспортеров (плоский,
+    без вложенной директории) — потребовал отдельного паттерна распаковки и установки пакета
+    `unzip`.
+
+    Первый же прогон `molecule test -s monitoring_agent` (расширен под `monitoring_agent_alloy_enabled: true`
+    на обоих хостах) поймал реальный, ранее не описанный баг — **и не только у alloy**:
+    config-файл `alloy` (как и `nginxlog-exporter`, тот же паттерн) рендерится в общей, не
+    systemd-only части `tasks/monitoring-agent.yml` (нужен обоим оркестраторам), но его
+    `notify: Restart service <X>` **безусловно** ведёт на handler с `ansible.builtin.systemd` —
+    под docker-оркестратором такого юнита не существует вообще (там контейнер, не systemd-сервис),
+    поэтому при любом изменении конфига падает `"Could not find the requested service"`.
+    Исправлено добавлением `when: monitoring_agent_orchestrator == 'systemd'` на оба handler'а
+    (`Restart service alloy`, `Restart service nginxlog-exporter`) — для docker-пути перезапуск не
+    нужен, `docker_compose_v2` и так реконсилит контейнер на каждом `converge`. Баг у
+    `nginxlog-exporter` был скрыт с момента появления экспортера — сработать он мог, только если
+    одновременно включить `monitoring_agent_nginxlog_exporter_enabled: true` и
+    `monitoring_agent_orchestrator: docker`, а таким сочетанием ни один существующий тест/сценарий
+    не пользовался.
 
 ---
 
