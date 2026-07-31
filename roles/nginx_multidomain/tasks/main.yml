@@ -23,6 +23,9 @@
 # type: php_fpm заявлен в схеме переменных (defaults/main.yml), но не реализован — циклы ниже
 # фильтруют только ['static', 'proxy'], поэтому без этой проверки домен с неподдерживаемым type
 # (php_fpm, опечатка и т.п.) молча пропускался бы вообще без vhost'а и без единой ошибки/warning'а.
+# Гейт на item.enabled — той же семантики, что у циклов vhosts.yml/vhost_absent.yml ниже: выключенный
+# домен-заготовка (enabled: false) с ещё не поддержанным type не должен ронять весь play — раньше он
+# и не рендерился, и не убирался (оба цикла и так фильтровали type), просто молча пропускался.
 - name: "Проверить domain.type"
   ansible.builtin.assert:
     that:
@@ -35,6 +38,7 @@
   loop: "{{ nginx_domains }}"
   loop_control:
     label: "{{ item.name }}"
+  when: item.enabled | default(true)
 
 - name: "Установка Nginx: {{ nginx_install_method }}"
   ansible.builtin.include_tasks: install_package.yml
@@ -54,13 +58,18 @@
   register: nginx_multidomain_main_conf_raw
 
 - name: "Проверить, что nginx.conf подключает sites-enabled (см. §9.4 архитектурного документа)"
+  # Наивный substring-поиск 'sites-enabled' in content проходил бы и на закомментированной строке
+  # (# include .../sites-enabled/*;) — regex с multiline: true требует, чтобы "sites-enabled"
+  # встречалось на строке БЕЗ предшествующего "#" (т.е. реально активная директива, не комментарий).
   ansible.builtin.assert:
     that:
-      - "'sites-enabled' in (nginx_multidomain_main_conf_raw.content | b64decode)"
+      - (nginx_multidomain_main_conf_raw.content | b64decode) is regex('^[^#\n]*sites-enabled', multiline=True)
     fail_msg: >-
-      {{ nginx_conf_dir }}/nginx.conf не содержит "sites-enabled" — эта роль не рендерит главный
-      nginx.conf сама и полагается на то, что он уже подключает sites-enabled/* (стоковый конфиг
-      Debian/Ubuntu это делает по умолчанию). См. docs/adr/0003-ginx-multidomain-role.md §9.4.
+      {{ nginx_conf_dir }}/nginx.conf не подключает "sites-enabled" активной (не закомментированной)
+      директивой — эта роль не рендерит главный nginx.conf сама и полагается на то, что он уже
+      подключает sites-enabled/* (стоковый конфиг Debian/Ubuntu-пакета nginx это делает по
+      умолчанию; пакет nginx.org, см. nginx_install_method: repo, — нет, там нужна ручная правка
+      nginx.conf). См. docs/adr/0003-ginx-multidomain-role.md §9.4.
     quiet: true
 
 - name: Создать базовые директории (sites-*, conf.d, логи)

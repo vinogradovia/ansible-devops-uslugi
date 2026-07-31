@@ -300,6 +300,35 @@
     в `.gitignore` корня коллекции. Сама находка была про риск случайного попадания в git — он
     снят; физически оставшиеся на диске артефакты прошлых прогонов — локальная уборка рабочей
     директории, не задача коллекции.
+41. ~~**`nginx_multidomain`: assert на `domain.type` (fail-fast для `php_fpm`-заглушки, добавлен
+    ранее в этой же сессии, см. таблицу P4 и `docs/adr/0003-ginx-multidomain-role.md` §8.5) не
+    учитывал `domain.enabled: false`**~~ (найдено `/code-review` этой же сессии) —
+    **исправлено**: добавлен `when: item.enabled | default(true)`, симметрично тому, как
+    уже гейтятся циклы `vhosts.yml`/`vhost_absent.yml`. До фикса выключенный домен-заготовка
+    (`enabled: false`, `type: php_fpm`) — раньше молча игнорировался обоими циклами — после
+    добавления assert'а стал ронять весь play, хотя рендериться/убираться всё равно не должен был.
+42. ~~**`nginx_multidomain`: проверка §9.4 (`sites-enabled` в `nginx.conf`) — наивный
+    substring-поиск, проходит даже на закомментированном `include`**~~ (найдено `/code-review`) —
+    **исправлено**: заменено на `is regex('^[^#\n]*sites-enabled', multiline=True)` — не совпадает,
+    если "sites-enabled" встречается только в закомментированной строке. Заодно задокументировано в
+    самом `fail_msg`: пакет `nginx.org` (`nginx_install_method: repo`) не подключает
+    `sites-enabled` по умолчанию (только `conf.d`), в отличие от Debian/Ubuntu-пакета — проверено
+    эмпирически, реальной установкой пакета в чистом Debian 12. Это не регрессия, а корректное
+    срабатывание assert'а на не покрытый molecule-сценарием случай (`extensions/molecule/
+    nginx_multidomain/` проверяет только `install_method: package`) — фикс тестового покрытия
+    для `repo`-метода остаётся отдельной задачей.
+43. ~~**`monitoring_server`: во всех 11 `victoria-metrics-scrape-*-targets.json.j2` персональный
+    override порта агента (`monitoring_agent_*_port`) читается как голая переменная, а не
+    `hostvars[host].get(...)`**~~ (найдено `/code-review` при проверке нового
+    `victoria-metrics-scrape-grafana-alloy-targets.json.j2` — тот же паттерн скопирован из всех
+    остальных шаблонов, воспроизводит существующий баг, а не создаёт новый) — **исправлено** во
+    всех 10 затронутых шаблонах (`prom-client` не имеет per-host порта вообще). Раньше override
+    порта для конкретного agent-хоста (host_vars, например при конфликте портов) молча
+    игнорировался — использовался дефолтный порт для всех хостов сразу. Заодно нашёлся отдельный,
+    не связанный с этой сессией баг того же ревью: `victoria-metrics-scrape-docker-exporter-
+    targets.json.j2` использовал `monitoring_agent_node_exporter_port` (порт **другого**
+    экспортёра, явная опечатка copy-paste) вместо `monitoring_agent_docker_exporter_port` —
+    тоже исправлено.
 
 ---
 

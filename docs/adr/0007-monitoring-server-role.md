@@ -607,6 +607,22 @@ settings.local.json`, локальный файл настроек Claude Code, 
 снят; физически оставшиеся на диске артефакты прошлых прогонов (kubeconfig-и, vendor-кэш) — это
 локальная уборка рабочей директории, не задача этого ADR.
 
+### 10.5. Персональный override порта агента игнорировался во всех `*-targets.json.j2`
+~~Найдено `/code-review`~~ — **исправлено** (ROADMAP.md, п. 43). Все 10 шаблонов
+`templates/victoria-metrics-scrape-*-targets.json.j2` с per-host портом (кроме `prom-client`, у
+которого его нет) читали `monitoring_agent_<x>_port` как голую переменную вместо
+`hostvars[host].get('monitoring_agent_<x>_port', ...)`, хотя соседний `*_enabled`-флаг и
+`ansible_host` в той же строке уже корректно резолвились через `hostvars[host]`. На хосте
+`monitoring_server`, не являющемся одновременно `monitoring_agent` (обычная топология с
+раздельными хостами), голая переменная всегда не определена → `default(...)` всегда срабатывал
+→ override порта для конкретного agent-хоста (host_vars, например при конфликте портов) молча
+игнорировался, targets всегда получали дефолтный порт независимо от реальной настройки агента.
+Обнаружено при добавлении `victoria-metrics-scrape-grafana-alloy-targets.json.j2` (Backlog №34) —
+новый шаблон скопировал существующий паттерн, ревью нашло его и в оригинале. Заодно — отдельный,
+не связанный с этим багом баг того же ревью: `victoria-metrics-scrape-docker-exporter-
+targets.json.j2` использовал `monitoring_agent_node_exporter_port` (порт node-exporter'а) вместо
+`monitoring_agent_docker_exporter_port` — явная опечатка copy-paste, тоже исправлено.
+
 ---
 
 ## 11. Тестовое покрытие
