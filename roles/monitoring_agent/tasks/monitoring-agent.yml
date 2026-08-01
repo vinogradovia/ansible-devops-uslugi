@@ -211,11 +211,6 @@
       ansible.builtin.include_tasks:
         file: systemd-ipa-exporter.yml
 
-    - name: Include systemd-mysqld-exporter tasks
-      when: monitoring_agent_mysqld_exporter_enabled
-      ansible.builtin.include_tasks:
-        file: systemd-mysqld-exporter.yml
-
     - name: Include systemd-alloy tasks
       when: monitoring_agent_alloy_enabled
       ansible.builtin.include_tasks:
@@ -230,6 +225,20 @@
       when: monitoring_agent_promtail_enabled
       ansible.builtin.include_tasks:
         file: systemd-promtail.yml
+
+    # ВАЖНО: должен идти последним среди "Include systemd-*-exporter tasks" в этом блоке.
+    # systemd-mysqld-exporter.yml форсирует flush_handlers для СВОЕГО рестарта — но
+    # meta: flush_handlers не умеет флашить выборочно, он сбрасывает ВСЕ отложенные хендлеры
+    # разом, включая уже notify'нутые из общей (не systemd-only) части файла выше
+    # (nginxlog/alloy/promtail — их config рендерится безусловно для обоих оркестраторов, до
+    # ветвления docker/systemd). Если чей-то systemd-юнит на момент этого flush ещё не создан
+    # (Include-таск идёт позже в списке), хендлер падает "Could not find the requested service"
+    # (найдено реальным прогоном site.yml с чистого хоста, ADR-0006 — раньше эта комбинация
+    # оркестраторов/экспортёров ни разу не была протестирована целиком).
+    - name: Include systemd-mysqld-exporter tasks
+      when: monitoring_agent_mysqld_exporter_enabled
+      ansible.builtin.include_tasks:
+        file: systemd-mysqld-exporter.yml
 
 # New Style of Exporters Definotions
 # pve_exporter
