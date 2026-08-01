@@ -188,6 +188,23 @@ monitoring_server_grafana_dashboards_group_defaults_mysql:
         uid: 549c2bf8936f7767ea6ac47c47b00f2a
         src: "../../ADDONS/grafana_dashboards/MySQL-1771724748006.json"
 
+# node_exporter включён в monitoring_agent по умолчанию (monitoring_agent_node_exporter_enabled:
+# true), но собственного готового дашборда под него в ADDONS не было — единственный экспортёр
+# коллекции без дашборда вообще (найдено реальным использованием demo-стенда, ADR-0006). "Node
+# Exporter Full" (grafana.com/dashboards/1860) — де-факто стандартный дашборд под этот экспортёр,
+# тот же источник (grafana.com), что и у остальных ADDON-дашбордов (nginx_9108.json,
+# blackbox_13659_rev1.json и т.д.). В отличие от старых __inputs/${DS_*}-дашбордов, использует
+# современный формат (templating-переменная ds_prometheus без сохранённого current — Grafana сама
+# подставляет дефолтный datasource подходящего типа), поэтому подстановка ${DS_VICTORIAMETRICS} в
+# grafana-provisioning-dashboard.yaml для него — no-op, а не обязательное условие.
+monitoring_server_grafana_dashboards_group_defaults_node_exporter:
+  node_exporter:
+    enable: false
+    dashboards:
+      - name: Node Exporter Full
+        uid: rYdddlPWk
+        src: "../../ADDONS/grafana_dashboards/node_exporter_full_1860.json"
+
 monitoring_server_grafana_dashboards_group_defaults_pve1:
   pve1:
     enable: false
