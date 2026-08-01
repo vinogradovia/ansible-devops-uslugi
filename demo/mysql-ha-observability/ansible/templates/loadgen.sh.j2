@@ -1,0 +1,15 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# ADR-0006 §8: ad hoc генератор нагрузки — единственная точка входа: db-write/db-read (DNS,
+# group_vars/infra_dns.yml) → ProxySQL (client-порт {{ proxysql_mysql_listen_port }}) → MySQL.
+set -euo pipefail
+
+source /etc/loadgen/loadgen.env
+
+mysql --host="db-write.{{ infra_dns_zone_name }}" --port="${PROXYSQL_PORT}" \
+      --user="${LOADGEN_USER}" --password="${LOADGEN_PASSWORD}" loadgen_demo \
+      -e "INSERT INTO pings (source) VALUES ('$(hostname)')"
+
+mysql --host="db-read.{{ infra_dns_zone_name }}" --port="${PROXYSQL_PORT}" \
+      --user="${LOADGEN_USER}" --password="${LOADGEN_PASSWORD}" loadgen_demo \
+      -e "SELECT COUNT(*) AS total_pings FROM pings" >/dev/null

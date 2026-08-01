@@ -1,0 +1,42 @@
+---
+# ADR-0006 §4/§5: monitoring_server, docker-оркестратор — нужен для Loki+MinIO.
+#
+# Пароли — открытым текстом (не Ansible Vault). Осознанное упрощение ТОЛЬКО для этого демо-стенда
+# (ADR-0006 §9): стенд не подключён к внешней сети, реальных данных не хранит. НЕ переносить этот
+# паттерн на роли коллекции — там (mysql_replication, proxysql, postgresql_replication/odyssey)
+# обязательный Vault остаётся в силе.
+
+monitoring_server_orchestrator: docker
+
+# Ни nginx_multidomain, ни reverse_proxy_traefik/npm в этом кейсе не разворачиваются — внешней
+# docker-сети "proxy" просто неоткуда взяться. Роль создаёт её сама (ADR-0007 §10.3,
+# check-and-install-requirements.docker.yml). Grafana/VictoriaMetrics всё равно доступны напрямую
+# по host-портам (3000/8428) — реверс-прокси не обязателен для доступа.
+monitoring_server_docker_proxy_network_external: false
+
+monitoring_server_victoria_metrics_enabled: true
+
+monitoring_server_grafana_enabled: true
+monitoring_server_grafana_security_admin_password: "demo-grafana-admin-CHANGE-ME"
+
+# ADR-0006 §5: Loki требует local_storage_s3_enabled (Loki хардкодит object_store: s3, локальной
+# файловой альтернативы не реализовано, roles/monitoring_server/tasks/
+# check-and-install-requirements.docker.yml). Внешний S3 не нужен — роль сама поднимает MinIO.
+monitoring_server_local_storage_s3_enabled: true
+monitoring_server_local_storage_s3:
+  access_key: demo-minio-access-key
+  secret_key: demo-minio-secret-key-CHANGE-ME
+
+monitoring_server_grafana_loki_enabled: true
+
+# Дашборд-группы (ADR-0007 §2.4/§8) — все monitoring_server_grafana_dashboards_group_defaults_*
+# по умолчанию enable: false, без явного override здесь ни одна не провижинится (найдено
+# реальным прогоном — Grafana была пуста, хотя датасорсы VictoriaMetrics/Loki уже были здоровы).
+# "mysql" — про mysqld_exporter на трёх MySQL-хостах. "node_exporter" — про node_exporter,
+# включённый на ВСЕХ агентских хостах (group_vars/monitoring_agents.yml). Остальные (nginx/pve1/
+# blackbox/php_fpm/redis/freeipa/prom_client) — не про этот кейс, не включаем.
+monitoring_server_grafana_dashboards_group_install:
+  mysql:
+    enable: true
+  node_exporter:
+    enable: true

@@ -13,3 +13,13 @@ helm/tmp/
 # extensions/molecule/inventory/hosts.yml) — рабочий артефакт прогона, не фикстура. Раньше уже
 # протекал в git при пустом TMPDIR (см. коммит, удаливший test-host-k3s_created.yml).
 extensions/molecule/default/*_created.yml
+
+# demo/ (ADR-0006) — состояние Terraform и сгенерированный Ansible-inventory локальны для
+# каждого оператора стенда (реальные IP/пути зависят от конкретного libvirt-хоста), не
+# коммитятся. .terraform.lock.hcl — не игнорируется (фиксирует версии провайдеров).
+demo/*/terraform/.terraform/
+demo/*/terraform/terraform.tfstate
+demo/*/terraform/terraform.tfstate.backup
+demo/*/terraform/*.tfplan
+demo/*/terraform/crash.log
+demo/*/ansible/inventory.yml

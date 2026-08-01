@@ -1,0 +1,22 @@
+---
+# ADR-0004 §6: единая точка подключения — db-write/db-read (см. group_vars/infra_dns.yml) ведут
+# сюда, ProxySQL сам маршрутизирует. mysql-dr-replica сознательно НЕ в backend_servers (ТЗ
+# запрещает боевое чтение с DR — попадает в writer-hostgroup только вручную при promote).
+
+proxysql_admin_password: "demo-proxysql-admin-password-CHANGE-ME"
+# proxysql_monitor_user/_password — см. group_vars/all.yml (нужны и на mysql-primary).
+
+# Статические IP из Terraform (../terraform/vms.tf, locals.vms).
+proxysql_backend_servers:
+  - hostgroup: "{{ proxysql_writer_hostgroup }}"
+    address: 10.66.6.21 # mysql-primary
+    port: 3306
+  - hostgroup: "{{ proxysql_reader_hostgroup }}"
+    address: 10.66.6.22 # mysql-read-replica
+    port: 3306
+
+# Пользователь для load-generator (ADR-0006 §8) — пишет через db-write, читает через db-read.
+proxysql_mysql_users:
+  - username: loadgen
+    password: "{{ demo_loadgen_mysql_password }}"
+    default_hostgroup: "{{ proxysql_writer_hostgroup }}"

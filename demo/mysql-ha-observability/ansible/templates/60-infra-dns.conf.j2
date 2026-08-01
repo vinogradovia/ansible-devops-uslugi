@@ -1,0 +1,6 @@
+# {{ ansible_managed }}
+# Split-DNS: запросы к зоне demo-стенда (db-write/db-read и т.д., group_vars/infra_dns.yml)
+# уходят на infra_dns, всё остальное — через обычный resolver сети (ADR-0006 §4/ADR-0004 §6).
+[Resolve]
+DNS={{ infra_dns_host_ip }}
+Domains=~{{ infra_dns_zone_name }}

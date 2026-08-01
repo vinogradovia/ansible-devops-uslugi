@@ -1,0 +1,20 @@
+---
+# ADR-0004 §3/§4. Хост свежий (Terraform-провижининг) — mysql_replication делает fresh install,
+# adopt-ветка (README, "Discovery версии") в этом стенде не задействуется.
+mysql_replication_role: primary
+mysql_replication_server_id: 1
+
+# Общий для primary + обеих реплик — см. group_vars/mysql_read_replica.yml,
+# group_vars/mysql_dr_replica.yml. Открытым текстом — ADR-0006 §9.
+mysql_replication_repl_password: "demo-mysql-repl-pwd-CHANGEME"
+
+# ADR §11 (композиция, не meta-зависимость): пользователя для mysqld_exporter создаём ad hoc в
+# site.yml (play "Create ad hoc DB users"), сама роль monitoring_agent его не заводит.
+monitoring_agent_mysqld_exporter_enabled: true
+monitoring_agent_mysqld_exporter_password: "demo-mysqld-exporter-password-CHANGE-ME"
+# _user/_hosts продублированы явно (= дефолты roles/monitoring_agent/defaults/main.yml) —
+# defaults роли не переживают переход в другой play, даже на том же хосте (найдено этим прогоном:
+# 'monitoring_agent_mysqld_exporter_hosts' is undefined в ad hoc play site.yml, хотя play #2
+# уже применял monitoring_agent на этом же хосте).
+monitoring_agent_mysqld_exporter_user: mysql-exporter
+monitoring_agent_mysqld_exporter_hosts: 127.0.0.1
