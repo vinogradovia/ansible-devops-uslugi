@@ -1,3 +1,9 @@
 [client]
 user = {{ monitoring_agent_mysqld_exporter_user }}
 password = {{ monitoring_agent_mysqld_exporter_password }}
+# Без явного host MySQL-клиент по умолчанию идёт через unix-socket как "localhost", а не через
+# TCP на monitoring_agent_mysqld_exporter_hosts (дефолт "127.0.0.1") — GRANT заведён именно на
+# {{ monitoring_agent_mysqld_exporter_hosts }} (site.yml/роль-потребитель), и без этой строки
+# коннект падает "Access denied for user '...'@'localhost'" (найдено реальным использованием
+# demo-стенда, ADR-0006 — mysql_up был 0 на всех трёх MySQL-хостах).
+host = {{ monitoring_agent_mysqld_exporter_hosts }}
