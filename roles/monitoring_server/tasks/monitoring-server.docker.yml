@@ -80,6 +80,10 @@
         - apiVersion: 1
           datasources:
             - name: VictoriaMetrics
+              # uid зафиксирован (не автогенерируемый) — на него ссылается подстановка
+              # ${DS_VICTORIAMETRICS}/${DS_PROMETHEUS} в grafana-provisioning-dashboard.yaml
+              # (ADDONS/grafana_dashboards/*.json, экспортированные с Grafana.com дашборды).
+              uid: victoriametrics
               type: prometheus
               access: proxy
               url: http://victoria-metrics:8428
