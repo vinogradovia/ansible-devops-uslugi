@@ -10,9 +10,17 @@ groups:
       for: 5m
       labels:
         severity: critical
+        service: react-api
       annotations:
         summary: React (instance {{ $labels.instance }}) down
         description: "React instance is down on {{ $labels.instance }}\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+        service: react-api
+        repo: https://wrk.moon.ru/webdev/moon-front
+        runbook_url: https://wrk.moon.ru/webdev/9393/-/blob/main/docs/diag/runbooks.md#react-api
+        dashboard_url: https://grafana.in.moon.ru/explore?orgId=1
+        logql: '{cluster="moon-cluster", host="react-api.moon.ru", status=~"5.."}'
+        loki_tenant: tenant1
+        owner: webdev
     - alert: Event Loop Lag (p99)
       expr: 'nodejs_eventloop_lag_p99_seconds > 0.050'
       for: 5m

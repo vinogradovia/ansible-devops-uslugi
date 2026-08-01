@@ -17,6 +17,12 @@ groups:
           Модуль проверки: {{ $labels.module }}
           Протокол: {{ $labels.probe }}
           Время проверки: {{ $value }}
+        service: blackbox
+        repo: https://wrk.moon.ru/webdev/9393
+        runbook_url: https://wrk.moon.ru/webdev/9393/-/blob/main/docs/diag/runbooks.md#blackbox
+        dashboard_url: https://grafana.in.moon.ru/explore?orgId=1
+        loki_tenant: tenant1
+        owner: devops
 
     - alert: SSLCertificateExpiringSoon
       expr: |
