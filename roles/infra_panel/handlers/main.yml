@@ -1,0 +1,14 @@
+---
+# handlers file for infra_panel
+
+# config.yml монтируется в контейнер как отдельный bind-mount файла (не часть compose.yml) —
+# docker_compose_v2 не видит в нём изменений и не пересоздаёт контейнер сам; при этом
+# ansible.builtin.template переписывает файл атомарно (rename), а не in-place, поэтому уже
+# запущенный контейнер продолжает держать старый inode, пока его не перезапустят явно (см.
+# roles/monitoring_server/handlers/main.yml — тот же паттерн для grafana-dashboard-provider.yaml).
+- name: Restart homer
+  community.docker.docker_compose_v2:
+    project_src: "{{ infra_panel_config_dir }}"
+    services:
+      - homer
+    state: restarted

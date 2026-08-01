@@ -1,0 +1,62 @@
+---
+- name: Create config dirs
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - "{{ infra_panel_config_dir }}"
+    - "{{ infra_panel_config_dir }}/assets"
+    - "{{ infra_panel_config_dir }}/users"
+
+- name: Add users to infra-panel basic-auth password file
+  community.general.htpasswd:
+    path: "{{ infra_panel_config_dir }}/users/infra-panel-auth"
+    name: "{{ item.name }}"
+    password: "{{ item.password }}"
+    owner: root
+    group: root
+    mode: '0644'
+    state: "{{ item.state | default('present') }}"
+  loop: "{{ infra_panel_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+# Traefik подхватывает basicauth только из своего провайдера (docker-labels или file-provider,
+# которым владеет reverse_proxy_traefik) — chart/compose infra_panel ей не пишет напрямую.
+# Поэтому пароли не проксируются файлом, а инлайнятся в label самого контейнера (см.
+# compose-infra-panel.yml.j2, traefik.http.middlewares.*.basicauth.users) — читаем обратно уже
+# посчитанный community.general.htpasswd apr1-хэш из файла выше, чтобы не пересчитывать его
+# на контроллере (passlib на контроллере не установлен, только на управляемом хосте).
+- name: Read rendered infra-panel basic-auth password file back
+  ansible.builtin.slurp:
+    src: "{{ infra_panel_config_dir }}/users/infra-panel-auth"
+  register: infra_panel_htpasswd_file
+
+- name: Render infra-panel config.yml
+  ansible.builtin.template:
+    src: config.yml.j2
+    dest: "{{ infra_panel_config_dir }}/assets/config.yml"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart homer
+
+- name: Render infra-panel compose.yml
+  ansible.builtin.template:
+    src: compose-infra-panel.yml.j2
+    dest: "{{ infra_panel_config_dir }}/compose.yml"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Create and start infra-panel services
+  community.docker.docker_compose_v2:
+    project_src: "{{ infra_panel_config_dir }}"
+  register: infra_panel_start_result
+
+- name: Show infra_panel_start_result
+  ansible.builtin.debug:
+    var: infra_panel_start_result

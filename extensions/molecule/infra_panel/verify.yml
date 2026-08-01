@@ -1,0 +1,99 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    # --- Контейнеры запущены ------------------------------------------------------------------
+    - name: Собрать информацию о контейнере traefik
+      community.docker.docker_container_info:
+        name: traefik
+      register: molecule_traefik_container
+
+    - name: Контейнер traefik должен существовать и быть running
+      ansible.builtin.assert:
+        that:
+          - molecule_traefik_container.exists
+          - molecule_traefik_container.container.State.Status == 'running'
+        quiet: true
+
+    - name: Собрать информацию о контейнере infra-panel
+      community.docker.docker_container_info:
+        name: infra-panel
+      register: molecule_infra_panel_container
+
+    - name: Контейнер infra-panel должен существовать и быть running
+      ansible.builtin.assert:
+        that:
+          - molecule_infra_panel_container.exists
+          - molecule_infra_panel_container.container.State.Status == 'running'
+        quiet: true
+
+    # --- HTTP (:80) должен постоянно редиректить на HTTPS --------------------------------------
+    - name: "HTTP-запрос на :80 должен редиректить на HTTPS"
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:80/"
+        headers:
+          Host: "{{ infra_panel_domain }}"
+        follow_redirects: none
+        status_code:
+          - 301
+          - 308
+        return_content: false
+      register: molecule_infra_panel_http_redirect
+
+    - name: "Location редиректа должен указывать на https://"
+      ansible.builtin.assert:
+        that:
+          - molecule_infra_panel_http_redirect.location is defined
+          - molecule_infra_panel_http_redirect.location is match('^https://')
+        quiet: true
+
+    # --- basic-auth: без credentials должно быть 401 (ADR-0008 §4 — anonymous доступ недопустим) -
+    - name: "HTTPS без credentials должен отвечать 401"
+      ansible.builtin.uri:
+        url: "https://127.0.0.1:443/"
+        headers:
+          Host: "{{ infra_panel_domain }}"
+        validate_certs: false
+        status_code:
+          - 401
+        return_content: false
+      changed_when: false
+
+    # --- Функциональная проверка: с настроенными credentials панель реально отвечает -----------
+    - name: "HTTPS с настроенными credentials (infra_panel_users) должен отвечать 200"
+      ansible.builtin.uri:
+        url: "https://127.0.0.1:443/"
+        headers:
+          Host: "{{ infra_panel_domain }}"
+        validate_certs: false
+        force_basic_auth: true
+        url_username: "admin"
+        url_password: "{{ (infra_panel_users | selectattr('name', 'equalto', 'admin') | first).password }}"
+        status_code:
+          - 200
+        return_content: false
+      changed_when: false
+
+    # --- config.yml реально смонтирован и собран из infra_panel_extra_services (ADR-0008 §3), ---
+    # --- а не раздаётся дефолтный пример homer из образа ----------------------------------------
+    - name: "GET /assets/config.yml с credentials должен отвечать 200 и содержать наш маркер"
+      ansible.builtin.uri:
+        url: "https://127.0.0.1:443/assets/config.yml"
+        headers:
+          Host: "{{ infra_panel_domain }}"
+        validate_certs: false
+        force_basic_auth: true
+        url_username: "admin"
+        url_password: "{{ (infra_panel_users | selectattr('name', 'equalto', 'admin') | first).password }}"
+        status_code:
+          - 200
+        return_content: true
+      register: molecule_infra_panel_config
+
+    - name: "Config.yml должен содержать пункт из infra_panel_extra_services"
+      ansible.builtin.assert:
+        that:
+          - "'MoleculeTestService' in molecule_infra_panel_config.content"
+        quiet: true

@@ -1,0 +1,18 @@
+---
+- name: Converge
+  hosts: all
+  become: true
+  collections:
+    - devops.uslugi
+  tasks:
+    # Даёт реальную сеть proxy + запущенный Traefik с Docker-провайдером — без неё homer из
+    # infra_panel просто не будет ничем проксирован (ADR-0008 §4). monitoring_server в этом
+    # сценарии не разворачивается, поэтому авто-ссылка на Grafana (ADR-0008 §3) не появится —
+    # это покрывает infra_panel_extra_services (group_vars/all.yml), а не авто-блок.
+    - name: Прогнать роль reverse_proxy_traefik (переменные — см. group_vars/all.yml)
+      ansible.builtin.import_role:
+        name: reverse_proxy_traefik
+
+    - name: Прогнать роль infra_panel (переменные — см. group_vars/all.yml)
+      ansible.builtin.import_role:
+        name: infra_panel

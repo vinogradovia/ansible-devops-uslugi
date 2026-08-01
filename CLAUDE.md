@@ -139,6 +139,15 @@ docker-путь, `monitoring_server` docker-путь — Docker ставится
   зависимости `xanmanning.k3s` (`meta/main.yml`, `tags: [init, never]`) через
   `provisioner.options.tags: all,init` в `molecule.yml` — только эта комбинация включает и
   never-зависимость, и всё остальное (проверено эмпирически, см. ADR §11).
+- `extensions/molecule/infra_panel/` — сценарий для роли `infra_panel`
+  (`docs/adr/0008-infra-panel-role.md`), той же структуры, что `reverse_proxy_traefik`/
+  `reverse_proxy_npm`. Покрывает только `infra_panel_orchestrator: docker` (k3s-путь роли не
+  реализован). `converge.yml` прогоняет две роли: сначала `reverse_proxy_traefik` (даёт реальную
+  сеть `proxy` и запущенный Traefik — без него homer нечем проксировать), затем `infra_panel`.
+  `verify.yml` — реальные HTTP-запросы через Traefik: HTTP→HTTPS редирект, 401 без basic-auth
+  credentials, 200 с ними, и отдельно `GET /assets/config.yml` с проверкой, что в нём есть пункт
+  из `infra_panel_extra_services` (доказывает, что конфиг собран из переменных роли, а не отдаёт
+  дефолтный пример homer из образа).
 
 Запускать нужно из корня коллекции (molecule ищет `galaxy.yml` строго в текущей директории —
 `Path.cwd()`, без обхода родителей — поэтому `cd` в сам каталог сценария не работает с новыми
@@ -259,6 +268,25 @@ ansible-playbook -i inventory.yml monitoring-server.yml \
   прямой проброс порта. Molecule-покрытие — `extensions/molecule/reverse_proxy_npm/` (vagrant/libvirt
   ВМ: сама роль Docker не ставит, prepare.yml сценария устанавливает его как внешний провижининг
   хоста).
+- **infra_panel** — дашборд-стартовая страница платформы со ссылками на установленные компоненты,
+  обёртка над [homer](https://github.com/bastienwirtz/homer). Разворачивается на сервере
+  мониторинга (том же хосте, что `monitoring_server`). Решения и их обоснование — см.
+  `docs/adr/0008-infra-panel-role.md`: только `docker`-оркестратор реализован на уровне роли
+  (`infra_panel_orchestrator: docker|k3s` заведена, но k3s-ветка в `tasks/main.yml` пока
+  отсутствует — есть только не подключённый к переменным роли пример в `helm/envs/k3s-monitoring.yaml`,
+  разворачиваемый тем же `Helmwave up`, что и k3s-стек `monitoring_server`). Ссылки в `config.yml`
+  homer собираются из двух источников: авто (пока только Grafana, если в том же play
+  `monitoring_server_grafana_enabled: true`) и ручные `infra_panel_extra_services`. Публикуется
+  через `reverse_proxy_traefik` (labels на shared-сети `proxy`, как `grafana` в
+  `monitoring_server`) за обязательным basic-auth — fail-fast на дефолтном пароле, как в
+  `reverse_proxy_npm`/`reverse_proxy_traefik`; хэш пароля считается `community.general.htpasswd` на
+  управляемом хосте и инлайнится в docker-label (`usersFile` не годится — Traefik работает в чужом
+  compose-проекте). Molecule-покрытие — `extensions/molecule/infra_panel/` (vagrant/libvirt ВМ,
+  той же структуры, что `reverse_proxy_traefik`): converge дополнительно прогоняет саму роль
+  `reverse_proxy_traefik` (иначе homer не через что проксировать), `verify.yml` гоняет реальные
+  HTTP-запросы — 401 без credentials, 200 с ними, HTTP→HTTPS редирект, и отдельно проверяет, что
+  `/assets/config.yml` содержит пункт из `infra_panel_extra_services` (доказывает, что конфиг
+  реально собран из переменных, а не раздаётся дефолтный пример homer из образа).
 
 ### Добавление нового экспортера мониторинга
 

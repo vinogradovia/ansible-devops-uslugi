@@ -1,0 +1,44 @@
+---
+# defaults file for infra_panel
+
+infra_panel_enabled: true
+
+# docker, k3s (k3s-путь пока не реализован — см. helm/envs/k3s-monitoring.yaml, релиз "homer")
+infra_panel_orchestrator: docker
+
+infra_panel_config_dir: /opt/infra-panel
+
+infra_panel_docker_proxy_network_external: true
+infra_panel_docker_proxy_network_name: proxy
+
+infra_panel_image_registry: docker.io
+infra_panel_image_repository: b4bz/homer
+infra_panel_image_version: v26.4.2
+infra_panel_image: >-
+  {{ infra_panel_image_registry }}/{{ infra_panel_image_repository }}:{{ infra_panel_image_version }}
+
+infra_panel_domain: infra-panel.example.com
+
+infra_panel_title: "Infra Panel"
+infra_panel_subtitle: "MontiSphere"
+infra_panel_columns: 3
+
+# infra-panel агрегирует ссылки на весь внутренний инструментарий платформы (Grafana,
+# VictoriaMetrics и т.п.) — анонимный доступ недопустим, basic-auth обязателен.
+# Пароль по умолчанию специально невалиден: check-and-install-requirements.docker.yml падает,
+# если хотя бы у одного пользователя с state: present пароль всё ещё равен дефолтному (см.
+# аналогичный fail-fast в roles/reverse_proxy_traefik).
+infra_panel_default_password: "PleAse_Change_ME!"
+infra_panel_users:
+  - {name: 'admin', password: "{{ infra_panel_default_password }}"}
+
+# Автогенерация ссылок на уже включённые компоненты monitoring_server, если та роль применена
+# к этому же хосту в том же play (переменные читаются как обычные vars, а не через hostvars —
+# если monitoring_server не применялась, monitoring_server_grafana_enabled просто не определена
+# и default(false) ниже отключает автодобавление, без ошибки).
+infra_panel_auto_monitoring_group_name: "Monitoring"
+infra_panel_auto_monitoring_group_icon: "mdi mdi-monitor-dashboard"
+
+# Ручные дополнительные группы/пункты — мёржатся с автосгенерированной группой Monitoring.
+# Формат — как в services: у homer, https://github.com/bastienwirtz/homer#configuration.
+infra_panel_extra_services: []

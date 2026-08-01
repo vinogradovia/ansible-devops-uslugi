@@ -53,3 +53,18 @@ releases:
     # Датасорсы Loki/Loki-infra (мультитенантность, X-Scope-OrgID) уже заведены в
     # grafana-operator/values.yaml (extraObjects) — этот релиз своих GrafanaDatasource не создаёт,
     # поэтому depends_on: grafana-operator ему не нужен (нет собственной зависимости от его CRD).
+
+  # infra-panel (homer, https://github.com/bastienwirtz/homer) через nxs-universal-chart —
+  # в отличие от закомментированного примера storage-classes выше, ссылается не на репозиторий
+  # "nixys/..." (тот требует либо живого https://registry.nixys.io, либо file://-репо, который
+  # helm 3 не поддерживает — "could not find protocol handler: file", проверено эмпирически), а
+  # напрямую на распакованный чарт в helm/localrepo/universal-chart/ по относительному пути —
+  # helmwave резолвит такой путь как локальный чарт без обращения к repositories. Пакованный
+  # .tgz (helm/localrepo/universal-chart-2.8.1.tgz) для этого не подходит: helmwave безусловно
+  # прогоняет `helm dependency update` перед рендером, а Helm отказывается делать это для
+  # запакованных чартов ("only unpacked charts can be updated"), даже если у чарта вообще нет
+  # dependencies.
+  - name: homer
+    namespace: monitoring
+    chart: localrepo/universal-chart
+    version: 2.8.1

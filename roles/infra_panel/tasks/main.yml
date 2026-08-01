@@ -1,0 +1,16 @@
+---
+# tasks file for infra_panel
+
+- name: Include check-and-install-requirements tasks for infra_panel_orchestrator docker
+  ansible.builtin.include_tasks:
+    file: check-and-install-requirements.docker.yml
+  when:
+    - infra_panel_enabled
+    - infra_panel_orchestrator == 'docker'
+
+- name: Include infra-panel tasks for infra_panel_orchestrator docker
+  ansible.builtin.include_tasks:
+    file: infra-panel.docker.yml
+  when:
+    - infra_panel_enabled
+    - infra_panel_orchestrator == 'docker'

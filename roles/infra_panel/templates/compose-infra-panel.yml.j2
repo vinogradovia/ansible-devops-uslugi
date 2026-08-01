@@ -1,0 +1,40 @@
+---
+services:
+  homer:
+    image: {{ infra_panel_image }}
+    container_name: infra-panel
+    restart: unless-stopped
+    environment:
+      # config.yml приходит смонтированным (см. volumes) — отключаем entrypoint-скрипт образа,
+      # который иначе при пустом /www/assets разворачивает туда набор примеров.
+      - INIT_ASSETS=0
+    volumes:
+      - {{ infra_panel_config_dir }}/assets/config.yml:/www/assets/config.yml:ro
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      # HTTP -> HTTPS редирект
+      - "traefik.http.routers.infra-panel-http.entrypoints=web"
+      - "traefik.http.routers.infra-panel-http.rule=Host(`{{ infra_panel_domain }}`)"
+      - "traefik.http.routers.infra-panel-http.middlewares=infra-panel-to-https"
+      - "traefik.http.middlewares.infra-panel-to-https.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.infra-panel-to-https.redirectscheme.permanent=true"
+      # Основной роут HTTPS, за basic-auth
+      - "traefik.http.routers.infra-panel.entrypoints=websecure"
+      - "traefik.http.routers.infra-panel.rule=Host(`{{ infra_panel_domain }}`)"
+      - "traefik.http.routers.infra-panel.tls=true"
+      - "traefik.http.routers.infra-panel.middlewares=infra-panel-auth"
+      # basic-auth инлайном в label (не usersFile: infra-panel — отдельный docker-compose проект,
+      # его файлы не примонтированы в контейнер Traefik, которым владеет reverse_proxy_traefik)
+      - "traefik.http.middlewares.infra-panel-auth.basicauth.users={{ (infra_panel_htpasswd_file.content | b64decode).splitlines() | join(',') | replace('$', '$$') }}"
+      # Сервис (куда направлять трафик)
+      - "traefik.http.services.infra-panel.loadbalancer.server.port=8080"
+
+networks:
+  proxy:
+{% if infra_panel_docker_proxy_network_external %}
+    external: true  # Если сеть уже создана (например, ролью reverse_proxy_traefik)
+{% else %}
+    name: {{ infra_panel_docker_proxy_network_name }}  # Явное имя сети
+{% endif %}

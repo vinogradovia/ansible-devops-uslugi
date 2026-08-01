@@ -1,0 +1,26 @@
+---
+# Переменные для converge/verify этого сценария. Лежат в group_vars/, а не в vars: playbook'ов —
+# тот же паттерн, что extensions/molecule/{nginx_multidomain,reverse_proxy_npm,reverse_proxy_traefik}/group_vars/all.yml.
+
+# reverse_proxy_traefik падает в check-and-install-requirements.yml на дефолтном пароле —
+# нужен валидный, чтобы роль вообще смогла подняться (сам дашборд Traefik этот сценарий не
+# проверяет, это покрыто отдельным сценарием reverse_proxy_traefik).
+reverse_proxy_traefik_dashboard_users:
+  - name: monitor
+    password: "Molecule_Test_ChangeMe!23"
+
+# Аналогичный fail-fast в infra_panel/check-and-install-requirements.docker.yml (ADR-0008 §4).
+infra_panel_users:
+  - name: admin
+    password: "Molecule_Test_ChangeMe!23"
+
+infra_panel_domain: "infra-panel.{{ reverse_proxy_traefik_internal_domain | default('docker.localhost') }}"
+
+# Маркер для verify.yml — доказывает, что итоговый config.yml реально собран из
+# infra_panel_extra_services (ADR-0008 §3), а не просто раздаёт дефолтный пример homer.
+infra_panel_extra_services:
+  - name: MoleculeTest
+    icon: "mdi mdi-flask"
+    items:
+      - name: MoleculeTestService
+        url: "https://molecule-test.example.com"

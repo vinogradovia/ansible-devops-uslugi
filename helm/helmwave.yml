@@ -148,3 +148,21 @@ releases:
     tags:
       - loki
       - monitoring/loki
+  - name: homer
+    namespace: monitoring
+    chart:
+      name: localrepo/universal-chart
+      version: 2.8.1
+    <<: *options
+    values:
+      - src: values/releases_common/homer.yaml
+        strict: true
+        delimiter_left: "[["
+        delimiter_right: "]]"
+      - src: values/k3s-monitoring/namespaces/monitoring/homer/values.yaml
+        strict: false
+        delimiter_left: "[["
+        delimiter_right: "]]"
+    tags:
+      - homer
+      - monitoring/homer

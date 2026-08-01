@@ -1,0 +1,42 @@
+---
+- name: Install python3-passlib (нужен community.general.htpasswd для basic-auth)
+  ansible.builtin.apt:
+    pkg:
+      - python3-passlib
+  check_mode: false
+
+- name: Fail if using infra_panel_default_password
+  ansible.builtin.fail:
+    msg: >-
+      Error, change infra_panel_default_password (или пароль конкретного пользователя в
+      infra_panel_users) — infra-panel открывает ссылки на весь внутренний инструментарий
+      платформы, дефолтный пароль недопустим.
+  when: >-
+    (item.state | default('present')) != 'absent' and
+    item.password == infra_panel_default_password
+  loop: "{{ infra_panel_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+# ADR-0007 §10.3 (monitoring_server) — та же проблема: без этой проверки community.docker.docker_compose_v2
+# упадёт менее понятной ошибкой, если сеть proxy ещё не создана (например, reverse_proxy_traefik
+# ещё не применён к хосту).
+- name: Check external proxy docker network exists
+  when: infra_panel_docker_proxy_network_external
+  ansible.builtin.command: docker network inspect {{ infra_panel_docker_proxy_network_name }}
+  register: infra_panel_docker_proxy_network_check
+  changed_when: false
+  failed_when: false
+
+- name: Fail if external proxy docker network does not exist
+  ansible.builtin.fail:
+    msg: >-
+      infra_panel_docker_proxy_network_external: true, но docker-сеть
+      "{{ infra_panel_docker_proxy_network_name }}" не существует — homer подключается к ней
+      безусловно в compose-infra-panel.yml.j2 (external: true означает "уже создана где-то ещё",
+      например ролью reverse_proxy_traefik, которая ей и владеет). Создайте сеть заранее
+      (примените reverse_proxy_traefik) или поставьте infra_panel_docker_proxy_network_external:
+      false, чтобы роль создала её сама.
+  when: >-
+    infra_panel_docker_proxy_network_external and
+    infra_panel_docker_proxy_network_check.rc != 0
