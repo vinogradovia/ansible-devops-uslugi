@@ -80,3 +80,13 @@
     name: "{{ monitoring_agent_alloy_systemd_name }}"
     enabled: "{{ monitoring_agent_alloy_enabled }}"
     state: restarted
+
+- name: Restart service promtail
+  # promtail config рендерится для обоих оркестраторов (нужен и docker-контейнеру, и
+  # systemd-юниту), но под docker юнита promtail не существует — тот же guard, что у
+  # alloy/nginxlog-exporter (docker-путь реконсилится через docker_compose_v2 при converge).
+  when: monitoring_agent_orchestrator == 'systemd'
+  ansible.builtin.systemd:
+    name: "{{ monitoring_agent_promtail_systemd_name }}"
+    enabled: "{{ monitoring_agent_promtail_enabled }}"
+    state: restarted

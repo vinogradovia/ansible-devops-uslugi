@@ -19,6 +19,8 @@
     - "{{ monitoring_agent_promtail_config_dir }}"
 
 - name: Provisioning promtail config
+  notify:
+    - Restart service promtail
   block:
     - name: Provisioning promtail config remove
       when: not monitoring_agent_promtail_enabled
@@ -223,6 +225,11 @@
       when: monitoring_agent_postgres_exporter_enabled
       ansible.builtin.include_tasks:
         file: systemd-postgres-exporter.yml
+
+    - name: Include systemd-promtail tasks
+      when: monitoring_agent_promtail_enabled
+      ansible.builtin.include_tasks:
+        file: systemd-promtail.yml
 
 # New Style of Exporters Definotions
 # pve_exporter
