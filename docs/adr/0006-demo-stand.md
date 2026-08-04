@@ -62,7 +62,7 @@ provider-блок и описание ресурсов ВМ, а слой «Terra
 ### 3. Расположение в репозитории — новая директория `demo/`, не `extensions/`
 
 **Решение:** файлы стенда — в новой директории `demo/<кейс>/` в корне репозитория
-(`demo/mysql-ha-observability/{terraform,ansible}`), не внутри `extensions/` (где сейчас только
+(`demo/mysql-ha-platform/{terraform,ansible}`), не внутри `extensions/` (где сейчас только
 `molecule/`).
 
 **Обоснование:** это не Ansible-контент коллекции и не molecule-тест, а отдельный
@@ -101,14 +101,14 @@ MySQL/ProxySQL-логи в Loki — стенд демонстрирует не �
 ### 6. Передача от Terraform к Ansible — сгенерированный inventory-файл, ручной запуск playbook'а
 
 **Решение:** Terraform (ресурс `local_file`) генерирует Ansible-inventory
-(`demo/mysql-ha-observability/ansible/inventory.yml`) с реальными IP-адресами поднятых VM после
+(`demo/mysql-ha-platform/ansible/inventory.yml`) с реальными IP-адресами поднятых VM после
 `terraform apply`. Оператор вручную запускает
-`ansible-playbook -i demo/mysql-ha-observability/ansible/inventory.yml
-demo/mysql-ha-observability/ansible/site.yml` — без автоматического триггера (CI/по расписанию),
+`ansible-playbook -i demo/mysql-ha-platform/ansible/inventory.yml
+demo/mysql-ha-platform/ansible/site.yml` — без автоматического триггера (CI/по расписанию),
 по итогам обсуждения использование стенда для тестирования — ручное, по мере необходимости.
 
 Ansible-часть переиспользует паттерн `tests/ansible.cfg` (`roles_path`, не FQCN коллекции) —
-`demo/mysql-ha-observability/ansible/ansible.cfg` с `roles_path = ../../../roles`.
+`demo/mysql-ha-platform/ansible/ansible.cfg` с `roles_path = ../../../roles`.
 
 ### 7. Базовый образ и sizing VM — под среднее рабочее место
 
@@ -135,7 +135,7 @@ Ansible-часть переиспользует паттерн `tests/ansible.cf
 **Решение:** `load-generator` — отдельная VM с простым инструментом (`sysbench oltp_read_write`
 либо cron/systemd-timer скрипт с периодическими `INSERT`/`SELECT`), направленным на
 `db-write`/`db-read` через ProxySQL, чтобы на Grafana были живые QPS, replication lag, число
-подключений. Реализуется как ad hoc Ansible-таски внутри `demo/mysql-ha-observability/ansible/`
+подключений. Реализуется как ad hoc Ansible-таски внутри `demo/mysql-ha-platform/ansible/`
 (например, `roles/load_generator/` **локально в демо-каталоге**, не в `roles/` коллекции) — это
 демо-инструмент, а не переиспользуемая production-возможность коллекции.
 
@@ -143,7 +143,7 @@ Ansible-часть переиспользует паттерн `tests/ansible.cf
 
 **Решение:** в отличие от production-паттерна (ADR-0004 §9, ADR-0001 §5 — обязательный Vault,
 fail-fast `assert` без дефолтов), пароли в демо-стенде задаются напрямую в
-`demo/mysql-ha-observability/ansible/group_vars/all.yml` открытым текстом, с явным комментарием
+`demo/mysql-ha-platform/ansible/group_vars/all.yml` открытым текстом, с явным комментарием
 в файле, что это демо-стенд в изолированной локальной libvirt-сети без выхода наружу.
 
 **Обоснование:** это осознанное упрощение ради простоты воспроизведения стенда (`git clone` →

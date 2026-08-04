@@ -6,7 +6,7 @@
   hosts: load_generator
   become: true
   vars:
-    infra_dns_zone_name: mysql-ha-observability.demo
+    infra_dns_zone_name: mysql-ha-platform.demo
     infra_dns_host_ip: 10.66.6.40
     # = дефолт roles/proxysql/defaults/main.yml (group_vars/proxysql_hosts.yml его не
     # переопределяет). hostvars[proxysql_host].proxysql_mysql_listen_port здесь не работает:

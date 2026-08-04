@@ -20,11 +20,11 @@ monitoring_server_victoria_metrics_enabled: true
 monitoring_server_grafana_enabled: true
 monitoring_server_grafana_security_admin_password: "demo-grafana-admin-CHANGE-ME"
 
-# Реальный домен зоны mysql-ha-observability.demo (group_vars/infra_dns.yml), а не дефолт роли
+# Реальный домен зоны mysql-ha-platform.demo (group_vars/infra_dns.yml), а не дефолт роли
 # (.docker.localhost) — нужен и для собственного traefik-роута Grafana, и для авто-ссылки на
 # Grafana в infra_panel (ADR-0008 §3, читает именно эту переменную).
-monitoring_server_grafana_server_domain: grafana.mysql-ha-observability.demo
-monitoring_server_grafana_server_root_url: "https://grafana.mysql-ha-observability.demo"
+monitoring_server_grafana_server_domain: grafana.mysql-ha-platform.demo
+monitoring_server_grafana_server_root_url: "https://grafana.mysql-ha-platform.demo"
 
 # ADR-0006 §5: Loki требует local_storage_s3_enabled (Loki хардкодит object_store: s3, локальной
 # файловой альтернативы не реализовано, roles/monitoring_server/tasks/
@@ -52,13 +52,13 @@ monitoring_server_grafana_dashboards_group_install:
 # Владеет docker-сетью "proxy" в этом кейсе (см. комментарий выше про
 # monitoring_server_docker_proxy_network_external). Реальный домен зоны, а не дефолт роли
 # (docker.localhost) — чтобы whoami/дашборд Traefik тоже резолвились через infra_dns.
-reverse_proxy_traefik_internal_domain: mysql-ha-observability.demo
+reverse_proxy_traefik_internal_domain: mysql-ha-platform.demo
 reverse_proxy_traefik_dashboard_users:
   - name: monitor
     password: "demo-traefik-dashboard-CHANGE-ME"
 
 # --- infra_panel (ADR-0008) --------------------------------------------------------------------
-infra_panel_domain: infra-panel.mysql-ha-observability.demo
+infra_panel_domain: infra-panel.mysql-ha-platform.demo
 infra_panel_users:
   - name: admin
     password: "demo-infra-panel-admin-CHANGE-ME"
@@ -73,9 +73,9 @@ infra_panel_extra_services:
     items:
       - name: VictoriaMetrics
         icon: "mdi mdi-chart-line"
-        url: "http://monitoring-server.mysql-ha-observability.demo:8428/vmui/"
+        url: "http://monitoring-server.mysql-ha-platform.demo:8428/vmui/"
         target: _blank
       - name: MinIO Console
         icon: "mdi mdi-bucket"
-        url: "http://monitoring-server.mysql-ha-observability.demo:9001/"
+        url: "http://monitoring-server.mysql-ha-platform.demo:9001/"
         target: _blank

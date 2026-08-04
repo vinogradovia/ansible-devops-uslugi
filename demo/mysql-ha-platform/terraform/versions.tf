@@ -1,4 +1,4 @@
-# demo/mysql-ha-observability — ADR-0006 §1: provisioning через Terraform + libvirt-провайдер
+# demo/mysql-ha-platform — ADR-0006 §1: provisioning через Terraform + libvirt-провайдер
 # (dmacvicar/terraform-provider-libvirt), не Vagrant и не голый virt-install. Версия провайдера —
 # последний релиз на момент написания (v0.9.8, github.com/dmacvicar/terraform-provider-libvirt/
 # releases) — при апгрейде сверяйтесь с CHANGELOG провайдера, `~>` держит только минорную ветку.

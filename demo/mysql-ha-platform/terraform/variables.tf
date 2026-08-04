@@ -7,20 +7,20 @@ variable "libvirt_uri" {
 variable "pool_name" {
   description = "Имя выделенного libvirt storage pool для стенда (ADR-0006 §3 — не смешивается с default pool хоста)"
   type        = string
-  default     = "demo-mysql-ha-observability"
+  default     = "demo-mysql-ha-platform"
 }
 
 variable "pool_path" {
   description = "Путь на хосте для storage pool стенда"
   type        = string
-  default     = "/var/lib/libvirt/images/demo-mysql-ha-observability"
+  default     = "/var/lib/libvirt/images/demo-mysql-ha-platform"
 }
 
 # ADR-0006 §2: одна плоская libvirt-сеть (NAT), два ДЦ не имитируются.
 variable "network_name" {
   description = "Имя выделенной libvirt-сети стенда"
   type        = string
-  default     = "demo-mysql-ha-observability"
+  default     = "demo-mysql-ha-platform"
 }
 
 variable "network_cidr" {
@@ -32,7 +32,7 @@ variable "network_cidr" {
 variable "network_domain" {
   description = "DNS-домен libvirt-сети (dnsmasq), используется и в fqdn VM"
   type        = string
-  default     = "mysql-ha-observability.demo"
+  default     = "mysql-ha-platform.demo"
 }
 
 # ADR-0006 §7: официальный Debian 12 (bookworm) generic cloud image, один раз скачивается и
