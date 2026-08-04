@@ -1,5 +1,10 @@
+{# monitoring_server_grafana_server_domain ВСЕГДА "defined" — у роли monitoring_server есть
+   дефолт ".docker.localhost" (docker-path заглушка Traefik Host()), поэтому одного "is defined"
+   недостаточно: под k3s этот дефолт бессмысленно бы протёк в ссылку (нет k3s-Ingress для
+   Grafana, roles/infra_panel/README.md, "Статус"). Явно ограничиваемся docker-путём, где домен
+   реально что-то значит. #}
 {% set infra_panel_monitoring_items = [] %}
-{% if (monitoring_server_grafana_enabled | default(false)) and monitoring_server_grafana_server_domain is defined %}
+{% if (monitoring_server_grafana_enabled | default(false)) and (monitoring_server_orchestrator | default('docker') == 'docker') and monitoring_server_grafana_server_domain is defined %}
 {%   set _ = infra_panel_monitoring_items.append({
        'name': 'Grafana',
        'logo': 'https://grafana.com/static/img/menu/grafana2.svg',

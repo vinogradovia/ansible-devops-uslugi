@@ -7,12 +7,19 @@
 
 ## Статус
 
-- **docker** — реализовано (эта роль).
-- **k3s** — пока не реализовано на уровне роли. Рабочий пример деплоя через
-  `nxs-universal-chart` есть в `helm/` (релиз `homer` в `helm/envs/k3s-monitoring.yaml`,
-  разворачивается той же командой `Helmwave up`, что и остальной k3s-стек
-  `monitoring_server` — см. `docs/adr/0007-monitoring-server-role.md`), но конфигурация ссылок
-  там статична (не читает `infra_panel_*`-переменные) — интеграция с этой ролью впереди.
+- **docker** — реализовано.
+- **k3s** — реализовано, но иначе устроено: роль **не** создаёт k8s-объекты и не устанавливает
+  k3s/Helm — релиз `homer` уже часть общего Helmwave-стека (`helm/envs/k3s-monitoring.yaml`,
+  тот же env-файл, что использует `monitoring_server_orchestrator: k3s`, см.
+  `docs/adr/0007-monitoring-server-role.md` §6). `roles/infra_panel/tasks/infra-panel.k3s.yml`
+  только рендерит values-файл этого релиза
+  (`helm/values/k3s-monitoring/namespaces/monitoring/homer/values.yaml`) из тех же переменных,
+  что docker-путь — `delegate_to: localhost`, т.к. Helmwave выполняется только с control-хоста.
+  **Важно про порядок плеёв:** при `infra_panel_orchestrator: k3s` роль `infra_panel` должна
+  идти в play **раньше** `monitoring_server` — иначе рендер значений появится на диске, но
+  применится только следующим прогоном `Helmwave up` (для docker-пути порядок обратный: `infra_panel`
+  читает уже готовые `monitoring_server_grafana_*`-переменные, порядок исполнения ролей там не
+  важен, так как это просто group_vars, не результат работы роли).
 
 ## Зависит от
 
@@ -58,3 +65,21 @@ Traefik (роль `reverse_proxy_traefik`) не монтирует файлы `i
 `{{ infra_panel_config_dir }}/users/infra-panel-auth`), а не Jinja-фильтр `password_hash` — тот
 исполняется на контроллере, где `passlib` не установлен (в отличие от управляемого хоста, куда
 его ставит `check-and-install-requirements.docker.yml`).
+
+Под k3s весь рендер (включая хэш) и так выполняется на контроллере (`delegate_to: localhost`),
+поэтому `passlib` там нужен на control-хосте — poetry dev-зависимость коллекции (как `kubernetes`
+для `monitoring_server_orchestrator: k3s`), устанавливается `poetry install`.
+
+## k3s: переменные
+
+- `infra_panel_helmwave_dir` (default: `{{ role_path | dirname | dirname }}/helm`) — где искать
+  дерево `values/`, должно совпадать с тем, что использует `monitoring_server`
+  (`monitoring_server_helmwave_dir`) для того же кластера.
+- `infra_panel_helmwave_k8s_cluster` (default: `k3s-monitoring`) — имя env-файла
+  (`helm/envs/<...>.yaml`), должно совпадать с `monitoring_server_helmwave_k8s_cluster`.
+- `infra_panel_kubernetes_namespace` (default: `monitoring`) — где развёрнут релиз `homer`.
+- `infra_panel_kubernetes_release_name` (default: `homer`) — буквальное имя релиза в
+  `helm/helmwave.yml`; влияет на итоговые имена k8s-объектов (`helper.fullname` чарта), меняется
+  только вместе с самим `helmwave.yml`, не независимо.
+- `infra_panel_domain`/`infra_panel_users`/`infra_panel_extra_services`/`infra_panel_title` и
+  т.д. — те же переменные, что и в docker-пути.

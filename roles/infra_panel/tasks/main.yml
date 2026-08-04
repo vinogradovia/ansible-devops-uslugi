@@ -14,3 +14,17 @@
   when:
     - infra_panel_enabled
     - infra_panel_orchestrator == 'docker'
+
+- name: Include check-and-install-requirements tasks for infra_panel_orchestrator k3s
+  ansible.builtin.include_tasks:
+    file: check-and-install-requirements.k3s.yml
+  when:
+    - infra_panel_enabled
+    - infra_panel_orchestrator == 'k3s'
+
+- name: Include infra-panel tasks for infra_panel_orchestrator k3s
+  ansible.builtin.include_tasks:
+    file: infra-panel.k3s.yml
+  when:
+    - infra_panel_enabled
+    - infra_panel_orchestrator == 'k3s'

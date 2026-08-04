@@ -1,6 +1,6 @@
 # ADR-0008: Роль `infra_panel` (дашборд-стартовая страница платформы, homer)
 
-- **Статус:** Принято (docker-путь реализован; k3s-путь роли — открытый вопрос, см. ниже)
+- **Статус:** Принято (docker- и k3s-пути реализованы)
 - **Дата:** 2026-08-01
 - **Авторы:** Ivan Vinogradov (решения), Claude Code (оформление по итогам обсуждения и реализации)
 
@@ -35,21 +35,31 @@
 ответственность роли. Отдельная роль тестируется независимо (свой molecule-сценарий в будущем, см.
 §8) и может быть не подключена вовсе, если панель не нужна.
 
-### 2. Оркестраторы — docker реализован, k3s пока не (роль)
+### 2. Оркестраторы — docker и k3s (роль)
 
 **Решение:** переменная-конвенция `infra_panel_orchestrator: docker|k3s`, как в
-`monitoring_server`/`monitoring_agent`. На момент принятия ADR **реализован только docker-путь**
-(`roles/infra_panel/tasks/infra-panel.docker.yml`, `meta/main.yml` тянет роль `docker` условно,
+`monitoring_server`/`monitoring_agent`. Docker-путь —
+`roles/infra_panel/tasks/infra-panel.docker.yml`, `meta/main.yml` тянет роль `docker` условно,
 `when: infra_panel_orchestrator == 'docker'` — по образцу `monitoring_agent`, а не безусловно, как
-`reverse_proxy_traefik`, чтобы не требовать переделок при добавлении k3s-ветки).
+`reverse_proxy_traefik`.
 
-Для k3s есть рабочий, но **не интегрированный с ролью** пример: релиз `homer` в
-`helm/envs/k3s-monitoring.yaml`, разворачиваемый той же командой `Helmwave up`, что и весь
-остальной k3s-стек `monitoring_server` (ADR-0007 §6) — то есть на кластере с k3s-путём
-`monitoring_server` homer уже физически разворачивается уже сейчас, но со статичным примером
-конфига, не читающим `infra_panel_*`-переменные. Довести это до полноценного k3s-пути роли
-(шаблонизация `config.yml`/basic-auth из тех же переменных, что и в docker-пути) — открытый вопрос,
-см. §9.
+k3s-путь (`roles/infra_panel/tasks/infra-panel.k3s.yml`) устроен принципиально иначе: роль сама
+**не создаёт k8s-объекты** и не устанавливает k3s — релиз `homer` уже часть общего Helmwave-стека
+(`helm/envs/k3s-monitoring.yaml`, тот же env-файл, что использует `monitoring_server_orchestrator:
+k3s`, ADR-0007 §6). Роль лишь рендерит values-файл этого релиза
+(`helm/values/k3s-monitoring/namespaces/monitoring/homer/values.yaml`) из тех же переменных, что
+docker-путь (`infra_panel_domain`/`infra_panel_users`/`infra_panel_extra_services`/
+auto-Grafana-блок), `delegate_to: localhost` — Helmwave выполняется только с control-хоста
+(как и весь k3s-путь `monitoring_server`). Отсюда следствие для порядка плеёв: в site.yml роль
+`infra_panel` должна идти **раньше** `monitoring_server` при `infra_panel_orchestrator: k3s`
+(иначе рендер значений появится, но применится только следующим прогоном `Helmwave up`) — в
+отличие от docker-пути, где порядок обратный (`infra_panel` — после, читает уже готовые
+`monitoring_server_grafana_*` переменные, а не результат выполнения роли).
+
+Ограничение k3s-пути: под k3s сам Grafana (grafana-operator CR) пока не имеет внешнего
+Ingress/домена (`monitoring_server_grafana_server_domain` там не используется вообще) — поэтому
+авто-блок Grafana в infra-panel для k3s-стендов не появляется (тот же `when` guard, что и в
+docker-пути: `monitoring_server_grafana_server_domain is defined`), пока это не решено отдельно.
 
 ### 3. Источник ссылок дашборда — авто (из `monitoring_server`) + ручные extra
 
@@ -168,22 +178,23 @@ compose-определения).
 
 ## Открытые вопросы / вне скоупа
 
-- **k3s-путь самой роли** (§2) — сейчас существует только статический пример в `helm/`, не
-  подключённый к `infra_panel_*`-переменным и не запускаемый ролью `infra_panel` автоматически.
-  Нужно решить: рендерить `config.yml`/basic-auth Secret из тех же переменных через
-  `kubernetes.core.k8s` (по аналогии с CRD в `monitoring_server`), или встроить helmwave-релиз в
-  саму роль.
-- **Автогенерация basic-auth хэша в k3s-примере** — сейчас захардкожен плейсхолдер `admin/admin`
-  (стандартный пример из документации Traefik) прямо в
-  `helm/values/k3s-monitoring/namespaces/monitoring/homer/values.yaml`; при доведении k3s-пути
-  роли до соответствия §6 нужно генерировать его тем же способом, что в docker-пути.
+- ~~**k3s-путь самой роли** (§2) — сейчас существует только статический пример в `helm/`, не
+  подключённый к `infra_panel_*`-переменным и не запускаемый ролью `infra_panel` автоматически.~~
+  — **закрыто**: `roles/infra_panel/tasks/infra-panel.k3s.yml` рендерит
+  `helm/values/k3s-monitoring/namespaces/monitoring/homer/values.yaml` из `infra_panel_*`
+  переменных (`community.general.htpasswd` вместо статичного `admin/admin`, `delegate_to:
+  localhost` — kubernetes.core.k8s не потребовался, т.к. роль не создаёт k8s-объекты сама, только
+  готовит values-файл для уже существующего Helmwave-релиза). Нужен `passlib` на control-хосте
+  (poetry dev-зависимость, как `kubernetes` для monitoring_server).
 - **Кросс-ролевой автодискавери ссылок** (§3) — если в будущем понадобится собирать ссылки со всей
   платформы (не только с `monitoring_server` на одном хосте), потребует отдельного архитектурного
   решения о связности между независимыми ролями коллекции.
 - ~~**Тестовое покрытие** — molecule-сценарий для `infra_panel` не создан~~ — **закрыто**:
   `extensions/molecule/infra_panel/` (см. CLAUDE.md, раздел «Molecule-тесты»), той же структуры,
-  что `reverse_proxy_traefik`. Покрывает только docker-путь; k3s-сценарий появится вместе с
-  реализацией k3s-пути роли (первый пункт этого раздела).
+  что `reverse_proxy_traefik`. Покрывает только docker-путь. k3s-путь роли реализован (см. первый
+  пункт этого раздела) и проверен реальным прогоном в `demo/*-ha-platform/` (docker) — под k3s
+  пока только вручную (`demo/monitoring-k3s-platform/`), отдельного molecule-сценария
+  (`monitoring_server_k3s` + `infra_panel`) ещё нет.
 - **Иконки/логотипы для авто-сгенерированных пунктов** — сейчас хардкожены inline в шаблоне
   (`config.yml.j2`, `logo: https://grafana.com/...`) для Grafana; при добавлении новых
   авто-пунктов потребуется либо расширять шаблон, либо вынести маппинг компонент → иконка в
@@ -196,11 +207,14 @@ compose-определения).
 
 ## Ссылки
 
-- `roles/infra_panel/` — реализация docker-пути (README.md роли — более подробное описание
-  переменных и поведения).
+- `roles/infra_panel/` — реализация docker- и k3s-путей (README.md роли — более подробное
+  описание переменных и поведения).
+- `roles/infra_panel/tasks/infra-panel.k3s.yml`, `roles/infra_panel/templates/homer-values.k3s.yml.j2`
+  — реализация k3s-пути (§2): рендер values-файла уже существующего Helmwave-релиза `homer`.
 - `extensions/molecule/infra_panel/` — molecule-сценарий docker-пути (см. открытые вопросы выше).
 - `helm/envs/k3s-monitoring.yaml`, `helm/values/k3s-monitoring/namespaces/monitoring/homer/`,
-  `helm/localrepo/universal-chart/` — пример k3s-деплоя (§2, §5).
+  `helm/localrepo/universal-chart/` — k3s-деплой homer (§2, §5), values-файл теперь рендерится
+  ролью, а не статичный пример.
 - `docs/adr/0007-monitoring-server-role.md` §6 — механизм `Helmwave up`, переиспользованный для
   k3s-примера homer без изменений.
 - `docs/adr/0001-reverse-proxy-npm-role.md` §5 — прецедент fail-fast на дефолтном
