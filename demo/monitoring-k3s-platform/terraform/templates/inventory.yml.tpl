@@ -5,7 +5,7 @@
 all:
   vars:
     ansible_user: ${ansible_user}
-    ansible_ssh_common_args: "-o StrictHostKeyChecking=accept-new"
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   children:
     # monitoring_server, k3s-оркестратор (ADR-0007 §6/§11)
     monitoring_servers:

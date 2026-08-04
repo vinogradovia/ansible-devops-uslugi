@@ -5,7 +5,7 @@
 all:
   vars:
     ansible_user: ${ansible_user}
-    ansible_ssh_common_args: "-o StrictHostKeyChecking=accept-new"
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   children:
     # monitoring_server, docker-оркестратор (ADR-0006 §4 — нужен для Loki+MinIO)
     monitoring_servers:

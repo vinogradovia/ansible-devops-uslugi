@@ -4,7 +4,7 @@
 all:
   vars:
     ansible_user: ${ansible_user}
-    ansible_ssh_common_args: "-o StrictHostKeyChecking=accept-new"
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
   children:
     # monitoring_server, docker-оркестратор
     monitoring_servers:

@@ -57,7 +57,11 @@ case "$cmd" in
     ansible_user=$("$tofu_bin" -chdir="$tf_dir" output -json 2>/dev/null | jq -r '.ansible_user.value // "ansible"')
     while read -r ip; do
       [[ -z "$ip" ]] && continue
-      until ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=5 -o BatchMode=yes \
+      # StrictHostKeyChecking=no (не accept-new) — стенды пересоздаются на тех же IP после
+      # down/up, старый host key в known_hosts иначе даёт "REMOTE HOST IDENTIFICATION HAS
+      # CHANGED" и вечно висит здесь (найдено реальным прогоном). UserKnownHostsFile=/dev/null,
+      # чтобы не копить в ~/.ssh/known_hosts записи для этих эфемерных demo-VM.
+      until ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o BatchMode=yes \
           "${ansible_user}@${ip}" true 2>/dev/null; do
         sleep 5
       done
