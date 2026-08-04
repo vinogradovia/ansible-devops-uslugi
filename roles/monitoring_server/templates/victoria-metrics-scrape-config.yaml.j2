@@ -59,6 +59,12 @@ scrape_configs:
       - files:
           - mysqld_exporter_targets.json
 {% endif %}
+{% if monitoring_server_victoria_metrics_scrape_postgres_exporter %}
+  - job_name: postgres-exporter
+    file_sd_configs:
+      - files:
+          - postgres_exporter_targets.json
+{% endif %}
 {% if monitoring_server_victoria_metrics_scrape_pve_exporter %}
   - job_name: pve-exporter
     file_sd_configs:
