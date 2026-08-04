@@ -1,0 +1,17 @@
+---
+# roles/fail2ban_ui/README.md, "Статус" — systemd-путь + nginx reverse-proxy. Fail2Ban и nginx
+# сама роль не устанавливает (внешние пререквизиты) — ставятся ad hoc в site.yml, тот же принцип
+# композиции, что odyssey/postgresql_replication в demo/postgresql-ha-platform (ADR-0005 §11):
+# роль отвечает только за то, что реально её зона ответственности.
+#
+# Пароли — открытым текстом (не Ansible Vault). Осознанное упрощение ТОЛЬКО для этого демо-стенда
+# (ADR-0006 §9): стенд не подключён к внешней сети, реальных данных не хранит.
+
+fail2ban_ui_orchestrator: systemd
+fail2ban_ui_reverse_proxy: nginx
+
+fail2ban_ui_reverse_proxy_server_name: fail2ban-ui.fail2ban-ui-platform.demo
+
+fail2ban_ui_reverse_proxy_users_auth:
+  - name: admin
+    password: "demo-fail2ban-ui-admin-CHANGE-ME"

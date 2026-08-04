@@ -1,0 +1,59 @@
+---
+# ADR-0006 §6: запуск вручную —
+#   ansible-playbook -i inventory.yml site.yml
+#
+# Fail2Ban и nginx — внешние пререквизиты роли fail2ban_ui (не разворачиваются ей самой, см.
+# roles/fail2ban_ui/README.md), поэтому ставятся здесь ad hoc, ДО применения самой роли.
+
+- name: fail2ban-ui
+  hosts: fail2ban_ui_hosts
+  become: true
+  # pre_tasks, не tasks — в одном плее с roles: секция roles выполняется ДО tasks (порядок
+  # Ansible: pre_tasks -> roles -> tasks -> post_tasks), а fail2ban/nginx роли нужны уже
+  # установленными к моменту применения самой роли fail2ban_ui.
+  pre_tasks:
+    # Без ожидания cloud-init мог ещё держать /var/lib/apt/lists/lock своим собственным
+    # package_update — apt-задача ниже падает "No package matching 'fail2ban' is available"
+    # (гонка, найдено реальным прогоном на свежесозданной VM). Тот же паттерн, что
+    # extensions/molecule/*/prepare.yml.
+    - name: Дождаться завершения cloud-init
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+      failed_when: false
+
+    - name: Install fail2ban and nginx (внешние пререквизиты роли fail2ban_ui)
+      ansible.builtin.apt:
+        pkg:
+          - fail2ban
+          - nginx
+        update_cache: true
+        cache_valid_time: 3600
+
+    # Демонстрационный jail — sshd защищён из коробки в jail.conf апстрима фильтром, но не
+    # enabled по умолчанию. jail.local переопределяет только нужное (drop-in поверх jail.conf,
+    # штатный механизм Fail2Ban — jail.conf трогать не нужно).
+    - name: Enable sshd jail (демонстрационная защита реального SSH на этом хосте)
+      ansible.builtin.copy:
+        dest: /etc/fail2ban/jail.local
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          [sshd]
+          enabled = true
+          port = ssh
+          backend = systemd
+      notify: Restart fail2ban
+
+    - name: Force notified handlers to run now (fail2ban must be up before the role manages its UI)
+      ansible.builtin.meta: flush_handlers
+
+  roles:
+    - fail2ban_ui
+
+  handlers:
+    - name: Restart fail2ban
+      ansible.builtin.systemd:
+        name: fail2ban
+        state: restarted
+        enabled: true
