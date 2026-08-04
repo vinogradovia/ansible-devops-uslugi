@@ -12,10 +12,14 @@
 # Плеи независимы друг от друга (monitoring_agent просто ставит node_exporter, ни от чего не
 # зависит) — порядок не принципиален.
 
-- name: monitoring_server (k3s)
+- name: monitoring_server (k3s) + infra_panel (ADR-0008)
   hosts: monitoring_servers
   become: true
   roles:
+    # infra_panel ДО monitoring_server при infra_panel_orchestrator: k3s — роль только рендерит
+    # values-файл релиза homer на control-хосте, применяет его следующий "Helmwave up"
+    # (см. roles/infra_panel/README.md, "k3s: переменные").
+    - infra_panel
     - monitoring_server
 
 - name: monitoring_agent (systemd) — только node_exporter
