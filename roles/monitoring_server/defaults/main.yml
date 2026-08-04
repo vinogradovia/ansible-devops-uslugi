@@ -205,6 +205,22 @@ monitoring_server_grafana_dashboards_group_defaults_node_exporter:
         uid: rYdddlPWk
         src: "../../ADDONS/grafana_dashboards/node_exporter_full_1860.json"
 
+# postgres_exporter — как и node_exporter, в ADDONS готового дашборда не было (ADR-0005 добавил
+# сам экспортёр, но не дашборд для него). "PostgreSQL Exporter" (grafana.com/dashboards/12485) —
+# единственный из проверенных кандидатов с панелями репликационного лага (важно для ADR-0005 §8 —
+# порог алерта 300с на pg_replication_lag_seconds), Instance-переменная фильтрует по
+# job="postgres-exporter", что точно совпадает с job_name в vars/main.yml этой роли. __inputs в
+# исходнике был нестандартным (DS_OBSERVE-PROMETHEUS02) — нормализован на DS_PROMETHEUS перед
+# вендорингом, чтобы не заводить под него отдельную подстановку в
+# grafana-provisioning-dashboard.yaml (там уже общая ${DS_VICTORIAMETRICS}/${DS_PROMETHEUS}).
+monitoring_server_grafana_dashboards_group_defaults_postgres_exporter:
+  postgres_exporter:
+    enable: false
+    dashboards:
+      - name: PostgreSQL Exporter
+        uid: v5ciIbUZz
+        src: "../../ADDONS/grafana_dashboards/postgres_exporter_12485.json"
+
 monitoring_server_grafana_dashboards_group_defaults_pve1:
   pve1:
     enable: false
