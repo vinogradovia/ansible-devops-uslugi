@@ -1,0 +1,34 @@
+---
+# ADR-0006 §4/§5: monitoring_server, docker-оркестратор — нужен для Loki+MinIO.
+#
+# Пароли — открытым текстом, см. group_vars/all.yml.
+
+monitoring_server_orchestrator: docker
+
+# В этом кейсе (в отличие от demo/mysql-ha-platform) reverse_proxy_traefik/infra_panel не
+# разворачиваются — стенд сфокусирован на демонстрации postgresql_replication + odyssey, а не
+# витрины всей платформы. Роль сама создаёт docker-сеть "proxy" (ADR-0007 §10.3).
+monitoring_server_docker_proxy_network_external: false
+
+monitoring_server_victoria_metrics_enabled: true
+
+monitoring_server_grafana_enabled: true
+monitoring_server_grafana_security_admin_password: "demo-grafana-admin-CHANGE-ME"
+
+# ADR-0006 §5: Loki требует local_storage_s3_enabled (Loki хардкодит object_store: s3). Внешний
+# S3 не нужен — роль сама поднимает MinIO.
+monitoring_server_local_storage_s3_enabled: true
+monitoring_server_local_storage_s3:
+  access_key: demo-minio-access-key
+  secret_key: demo-minio-secret-key-CHANGE-ME
+
+monitoring_server_grafana_loki_enabled: true
+
+# node_exporter — на всех агентских хостах (group_vars/monitoring_agents.yml). postgres_exporter —
+# на трёх PostgreSQL-хостах (group_vars/postgresql_*.yml), панели репликационного лага особенно
+# релевантны этому кейсу (ADR-0005 §8).
+monitoring_server_grafana_dashboards_group_install:
+  node_exporter:
+    enable: true
+  postgres_exporter:
+    enable: true

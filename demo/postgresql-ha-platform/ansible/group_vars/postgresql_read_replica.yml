@@ -1,0 +1,11 @@
+---
+postgresql_replication_role: read_replica
+postgresql_replication_node_id: 2
+
+# Статический IP postgres-primary из Terraform (locals.vms в ../terraform/vms.tf).
+postgresql_replication_primary_host: 10.66.7.21
+postgresql_replication_repl_password: "demo-pg-repl-pwd-CHANGEME"
+postgresql_replication_repmgr_password: "demo-pg-repmgr-pwd-CHANGEME"
+
+monitoring_agent_postgres_exporter_enabled: true
+monitoring_agent_postgres_exporter_password: "demo-postgres-exporter-password-CHANGE-ME"

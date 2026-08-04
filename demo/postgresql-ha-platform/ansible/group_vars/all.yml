@@ -1,0 +1,34 @@
+---
+# Общие для нескольких групп/плеев значения — вынесены сюда, чтобы не дублировать один и тот же
+# секрет/имя в group_vars/odyssey_hosts.yml (роль odyssey) и site.yml (реальный PostgreSQL-юзер/БД
+# на backend'е, Odyssey не транслирует креды/имена БД при проксировании — тот же принцип, что и в
+# demo/mysql-ha-platform/ansible/group_vars/all.yml для ProxySQL).
+#
+# Пароли — открытым текстом (не Ansible Vault). Осознанное упрощение ТОЛЬКО для демо-стенда
+# (ADR-0006 §9): стенд не подключён к внешней сети, реальных данных не хранит. НЕ переносить этот
+# паттерн на роли коллекции — там (postgresql_replication, odyssey, mysql_replication, proxysql)
+# обязательный Vault остаётся в силе.
+
+# odyssey_backend_user/_password (роль odyssey, ADR-0005 §6) — одновременно (а) креды, которыми
+# load-generator.yml подключается через db-write/db-read, и (б) креды, которыми сама роль odyssey
+# аутентифицирует клиентов и подключается к backend'ам. Нужны и на хосте odyssey (сама роль), и на
+# postgres-primary (site.yml, ad hoc задача создания пользователя на backend'е) — postgres-primary
+# никогда не применяет роль odyssey, поэтому её defaults/main.yml там не резолвятся.
+odyssey_backend_user: app
+odyssey_backend_password: "demo-odyssey-backend-password-CHANGE-ME"
+
+# ADR-0005 §6/roles/odyssey/README.md, "Ключевое отличие от proxysql": маршрут — по имени БД, не
+# по содержимому запроса, поэтому чтение/запись — две разные точки подключения с РАЗНЫМИ именами
+# БД, каждая из которых должна физически существовать на своём backend'е под этим именем. Нужны
+# на odyssey (сама роль) и на postgres-primary (ad hoc создание демо-БД в site.yml).
+#
+# odyssey_write_database_name — реальная демо-БД (создаётся ad hoc в site.yml на primary,
+# физическая репликация копирует её на read/dr реплики целиком вместе со всем кластером).
+# odyssey_read_database_name — намеренно "postgres" (штатная административная БД, существует на
+# любом PostgreSQL-инстансе из коробки, ничего создавать не нужно): она нужна здесь не для того,
+# чтобы читать те же строки, что были записаны (в отличие от MySQL/ProxySQL, Odyssey это
+# архитектурно не умеет — см. README), а чтобы наглядно доказать, что db-read реально маршрутизирует
+# на ДРУГОЙ backend (read-реплику), а не на primary — load-generator.yml проверяет это через
+# pg_is_in_recovery().
+odyssey_write_database_name: loadgen_demo
+odyssey_read_database_name: postgres

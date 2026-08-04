@@ -1,0 +1,7 @@
+[Unit]
+Description=Demo-stand load generator (ADR-0006 §8)
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/loadgen/loadgen.env
+ExecStart=/usr/local/bin/loadgen.sh

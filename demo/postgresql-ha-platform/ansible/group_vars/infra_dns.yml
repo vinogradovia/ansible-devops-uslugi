@@ -1,0 +1,25 @@
+---
+infra_dns_enabled: true
+
+infra_dns_listen_on:
+  - 10.66.7.40
+infra_dns_allow_query:
+  - 10.66.7.0/24
+
+infra_dns_zones:
+  - name: postgresql-ha-platform.demo
+    soa_ns: infra-dns.postgresql-ha-platform.demo
+    ns_records:
+      - infra-dns.postgresql-ha-platform.demo.
+    # ADR-0005 §6 (переиспользует record.ttl из ADR-0004 §6 без изменений): db-write/db-read →
+    # Odyssey, короткий TTL.
+    records:
+      - {name: db-write, type: A, value: 10.66.7.30, ttl: 30}
+      - {name: db-read, type: A, value: 10.66.7.30, ttl: 30}
+      - {name: monitoring-server, type: A, value: 10.66.7.10}
+      - {name: postgres-primary, type: A, value: 10.66.7.21}
+      - {name: postgres-read-replica, type: A, value: 10.66.7.22}
+      - {name: postgres-dr-replica, type: A, value: 10.66.7.23}
+      - {name: odyssey, type: A, value: 10.66.7.30}
+      - {name: infra-dns, type: A, value: 10.66.7.40}
+      - {name: load-generator, type: A, value: 10.66.7.50}

@@ -1,0 +1,19 @@
+---
+# ADR-0005 §2/§3. Хост свежий (Terraform-провижининг) — postgresql_replication делает fresh
+# install, adopt-ветка (README, "Discovery версии") в этом стенде не задействуется.
+postgresql_replication_role: primary
+postgresql_replication_node_id: 1
+
+# Общие для primary + обеих реплик — см. group_vars/postgresql_read_replica.yml,
+# group_vars/postgresql_dr_replica.yml. Открытым текстом — ADR-0006 §9.
+postgresql_replication_repl_password: "demo-pg-repl-pwd-CHANGEME"
+postgresql_replication_repmgr_password: "demo-pg-repmgr-pwd-CHANGEME"
+
+# ADR-0005 §11 (композиция, не meta-зависимость): пользователя для postgres_exporter создаём
+# ad hoc в site.yml (play "Ad hoc DB-пользователи на primary"), сама роль monitoring_agent его не
+# заводит. _user/_host продублированы явно (= дефолты roles/monitoring_agent/defaults/main.yml) —
+# role defaults не переживают переход в другой play, даже на том же хосте (тот же эффект,
+# см. demo/mysql-ha-platform, коммит про mysqld_exporter_hosts).
+monitoring_agent_postgres_exporter_enabled: true
+monitoring_agent_postgres_exporter_user: postgres-exporter
+monitoring_agent_postgres_exporter_password: "demo-postgres-exporter-password-CHANGE-ME"
