@@ -2,9 +2,11 @@
 # ADR-0006: единая обёртка над Terraform+libvirt / ansible-playbook для запуска и сноса
 # демо-стендов из demo/<case>/{terraform,ansible}. Все кейсы (mysql-ha-platform,
 # postgresql-ha-platform, monitoring-k3s-platform, ...) имеют одинаковую структуру каталогов —
-# скрипт не хардкодит имена кейсов, только читает per-case файл ansible-extra-args, если он есть
-# (нужен, например, monitoring-k3s-platform: xanmanning.k3s — never-тег зависимость, требует
-# явный --tags all,init).
+# скрипт не хардкодит имена кейсов, только читает опциональные per-case файлы:
+#   ansible-extra-args — доп. флаги ansible-playbook (нужен monitoring-k3s-platform:
+#                         xanmanning.k3s — never-тег зависимость, требует явный --tags all,init)
+#   infra-panel-url     — ссылка на infra_panel (ADR-0008), печатается после успешного up
+#                         (заведён только у mysql-ha-platform — единственного кейса с этой ролью)
 set -euo pipefail
 
 usage() {
@@ -70,6 +72,10 @@ case "$cmd" in
 
     echo "==> Запускаю site.yml${extra_args:+ (${extra_args[*]})}"
     ( cd "$ansible_dir" && poetry run ansible-playbook -i inventory.yml site.yml "${extra_args[@]}" )
+
+    if [[ -f "$case_dir/infra-panel-url" ]]; then
+      echo "==> infra-panel: $(cat "$case_dir/infra-panel-url")"
+    fi
     ;;
   down)
     ( cd "$tf_dir" && "$tofu_bin" destroy -input=false -auto-approve )
