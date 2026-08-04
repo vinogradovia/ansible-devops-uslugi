@@ -2,9 +2,15 @@
 # handlers file for monitoring-server
 
 - name: Reload victoria-metrics by api
+  # -O /dev/null обязателен: без него wget пишет тело ответа в файл "reload" (по последнему
+  # сегменту URL) в chdir. BusyBox wget (образ victoria-metrics) при повторном срабатывании
+  # этого хендлера на уже существующем файле падает "reload: File exists" (в отличие от GNU
+  # wget, который сам подставил бы .1/.2) — воспроизводится только на повторном изменении
+  # конфига на уже поднятом стенде, не на первом прогоне (найдено демо-стендом, ADR-0006:
+  # molecule такой сценарий не гоняет — там один converge, а не серия независимых применений).
   community.docker.docker_compose_v2_exec:
     service: victoria-metrics
-    command: wget http://127.0.0.1:8428/-/reload
+    command: wget -O /dev/null http://127.0.0.1:8428/-/reload
     chdir: /
     project_src: "{{ monitoring_server_config_dir }}"
   register: monitoring_server_result_reload_victoria_metrics_by_api
