@@ -1,0 +1,12 @@
+---
+postgresql_replication_role: dr_replica
+postgresql_replication_node_id: 3
+postgresql_replication_primary_host: 192.168.58.10
+postgresql_replication_repl_password: molecule-test-repl-password
+postgresql_replication_repmgr_password: molecule-test-repmgr-password
+
+# Бэкапы (pgBackRest + S3) намеренно выключены в этом сценарии — требуют реального
+# S3-совместимого эндпоинта, вне scope молекулы (тот же принцип, что и в mysql_replication, ADR
+# §10 покрывает только репликацию). Ручная проверка бэкапов — см.
+# roles/postgresql_replication/README.md.
+postgresql_replication_backup_enabled: false

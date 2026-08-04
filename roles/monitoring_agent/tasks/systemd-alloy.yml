@@ -1,0 +1,74 @@
+---
+
+- name: Install unzip (grafana/alloy releases — .zip, а не .tar.gz, как у остальных экспортеров)
+  ansible.builtin.apt:
+    name: unzip
+    state: present
+
+- name: Install alloy
+  notify:
+    - Reload systemd daemon
+    - Restart service alloy
+  block:
+    - name: Add the user for alloy
+      ansible.builtin.user:
+        name: "{{ monitoring_agent_alloy_systemd_name }}"
+        create_home: false
+        shell: /bin/false
+        state: "{{ 'present' if monitoring_agent_alloy_enabled else 'absent' }}"
+
+    - name: Download alloy
+      ansible.builtin.get_url:
+        url: "{{ monitoring_agent_alloy_binary_download_url }}"
+        checksum: "{{ monitoring_agent_alloy_binary_checksum }}"
+        dest: "{{ monitoring_agent_dist_dir }}"
+        tmp_dest: "{{ monitoring_agent_dist_dir }}"
+        owner: root
+        group: root
+        mode: '0644'
+      register: monitoring_agent_alloy_binary_download_url_result
+
+    # Архив плоский (один файл alloy-linux-amd64 в корне, без вложенной директории — в отличие
+    # от tar.gz остальных экспортеров), поэтому распаковывается напрямую в dist_dir, а не через
+    # include/extra_opts, и переносится под нужным именем отдельной задачей ниже.
+    - name: Unarchive alloy
+      ansible.builtin.unarchive:
+        remote_src: true
+        src: "{{ monitoring_agent_alloy_binary_download_url_result.dest }}"
+        dest: "{{ monitoring_agent_dist_dir }}"
+
+    - name: Install alloy binary
+      ansible.builtin.copy:
+        remote_src: true
+        src: "{{ monitoring_agent_dist_dir }}/alloy-linux-amd64"
+        dest: "{{ monitoring_agent_alloy_binary_install_path }}"
+        owner: root
+        group: root
+        mode: '0755'
+
+- name: Configure service alloy
+  notify:
+    - Reload systemd daemon
+    - Restart service alloy
+  block:
+    - name: Create alloy storage dir
+      ansible.builtin.file:
+        path: "{{ monitoring_agent_alloy_config_dir }}/data"
+        state: directory
+        owner: "{{ monitoring_agent_alloy_systemd_name }}"
+        group: "{{ monitoring_agent_alloy_systemd_name }}"
+        mode: '0750'
+
+    - name: Render alloy systemd service
+      ansible.builtin.template:
+        src: "systemd/alloy/{{ monitoring_agent_alloy_systemd_name }}.service.j2"
+        dest: "{{ monitoring_agent_systemd_unit_dir }}/{{ monitoring_agent_alloy_systemd_name }}.service"
+        owner: root
+        group: root
+        mode: '0644'
+
+- name: State service alloy
+  ansible.builtin.systemd:
+    name: "{{ monitoring_agent_alloy_systemd_name }}"
+    enabled: "{{ monitoring_agent_alloy_enabled }}"
+    state: "{{ 'started' if monitoring_agent_alloy_enabled else 'stopped' }}"

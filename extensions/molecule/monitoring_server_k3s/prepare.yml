@@ -1,0 +1,32 @@
+---
+- name: Prepare
+  hosts: all
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Дождаться завершения cloud-init
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+      failed_when: false
+
+    - name: Обновить apt-кэш
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    # На свежесозданной ВМ первые исходящие HTTPS-запросы (xanmanning.k3s качает бинарь/чексумму
+    # с GitHub) иногда упирались в "SSL handshake operation timed out" — классический симптом
+    # нехватки энтропии сразу после boot (мало событий диска/сети, TLS-рукопожатию нечем
+    # засеяться). На уже прогретой (переиспользованной) ВМ этого не происходило ни разу за всю
+    # сессию — только на полностью свежих. haveged — стандартный, безопасный способ ускорить
+    # накопление энтропии на только что загруженной машине.
+    - name: Установить haveged (быстрое накопление энтропии на свежей ВМ)
+      ansible.builtin.apt:
+        name: haveged
+        state: present
+
+    - name: Убедиться, что haveged запущен
+      ansible.builtin.systemd:
+        name: haveged
+        state: started
+        enabled: true

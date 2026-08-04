@@ -1,0 +1,41 @@
+# {{ ansible_managed }}
+#
+# wal_level/репликация/repmgr/archive_command для pgBackRest (ADR §4/§8). Применимо и к adopt-, и
+# к fresh-install-хостам. Правка этого файла на уже работающем PostgreSQL требует рестарта службы
+# — см. postgresql_replication_allow_restart (ADR §2) и handlers/main.yml.
+
+listen_addresses = '{{ postgresql_replication_listen_addresses }}'
+
+wal_level = replica
+max_wal_senders = {{ postgresql_replication_max_wal_senders }}
+max_replication_slots = {{ postgresql_replication_max_replication_slots }}
+hot_standby = on
+
+# Обязательно для `repmgr node rejoin --force-rewind`/`pg_rewind` (docs/runbooks/postgresql-
+# failover.md, раздел 3, шаг 3) — без wal_log_hints (или checksums, которые требуют переинициализации
+# кластера через initdb/pg_checksums, а не просто рестарта) pg_rewind отказывает с "--force-rewind
+# specified but pg_rewind cannot be used". Нужно на ВСЕХ узлах заранее (до расхождения таймлайнов),
+# не только на том, который потом будет rewind-иться — потому и в общем drop-in-файле, а не только
+# в конфиге DR-/read-реплики.
+wal_log_hints = on
+
+# repmgr должен быть загружен на КАЖДОМ узле кластера (primary и обеих репликах), не только на
+# репликах — иначе `repmgr standby switchover`/переключение ролей не работает (repmgr требует
+# симметричной конфигурации preload на всех узлах).
+shared_preload_libraries = 'repmgr'
+
+{% if postgresql_replication_backup_enabled and postgresql_replication_role == postgresql_replication_backup_source_role %}
+# Архивирование WAL через pgBackRest — включено только на хосте-источнике бэкапа (ADR §8).
+# Включать archive_mode=on/archive_command на остальных узлах опасно: там pgBackRest-стanza не
+# инициализирована, archive_command будет постоянно падать, и PostgreSQL перестанет
+# recycle-ить WAL-сегменты — рост pg_wal/ до заполнения диска.
+#
+# archive_mode='always' (а не 'on') обязателен, если источник бэкапа — реплика (значение по
+# умолчанию, ADR §8: backup_source_role=dr_replica): 'on' архивирует WAL только пока сервер
+# работает как primary, standby в recovery-режиме с 'on' архивировать не будет вообще — тонкость
+# PostgreSQL, не совпадающая с интуитивным ожиданием "on значит включено везде".
+archive_mode = {{ 'on' if postgresql_replication_role == 'primary' else 'always' }}
+archive_command = 'pgbackrest --stanza={{ postgresql_replication_pgbackrest_stanza }} archive-push %p'
+{% else %}
+archive_mode = off
+{% endif %}

@@ -1,0 +1,9 @@
+---
+galaxy_info:
+  author: Ivan Vinogradov <vinogradovia@gmail.com>
+  description: install and configure Docker Engine (apt, Debian/Ubuntu)
+  license: WTFPL
+  min_ansible_version: "2.2"
+  galaxy_tags:
+    - docker
+dependencies: []

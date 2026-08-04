@@ -1,0 +1,23 @@
+# {{ ansible_managed }}
+#
+# Этот файл читается ProxySQL только при первом старте (пустая admin-БД). После bootstrap'а
+# конфигурация (backend-серверы, query rules, пользователи) живёт в embedded SQLite и
+# управляется через admin-интерфейс (порт {{ proxysql_admin_listen_port }}) — см.
+# tasks/sync-backend-servers.yml, tasks/query-rules.yml, tasks/sync-mysql-users.yml.
+
+datadir = "{{ proxysql_datadir }}"
+
+admin_variables =
+{
+    admin_credentials = "{{ proxysql_admin_user }}:{{ proxysql_admin_password }}"
+    mysql_ifaces = "127.0.0.1:{{ proxysql_admin_listen_port }}"
+}
+
+mysql_variables =
+{
+    threads = 4
+    max_connections = 2048
+    interfaces = "0.0.0.0:{{ proxysql_mysql_listen_port }}"
+    monitor_username = "{{ proxysql_monitor_user }}"
+    monitor_password = "{{ proxysql_monitor_password }}"
+}

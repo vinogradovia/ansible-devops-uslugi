@@ -1,0 +1,45 @@
+---
+# defaults file for docker
+#
+# Только Debian/Ubuntu (apt) — см. docs/adr/0002-docker-role.md §4.
+
+docker_repo_channel: stable
+
+docker_repo_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}.get(ansible_architecture, ansible_architecture) }}"
+
+# Версии зафиксированы явно (ADR §5) — apt-суффикс версии Docker CE различается по
+# дистрибутиву/релизу (например: 5:27.5.1-1~ubuntu.24.04~noble или 5:27.5.1-1~debian.12~bookworm).
+# При обновлении docker_ce_version проверить доступность через:
+#   apt-cache madison docker-ce
+#
+# Debian и Ubuntu кодируют версию в ansible_distribution_version по-разному: Ubuntu — стабильно
+# major.minor (24.04) независимо от точечного релиза, Debian — полный номер точечного релиза
+# (12.14 для 12-й точки bookworm), которого нет в имени пакета в репозитории download.docker.com
+# (там всегда только мажорная версия: ~debian.12~bookworm). Поэтому для Debian берём
+# ansible_distribution_major_version, а не ansible_distribution_version — иначе закреплённая
+# версия docker-ce не находится вообще ни на одном Debian-хосте с точечным релизом, отличным от
+# того, что был текущим на момент фиксации docker_ce_version (проверено эмпирически через
+# apt-cache madison — этот баг ловит extensions/molecule/reverse_proxy_traefik).
+docker_apt_version_suffix: >-
+  {{ ansible_distribution | lower }}.{{
+    ansible_distribution_major_version if ansible_distribution == 'Debian'
+    else ansible_distribution_version
+  }}~{{ ansible_distribution_release }}
+
+docker_ce_version: "27.5.1"
+docker_ce_package_version: "5:{{ docker_ce_version }}-1~{{ docker_apt_version_suffix }}"
+
+docker_compose_plugin_version: "2.32.4"
+docker_compose_plugin_package_version: "{{ docker_compose_plugin_version }}-1~{{ docker_apt_version_suffix }}"
+
+docker_service_enabled: true
+docker_service_state: started
+
+# Пользователи, добавляемые в группу docker (доступ без root, ADR §7). Пусто по умолчанию —
+# остальные роли коллекции работают через become/root.
+docker_users: []
+
+# Роль — единственный владелец файла (ADR §6). Роли-потребители передают свои опции через
+# docker_daemon_json_options (dict), а не пишут в файл напрямую.
+docker_daemon_json_path: /etc/docker/daemon.json
+docker_daemon_json_options: {}

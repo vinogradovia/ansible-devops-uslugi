@@ -1,9 +1,30 @@
 ---
 # pve-exporter
 
+- name: Fail if pve-exporter is enabled for an orchestrator that does not support it
+  ansible.builtin.fail:
+    msg: >-
+      monitoring_agent_pve_exporter_enabled requires monitoring_agent_orchestrator == 'systemd';
+      there is no pve-exporter service in compose-monitoring-agent.yml.j2 for the docker orchestrator.
+  when: monitoring_agent_pve_exporter_enabled and monitoring_agent_orchestrator != "systemd"
+
 - name: Block monitoring_agent_pve_exporter_enabled
   when: monitoring_agent_pve_exporter_enabled
   block:
+    # Задача выше уже гарантирует monitoring_agent_orchestrator == systemd в этой точке (иначе
+    # play уже упал бы) — пользователь нужен до рендера pve.yml, чтобы сразу отдать файл ему во
+    # владение (сервис работает под User={{ monitoring_agent_pve_exporter_systemd_name }}, не root
+    # — иначе PermissionError при чтении config.file, найдено molecule-сценарием
+    # extensions/molecule/monitoring_agent). Создаётся здесь, а не только в
+    # systemd-pve-exporter.yml, — там тот же вызов идемпотентен (create) и дополнительно отвечает
+    # за удаление пользователя при disable, здесь это не нужно (блок только под enabled: true).
+    - name: Add the user for pve-exporter
+      ansible.builtin.user:
+        name: "{{ monitoring_agent_pve_exporter_systemd_name }}"
+        create_home: false
+        shell: /bin/false
+        state: present
+
     - name: Create pve_exporter config dirs
       ansible.builtin.file:
         path: "{{ item }}"
@@ -16,12 +37,13 @@
 
     - name: Render pve.yml for pve-exporter
       register: monitoring_agent_pve_exporter_pve_yml_stat
+      no_log: true
       ansible.builtin.template:
         src: exporters/pve-exporter/pve.yml.j2
         dest: "{{ monitoring_agent_pve_exporter_config_dir }}/pve.yml"
-        owner: root
-        group: root
-        mode: '0644'
+        owner: "{{ monitoring_agent_pve_exporter_systemd_name }}"
+        group: "{{ monitoring_agent_pve_exporter_systemd_name }}"
+        mode: '0600'
 
 - name: Include systemd-pve-exporter tasks
   when: monitoring_agent_orchestrator == "systemd"

@@ -1,0 +1,69 @@
+---
+- name: Verify (ProxySQL)
+  hosts: proxysql_hosts
+  become: true
+  gather_facts: false
+  vars:
+    _reader_server_id: "{{ hostvars[groups['mysql_read_replica'][0]].mysql_replication_server_id }}"
+  tasks:
+    # --- Оба backend-сервера должны быть ONLINE по мнению монитора ProxySQL ------------------
+    - name: Дождаться, пока оба backend-сервера станут ONLINE (admin-интерфейс, порт 6032)
+      ansible.mysql.mysql_query:
+        login_host: 127.0.0.1
+        login_port: "{{ proxysql_admin_listen_port }}"
+        login_user: "{{ proxysql_admin_user }}"
+        login_password: "{{ proxysql_admin_password }}"
+        query: "SELECT hostgroup_id, hostname, status FROM runtime_mysql_servers"
+      register: molecule_runtime_servers
+      # query_result — список результатов ПО КАЖДОМУ запросу (мы передаём один query, значит
+      # нужен query_result[0], а не query_result целиком) — найдено реальным прогоном molecule:
+      # until никогда не выполнялся из-за этой лишней вложенности, хотя данные были верны.
+      until: >-
+        molecule_runtime_servers.query_result[0] | length == 2
+        and molecule_runtime_servers.query_result[0] | map(attribute='status') | unique == ['ONLINE']
+      retries: 15
+      delay: 2
+
+    # --- SELECT должен маршрутизироваться на reader-hostgroup (ADR §6) ------------------------
+    - name: "SELECT через клиентский порт (6033) должен уйти на read-реплику"
+      ansible.mysql.mysql_query:
+        login_host: 127.0.0.1
+        login_port: "{{ proxysql_mysql_listen_port }}"
+        login_user: appuser
+        login_password: molecule-app-password
+        query: "SELECT @@server_id AS server_id"
+      register: molecule_select_routing
+
+    - name: "Server_id должен совпадать с read-репликой, а не с primary"
+      ansible.builtin.assert:
+        that:
+          - molecule_select_routing.query_result[0][0].server_id | string == _reader_server_id | string
+        fail_msg: >-
+          Ожидался server_id read-реплики ({{ _reader_server_id }}), получено:
+          {{ molecule_select_routing.query_result }}
+        quiet: true
+
+    # --- Запись должна маршрутизироваться на writer-hostgroup (default_hostgroup пользователя,
+    # ADR §6) — если бы ушла на read-only реплику, упала бы с ошибкой read-only. ----------------
+    - name: "INSERT через клиентский порт (6033) должен уйти на primary и не упасть"
+      ansible.mysql.mysql_query:
+        login_host: 127.0.0.1
+        login_port: "{{ proxysql_mysql_listen_port }}"
+        login_user: appuser
+        login_password: molecule-app-password
+        query: "INSERT INTO molecule_test.probe (marker) VALUES ('proxysql-routing-test')"
+
+    - name: "Запись должна быть видна при SELECT напрямую с primary"
+      ansible.mysql.mysql_query:
+        login_host: 192.168.57.10
+        login_port: 3306
+        login_user: appuser
+        login_password: molecule-app-password
+        query: "SELECT COUNT(*) AS cnt FROM molecule_test.probe WHERE marker = 'proxysql-routing-test'"
+      register: molecule_write_check
+
+    - name: "Строка должна быть ровно одна"
+      ansible.builtin.assert:
+        that:
+          - molecule_write_check.query_result[0][0].cnt == 1
+        quiet: true

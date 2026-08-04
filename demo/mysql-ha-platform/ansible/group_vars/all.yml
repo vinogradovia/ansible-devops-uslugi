@@ -1,0 +1,12 @@
+---
+# Общие для нескольких групп/плеев значения — вынесены сюда, чтобы не дублировать один и тот же
+# пароль в group_vars/proxysql_hosts.yml (ProxySQL-credential) и site.yml (реальный MySQL-юзер на
+# backend'е, ProxySQL не транслирует креды при проксировании).
+demo_loadgen_mysql_password: "demo-loadgen-password-CHANGE-ME"
+
+# proxysql_monitor_user/_password (роль proxysql, health-check backend'ов) нужны и на хосте
+# proxysql (сама роль), и на mysql-primary (site.yml, ad hoc задача "Create proxysql_monitor
+# user") — mysql-primary никогда не применяет роль proxysql, поэтому её defaults/main.yml там не
+# резолвятся; здесь — единственное место, видимое обоим хостам (group_vars/all.yml).
+proxysql_monitor_user: proxysql_monitor
+proxysql_monitor_password: "demo-proxysql-monitor-password-CHANGE-ME"

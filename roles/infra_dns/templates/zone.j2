@@ -18,7 +18,7 @@ $TTL {{ zone.ttl | default(infra_dns_zone_default_ttl) }}
 {% endfor %}
 
 {% for record in zone.records | default([]) %}
-{{ "%-30s" | format(record.name) }} IN  {{ record.type }}  {{ record.value }}
+{{ "%-30s" | format(record.name) }} {{ record.ttl ~ ' ' if record.ttl is defined else '' }}IN  {{ record.type }}  {{ record.value }}
 {% endfor %}
 {% if zone.include_hosts | default(infra_dns_zone_default_include_hosts) %}
 

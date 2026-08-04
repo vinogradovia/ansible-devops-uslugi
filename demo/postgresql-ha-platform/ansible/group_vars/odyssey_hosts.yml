@@ -1,0 +1,17 @@
+---
+# ADR-0005 §6: единая точка подключения — db-write/db-read (group_vars/infra_dns.yml) ведут сюда.
+# odyssey_backend_user/_password — см. group_vars/all.yml (нужны и на postgres-primary).
+
+# Read-источник — определяется составом инвентаря НА МОМЕНТ ПРОГОНА роли (roles/odyssey/README.md,
+# "Пример"), не рантайм-переключением внутри Odyssey: если postgresql_read_replica непустая —
+# используется она, иначе fallback на postgresql_dr_replica. В этом стенде read_replica всегда
+# заполнена, но переменная всё равно вычисляется по документированному паттерну, а не хардкодится
+# статическим IP — так демо остаётся образцом для README, а не расходится с ним.
+odyssey_write_backend_host: "{{ hostvars[groups['postgresql_primary'][0]].ansible_host }}"
+odyssey_read_backend_host: >-
+  {{ hostvars[groups['postgresql_read_replica'][0]].ansible_host
+     if groups['postgresql_read_replica'] | length > 0
+     else hostvars[groups['postgresql_dr_replica'][0]].ansible_host }}
+
+# odyssey_write_database_name/odyssey_read_database_name — см. group_vars/all.yml (нужны и на
+# postgres-primary, ad hoc задача создания демо-БД — group_vars хоста odyssey туда не долетают).

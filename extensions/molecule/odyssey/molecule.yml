@@ -1,0 +1,56 @@
+---
+# Molecule-сценарий для odyssey — см. docs/adr/0005-postgresql-ha-replication-role.md, §10.
+# driver: docker (в отличие от postgresql_replication — это одиночный stateless-сервис без
+# требований к устойчивому диску/нескольким узлам, тот же принцип, что и
+# nginx_multidomain/reverse_proxy_npm). В отличие от reverse_proxy_npm, роль odyssey НЕ
+# использует Docker сама (нативный apt-пакет) — Docker нужен только самой molecule-обвязке
+# (fixture-бэкенды PostgreSQL, prepare.yml, создаются НЕ внутри тестового контейнера, а как
+# контейнеры-соседи на хостовом Docker — см. prepare.yml), поэтому это НЕ docker-in-docker.
+# privileged/cgroup-mount ниже всё равно нужны — их требует сам systemd внутри этого базового
+# образа (тот же набор, что и в nginx_multidomain/molecule.yml, где роль тоже не использует
+# Docker вообще).
+#
+# odyssey_molecule_net — общая docker-сеть между тестовым контейнером odyssey и двумя
+# fixture-контейнерами PostgreSQL (write/read backend, prepare.yml) — нужна, чтобы Odyssey мог
+# резолвить их по имени контейнера (Docker embedded DNS), тот же приём, что и
+# reverse_proxy_npm_docker_network в extensions/molecule/reverse_proxy_npm.
+#
+# ansible.executor.args.ansible_playbook обнуляется, как и в остальных docker-сценариях, чтобы
+# не подмешивать статический inventory monitoring_servers/monitoring_agents из ../config.yml.
+driver:
+  name: docker
+
+platforms:
+  - name: odyssey
+    image: "docker.io/geerlingguy/docker-debian12-ansible:latest"
+    pre_build_image: true
+    # privileged + cgroup mount + cgroupns_mode: host — нужны samому systemd внутри контейнера
+    # (этот базовый образ использует systemd как init), НЕ докер-в-докере — тот же набор, что и в
+    # nginx_multidomain/molecule.yml, где роль тоже не использует Docker вообще.
+    privileged: true
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    cgroupns_mode: host
+    command: ${MOLECULE_DOCKER_COMMAND:-""}
+    networks:
+      - name: odyssey_molecule_net
+
+scenario:
+  test_sequence:
+    - dependency
+    - destroy
+    - syntax
+    - create
+    - prepare
+    - converge
+    - idempotence
+    - verify
+    - cleanup
+    - destroy
+
+shared_state: false
+
+ansible:
+  executor:
+    args:
+      ansible_playbook: []

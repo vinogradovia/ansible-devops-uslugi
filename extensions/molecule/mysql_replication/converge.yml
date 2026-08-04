@@ -1,0 +1,24 @@
+---
+# Порядок плеев обязателен (см. roles/mysql_replication/README.md, "Discovery версии", ADR §2):
+# primary отрабатывает первым — на нём роль работает в adopt-режиме (см. prepare.yml) и
+# обнаруживает версию уже установленного MySQL, которую нужно передать репликам для fresh
+# install той же версии.
+
+- name: Converge (primary)
+  hosts: mysql_primary
+  become: true
+  tasks:
+    - name: Прогнать роль mysql_replication (adopt существующего MySQL, см. prepare.yml)
+      ansible.builtin.import_role:
+        name: devops.uslugi.mysql_replication
+
+- name: Converge (реплики)
+  hosts: mysql_read_replica:mysql_dr_replica
+  become: true
+  vars:
+    mysql_replication_target_version: >-
+      {{ hostvars[groups['mysql_primary'][0]].mysql_replication_discovered_version }}
+  tasks:
+    - name: Прогнать роль mysql_replication (fresh install целевой версии + подключение к primary)
+      ansible.builtin.import_role:
+        name: devops.uslugi.mysql_replication

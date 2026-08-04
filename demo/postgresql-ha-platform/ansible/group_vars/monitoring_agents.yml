@@ -1,0 +1,10 @@
+---
+# ADR-0006 §4: monitoring_agent — везде systemd-режим (не docker).
+monitoring_agent_orchestrator: systemd
+
+monitoring_agent_node_exporter_enabled: true
+
+# ADR-0006 §5: Promtail на всех агентских хостах, шлёт логи в Loki (loki_gateway, host-порт 3100
+# на monitoring-server).
+monitoring_agent_promtail_enabled: true
+monitoring_agent_promtail_loki_addr: "http://10.66.7.10:3100"

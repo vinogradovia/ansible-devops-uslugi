@@ -1,0 +1,42 @@
+---
+# Переменные ролей monitoring_server/monitoring_agent для converge/verify этого сценария.
+# group_vars/, а не vars: playbook'ов — тот же приём, что и в других изолированных сценариях
+# (nginx_multidomain, reverse_proxy_npm): подхватывается и converge.yml, и verify.yml одинаково.
+#
+# monitoring_server_orchestrator: docker — единственный оркестратор, для которого вообще есть
+# смысл в molecule-покрытии (k3s-путь не разворачивает сам стек, Helmwave up закомментирован —
+# см. ADR-0007 §6); оставлен явно, хотя это и так дефолт, чтобы не зависеть от изменения дефолта
+# в будущем.
+monitoring_server_orchestrator: docker
+
+# В сценарии нет reverse_proxy_traefik — сеть "proxy" создаёт сама роль. external: true без
+# реально существующей внешней сети теперь явно падает fail-fast (ADR-0007 §10.3,
+# check-and-install-requirements.docker.yml) — здесь external: false, чтобы роль создала сеть
+# сама, а не потому что проверки не было.
+monitoring_server_docker_proxy_network_external: false
+
+monitoring_server_victoria_metrics_enabled: true
+
+monitoring_server_grafana_enabled: true
+monitoring_server_grafana_security_admin_password: "Molecule_Test_ChangeMe!23"
+
+# Одна готовая dashboard-группа (ADR-0007 §2.4/§8) — проверяем сам механизм провижининга
+# (копирование JSON в плоскую /etc/grafana/provisioning/dashboards под docker), не то, что в
+# панелях есть реальные данные: nginx на ВМ не разворачивается, панели останутся пустыми — это не
+# баг сценария, а следствие докер-пути (folder: тут не используется вовсе, ADR-0007 §8).
+monitoring_server_grafana_dashboards_group_install:
+  nginx:
+    enable: true
+
+# Grafana Loki + локальный MinIO (ADR-0007 §2.5/§5/§9) — обязательная пара под docker
+# (loki-config.yaml.j2 хардкодит object_store: s3, без локальной файловой альтернативы).
+monitoring_server_grafana_loki_enabled: true
+monitoring_server_local_storage_s3_enabled: true
+monitoring_server_local_storage_s3:
+  access_key: molecule_test_s3_access
+  secret_key: molecule_test_s3_secret_change_me
+
+# --- monitoring_agent (self-monitoring на этой же ВМ, тот же паттерн, что tests/inventory.yml в
+# корне коллекции) ---------------------------------------------------------------------------
+monitoring_agent_orchestrator: docker
+monitoring_agent_node_exporter_enabled: true

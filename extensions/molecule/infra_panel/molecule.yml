@@ -1,0 +1,45 @@
+---
+# Molecule-сценарий для infra_panel — единое требование коллекции driver: vagrant/libvirt
+# (см. CLAUDE.md, «Molecule-тесты»).
+#
+# infra_panel/meta/main.yml зависит от роли docker условно (when: infra_panel_orchestrator ==
+# 'docker', дефолт), поэтому prepare.yml здесь Docker Engine вручную не ставит — как и в
+# reverse_proxy_traefik, это делает зависимость роли при converge.
+#
+# Сценарий дополнительно прогоняет реальную роль reverse_proxy_traefik (см. converge.yml) — иначе
+# нечего было бы верифицировать: publish/basic-auth infra_panel собраны через Docker-провайдер
+# Traefik (ADR-0008 §4), без живого Traefik + сети proxy контейнер homer просто не будет ничем
+# проксирован. Обе роли зависят от docker (docker/meta), но Ansible не запускает одну и ту же
+# role-зависимость дважды в одном play — конфликта нет.
+#
+# ansible.executor.args.ansible_playbook обнуляется, как в nginx_multidomain/reverse_proxy_traefik,
+# чтобы не подмешивать статический inventory monitoring_servers/monitoring_agents из ../config.yml.
+driver:
+  name: vagrant
+  provider:
+    name: libvirt
+
+platforms:
+  - name: infra-panel
+    box: cloud-image/ubuntu-24.04
+    memory: 2048
+    cpus: 1
+
+scenario:
+  test_sequence:
+    - dependency
+    - destroy
+    - syntax
+    - create
+    - prepare
+    - converge
+    - idempotence
+    - verify
+    - destroy
+
+shared_state: false
+
+ansible:
+  executor:
+    args:
+      ansible_playbook: []

@@ -1,0 +1,63 @@
+---
+# Пример плейбука-оркестратора для роли devops.uslugi.postgresql_replication.
+#
+# На это имя (postgresql-replicas.yml) ссылаются docs/runbooks/postgresql-failover.md и
+# roles/postgresql_replication/README.md как на условное — этот файл даёт им реальное содержимое,
+# но перед боевым использованием его нужно адаптировать под свой inventory (адреса, node_id,
+# состав read-реплики).
+#
+# Обязательный порядок плеев: postgresql_primary ДОЛЖЕН отработать первым — на adopt-primary роль
+# определяет версию уже установленного PostgreSQL в рантайме (detect-existing-instance.yml) и
+# реплики забирают именно её через hostvars, а не дефолт роли (см.
+# roles/postgresql_replication/README.md, «Discovery версии»).
+#
+# postgresql_replication_role/_node_id и секреты (repl/repmgr пароли, S3-ключи бэкапа) в этом
+# примере НЕ хардкодятся — задавайте их в group_vars/<группа>/vault.yml (ADR-0005 §9):
+#
+#   group_vars/postgresql_primary/vars.yml:
+#     postgresql_replication_role: primary
+#     postgresql_replication_node_id: 1
+#   group_vars/postgresql_primary/vault.yml (ansible-vault encrypt):
+#     postgresql_replication_repl_password: ...
+#     postgresql_replication_repmgr_password: ...
+#
+#   group_vars/postgresql_dr_replica/vars.yml:
+#     postgresql_replication_role: dr_replica
+#     postgresql_replication_node_id: 3
+#     postgresql_replication_primary_host: 10.20.30.10   # адрес primary внутри межДЦ VPN, ADR §5
+#     postgresql_replication_backup_enabled: true
+#   group_vars/postgresql_dr_replica/vault.yml:
+#     postgresql_replication_repl_password: ...          # то же значение, что и на primary
+#     postgresql_replication_repmgr_password: ...
+#     postgresql_replication_backup_s3_access_key: ...
+#     postgresql_replication_backup_s3_secret_key: ...
+#
+# Аналогично для group_vars/postgresql_read_replica/ (опциональная группа, ADR §3).
+#
+# Штатный прогон:
+#   ansible-playbook -i inventory.yml postgresql-replicas.yml
+#
+# Ручной promote read-/DR-реплики (docs/runbooks/postgresql-failover.md, раздел 2) — та же
+# командная база, только с явными --tags/--limit (без них tasks/promote.yml не выполняется,
+# тег помечен `never`):
+#   ansible-playbook -i inventory.yml postgresql-replicas.yml \
+#       --tags postgresql_replication_promote --limit <replica-host>
+#
+# Рестарт adopt-primary при правке wal_level/shared_preload_libraries (ADR §2, по умолчанию
+# запрещён) — только на время согласованного окна:
+#   ansible-playbook -i inventory.yml postgresql-replicas.yml -e postgresql_replication_allow_restart=true
+
+- name: PostgreSQL HA — primary (adopt существующего PostgreSQL)
+  hosts: postgresql_primary
+  become: true
+  roles:
+    - devops.uslugi.postgresql_replication
+
+- name: PostgreSQL HA — реплики (read- и DR-, fresh install целевой версии + clone от primary)
+  hosts: postgresql_read_replica:postgresql_dr_replica
+  become: true
+  vars:
+    postgresql_replication_target_version: >-
+      {{ hostvars[groups['postgresql_primary'][0]].postgresql_replication_discovered_version }}
+  roles:
+    - devops.uslugi.postgresql_replication

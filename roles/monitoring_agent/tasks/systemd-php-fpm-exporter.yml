@@ -17,6 +17,7 @@
     - name: Download php-fpm-exporter
       ansible.builtin.get_url:
         url: "{{ monitoring_agent_php_fpm_exporter_binary_download_url }}"
+        checksum: "{{ monitoring_agent_php_fpm_exporter_binary_checksum }}"
         dest: "{{ monitoring_agent_dist_dir }}"
         tmp_dest: "{{ monitoring_agent_dist_dir }}"
         owner: root

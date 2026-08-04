@@ -1,0 +1,176 @@
+---
+# ==========================================================================
+# nginx_multidomain — установка
+# ==========================================================================
+nginx_install_method: "package"          # package | repo
+nginx_repo_release_channel: "stable"     # stable | mainline (актуально при install_method: repo)
+
+nginx_service_name: "nginx"
+
+nginx_user: "www-data"
+nginx_group: "www-data"
+
+nginx_conf_dir: "/etc/nginx"
+nginx_sites_available_dir: "{{ nginx_conf_dir }}/sites-available"
+nginx_sites_enabled_dir: "{{ nginx_conf_dir }}/sites-enabled"
+nginx_confd_dir: "{{ nginx_conf_dir }}/conf.d"
+nginx_htpasswd_dir: "{{ nginx_confd_dir }}/htpasswd"
+
+nginx_log_dir: "/var/log/nginx"
+
+nginx_default_index_files:
+  - index.html
+  - index.htm
+
+nginx_default_log_formats:
+  - plain
+  # - json   # для json-логов нужен log_format 'nginx_json' в http{} (следующий срез — nginx.conf.j2)
+
+# ==========================================================================
+# Домены
+# ==========================================================================
+nginx_domains: []
+#
+# Полная схема одного элемента (реализованы type: static, proxy; php_fpm — ещё нет):
+#
+# - name: example.com
+#   aliases: [www.example.com]
+#   type: static                 # static | proxy | php_fpm
+#   enabled: true                # по умолчанию true, если не указано. При enabled: false
+#                                 # роль явно удаляет sites-available/<name>.conf и симлинк
+#                                 # в sites-enabled/, если они были созданы этой ролью ранее.
+#   root: /var/www/example.com/public
+#   index_files: ["index.html"]  # опционально, иначе nginx_default_index_files
+#   listen_address: ""           # опционально: слушать только на конкретном IP
+#                                 # (иначе — 0.0.0.0 + [::] wildcard)
+#   http2: false                 # опционально: добавить "http2 on;" (только при ssl.enabled)
+#
+#   ssl:
+#     enabled: true
+#     mode: letsencrypt          # letsencrypt | custom
+#     cert_file: ""              # обязателен при mode: custom — путь НА ЦЕЛЕВОМ ХОСТЕ
+#     key_file: ""               # обязателен при mode: custom — путь НА ЦЕЛЕВОМ ХОСТЕ
+#     cert_src: ""               # опционально (mode: custom): файл НА КОНТРОЛЛЕРЕ, из которого
+#     key_src: ""                # copy разложит cert_file/key_file. Если key_src указывает на
+#                                 # ansible-vault-зашифрованный файл — Ansible расшифрует его
+#                                 # прозрачно при copy (vault_password_file берётся из ansible.cfg).
+#                                 # Если cert_src/key_src не заданы — файлы должны существовать
+#                                 # на хосте заранее (роль их не создаёт, только ссылается).
+#     redirect_https: true
+#     hsts: true
+#     http_enabled: true         # опционально: false = не слушать 80 вовсе (SSL-only vhost),
+#                                 # актуально только при enabled: true и redirect_https: false
+#
+#   logs:
+#     format: [plain, json]      # любой набор из [plain, json]
+#     access_log_path: ""        # опционально: свой путь вместо access_<name>.log
+#     error_log_path: ""         # опционально: свой путь вместо error_<name>.log
+#     extra_access_log: []       # опционально: доп. access_log-директивы (второй формат,
+#                                 # напр. свой log_format, объявленный вне роли в http{})
+#     # - path: /var/log/nginx/json-example.log
+#     #   format: json_analytics # имя log_format; без него — обычный формат по умолчанию
+#
+#   rate_limit:
+#     zone_name: "shared_web"    # общая зона может использоваться несколькими доменами
+#     rate: "10r/s"
+#     burst: 20
+#     nodelay: true
+#
+#   basic_auth:
+#     enabled: false
+#     users: []                  # [{username: admin, password: "{{ vault_... }}"}]
+#                                 # генерация htpasswd — отдельная задача (следующий срез)
+#
+#   custom_locations: []
+#   # - path: /health
+#   #   override: true           # true = заменяет дефолтный location с тем же path
+#   #   config: |
+#   #     access_log off;
+#   #     return 200 "ok";
+#
+#   extra_server_directives: |    # опционально: произвольные строки на уровне server{}
+#     ignore_invalid_headers off; # (для директив, которые не покрыты полями выше:
+#     proxy_buffering off;        #  ignore_invalid_headers, proxy_buffering и т.п.)
+#
+#   extra_server_blocks: []        # опционально: список СЫРЫХ server{}-блоков (текстом
+#                                   # целиком, включая "server { ... }"), дописываемых в
+#                                   # тот же файл sites-available/<domain>.conf ПОСЛЕ
+#                                   # основного vhost. Для legacy-листенеров вне обычной
+#                                   # схемы listen 80/443+ssl этого домена (напр. доп.
+#                                   # порт без TLS для старого бэкенда) — не шаблонизируется
+#                                   # по под-полям, просто вставляется как есть.
+#   # - |
+#   #   server {
+#   #       listen 8440;
+#   #       server_name example.com;
+#   #       location / { proxy_pass http://back_srv; }
+#   #   }
+#
+# --- type: proxy — дополнительные поля --------------------------------------
+#
+#   proxy_pass: "https://backend.internal"   # простой одиночный backend
+#   # ИЛИ upstream-пул (взаимоисключающе с proxy_pass):
+#   upstream:
+#     name: api_backend
+#     load_balancing: "ip_hash"   # опционально: любая балансировочная директива upstream'а
+#     keepalive: 32               # проставляет proxy_http_version 1.1 в дефолтный location "/"
+#     servers:
+#       - { address: "10.0.0.10:8080", weight: 5 }
+#       - { address: "10.0.0.11:8080", max_fails: 3, fail_timeout: "10s" }
+#       - { address: "10.0.0.12:8080", backup: true }
+#
+#   # доп. upstream-блоки в том же файле — если в custom_locations нужен proxy_pass
+#   # на backend, отличный от domain.upstream/domain.proxy_pass:
+#   extra_upstreams: []
+#   # - name: back_php_srv
+#   #   keepalive: 40
+#   #   servers:
+#   #     - { address: "10.0.0.20:80" }
+#
+#   proxy_redirect:
+#     from: "https://backend.internal/"
+#     to: "https://example.com/"
+#
+#   proxy_cache: LBCACHE         # имя зоны; зона proxy_cache_path объявляется либо через
+#                                 # nginx_proxy_cache_zones (ниже), либо вручную вне роли
+#   client_max_body_size: 128M
+
+# ==========================================================================
+# Proxy cache: общие зоны (proxy_cache_path объявляется один раз в http{})
+# ==========================================================================
+nginx_proxy_cache_zones: []
+# - name: micro
+#   path: /var/cache/nginx/micro
+#   levels: "1:2"          # опционально, по умолчанию "1:2"
+#   keys_zone_size: 50m    # опционально, по умолчанию 10m
+#   max_size: 2g           # опционально, по умолчанию 1g
+#   inactive: 30m          # опционально, по умолчанию 10m
+#   use_temp_path: "off"   # опционально, по умолчанию off
+
+# ==========================================================================
+# Rate limiting
+# ==========================================================================
+nginx_rate_limit_zone_size: "10m"
+
+# ==========================================================================
+# Let's Encrypt / certbot (путь используется в шаблоне для ACME-challenge)
+# ==========================================================================
+nginx_certbot_webroot_path: "/var/www/_letsencrypt"
+nginx_certbot_email: ""
+
+# ==========================================================================
+# stub_status — отдельный server{}, не часть nginx_domains (обычно на 127.0.0.1
+# для локального node/nginx-exporter, без TLS и без server_name)
+# ==========================================================================
+nginx_stub_status:
+  enabled: false
+  listen: "127.0.0.1:8090"
+  location: "/nginx_status"
+
+# ==========================================================================
+# Произвольные conf.d файлы http{}-уровня (map{}/geo{} и т.п.), от которых
+# могут зависеть custom_locations/extra_server_directives нескольких доменов.
+# ==========================================================================
+nginx_conf_d_files: []
+# - name: api-maps.conf          # итоговое имя файла в conf.d/, ".conf" не добавляется автоматически
+#   content: "{{ lookup('file', 'api-maps.conf') }}"

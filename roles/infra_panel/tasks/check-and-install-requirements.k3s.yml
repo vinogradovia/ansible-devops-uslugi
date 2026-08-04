@@ -1,0 +1,15 @@
+---
+# Тот же fail-fast, что и docker-путь (check-and-install-requirements.docker.yml) — проверка на
+# docker-сеть "proxy" здесь не нужна (k3s-путь не создаёт docker-ресурсов вообще).
+- name: Fail if using infra_panel_default_password
+  ansible.builtin.fail:
+    msg: >-
+      Error, change infra_panel_default_password (или пароль конкретного пользователя в
+      infra_panel_users) — infra-panel открывает ссылки на весь внутренний инструментарий
+      платформы, дефолтный пароль недопустим.
+  when: >-
+    (item.state | default('present')) != 'absent' and
+    item.password == infra_panel_default_password
+  loop: "{{ infra_panel_users }}"
+  loop_control:
+    label: "{{ item.name }}"

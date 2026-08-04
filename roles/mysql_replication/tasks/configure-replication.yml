@@ -1,0 +1,31 @@
+---
+# server_id/GTID/binlog — общая часть для всех трёх ролей хоста (ADR §4). На adopt-хосте
+# (primary) рестарт после этой правки не автоматический (ADR §2) — см. handlers/main.yml,
+# гейт mysql_replication_allow_restart.
+
+- name: Render replication drop-in config
+  ansible.builtin.template:
+    src: 99-mysql-replication.cnf.j2
+    dest: "{{ mysql_replication_config_dir }}/99-mysql-replication.cnf"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart MySQL
+
+- name: Fail fast if adopt-primary config change needs a restart that isn't allowed yet
+  when:
+    - mysql_replication_existing_instance
+    - not (mysql_replication_allow_restart | bool)
+  ansible.builtin.debug:
+    msg: >-
+      Конфигурация репликации записана, но служба {{ mysql_replication_service_name }} не будет
+      перезапущена (mysql_replication_allow_restart=false). Изменения (server_id/GTID/binlog)
+      вступят в силу только после ручного рестарта в согласованное окно — см. ТЗ, "Процесс".
+
+# Хендлер Restart MySQL иначе выполнился бы только в конце всего плея — а следующий шаг роли
+# (configure-replica.yml, CHANGE REPLICATION SOURCE ... SOURCE_AUTO_POSITION=1) требует, чтобы
+# GTID_MODE=ON из только что отрендеренного конфига уже реально применился. Найдено реальным
+# прогоном molecule (ADR §10): без явного flush рестарт происходил слишком поздно, и
+# CHANGE REPLICATION SOURCE падал с "@@GLOBAL.GTID_MODE = OFF".
+- name: Force notified handlers (Restart MySQL) to run now, not at the end of the play
+  ansible.builtin.meta: flush_handlers

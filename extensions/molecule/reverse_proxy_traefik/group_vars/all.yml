@@ -1,0 +1,19 @@
+---
+# Переменные для converge/verify этого сценария. Лежат в group_vars/, а не в vars: playbook'ов —
+# тот же паттерн, что extensions/molecule/{nginx_multidomain,reverse_proxy_npm}/group_vars/all.yml.
+
+# reverse_proxy_traefik/meta/main.yml безусловно зависит от роли docker, которая ставит Docker
+# Engine пинненой версией (roles/docker/defaults/main.yml: docker_ce_package_version) поверх
+# полноценной ВМ (cloud-image/ubuntu-24.04, см. molecule.yml) — никакого docker-in-docker и
+# overlay2-конфликта здесь нет, поэтому storage-driver: vfs (нужен был только под прежним
+# docker-driver контейнером) больше не задаётся.
+
+# Роль падает в check-and-install-requirements.yml, если пароль пользователя с state: present
+# совпадает с reverse_proxy_traefik_default_password. olduser/state: absent оставлен как в
+# дефолтах роли — сценарий покрывает и ветку удаления пользователя (htpasswd state: absent).
+reverse_proxy_traefik_dashboard_users:
+  - name: monitor
+    password: "Molecule_Test_ChangeMe!23"
+  - name: olduser
+    password: 'null'
+    state: absent

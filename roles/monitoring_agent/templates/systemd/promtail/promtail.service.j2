@@ -1,0 +1,13 @@
+[Unit]
+Description=Promtail (log shipper for Grafana Loki)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User={{ monitoring_agent_promtail_systemd_name }}
+ExecStart={{ monitoring_agent_promtail_binary_install_path }} -config.file={{ monitoring_agent_promtail_config_dir }}/promtail-config.yaml
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -19,6 +19,14 @@ monitoring_agent_promtail_image: >-
 monitoring_agent_promtail_loki_addr: http://loki:3100
 monitoring_agent_promtail_loki_url: "{{ monitoring_agent_promtail_loki_addr }}/loki/api/v1/push"
 monitoring_agent_promtail_loki_tenant_id: 1
+# systemd-путь (grafana/loki releases — .zip, плоский архив, как у alloy, а не .tar.gz, как у
+# остальных экспортеров). Группа adm — чтобы promtail мог читать системные логи в /var/log без
+# root (тот же приём, что monitoring_agent_nginxlog_exporter_log_group).
+monitoring_agent_promtail_systemd_name: promtail
+monitoring_agent_promtail_log_group: adm
+monitoring_agent_promtail_binary_download_url: https://github.com/grafana/loki/releases/download/v3.6.0/promtail-linux-amd64.zip
+monitoring_agent_promtail_binary_checksum: sha256:81f3c8b57f25dce4ea04215c25f0b24bf19ce9941902718039bd74c3e439ad87
+monitoring_agent_promtail_binary_install_path: /usr/sbin/promtail
 
 monitoring_agent_node_exporter_enabled: false
 monitoring_agent_node_exporter_image_registry: quay.io
@@ -29,15 +37,23 @@ monitoring_agent_node_exporter_image: >-
 monitoring_agent_node_exporter_port: '9100'
 monitoring_agent_node_exporter_systemd_name: node_exporter
 monitoring_agent_node_exporter_binary_download_url: https://github.com/prometheus/node_exporter/releases/download/v1.10.2/node_exporter-1.10.2.linux-amd64.tar.gz
+monitoring_agent_node_exporter_binary_checksum: sha256:c46e5b6f53948477ff3a19d97c58307394a29fe64a01905646f026ddc32cb65b
 monitoring_agent_node_exporter_binary_install_path: /usr/sbin/node_exporter
 
 monitoring_agent_docker_exporter_enabled: false
 monitoring_agent_docker_exporter_patch_docker: true
-monitoring_agent_docker_exporter_docker_daemon_json: /etc/docker/daemon.json
 monitoring_agent_docker_exporter_port: 9323
 monitoring_agent_docker_exporter_docker_daemon_metrics_listener: '0.0.0.0'
 monitoring_agent_docker_exporter_docker_daemon_metrics_addr: >-
   {{ monitoring_agent_docker_exporter_docker_daemon_metrics_listener }}:{{ monitoring_agent_docker_exporter_port | string }}
+
+# Ключ metrics-addr для роли docker (docs/adr/0002-docker-role.md §6) — docker владеет
+# /etc/docker/daemon.json целиком, monitoring_agent передаёт только свой ключ через зависимость
+# в meta/main.yml.
+monitoring_agent_docker_daemon_json_options: >-
+  {{ {'metrics-addr': monitoring_agent_docker_exporter_docker_daemon_metrics_addr}
+     if (monitoring_agent_docker_exporter_enabled and monitoring_agent_docker_exporter_patch_docker)
+     else {} }}
 
 monitoring_agent_cadvisor_enabled: false
 monitoring_agent_cadvisor_port: 9326
@@ -58,18 +74,20 @@ monitoring_agent_redis_exporter_addr: "redis://localhost:6379"
 monitoring_agent_redis_exporter_password: ""
 monitoring_agent_redis_exporter_systemd_name: redis_exporter
 monitoring_agent_redis_exporter_binary_download_url: https://github.com/oliver006/redis_exporter/releases/download/v1.81.0/redis_exporter-v1.81.0.linux-amd64.tar.gz
+monitoring_agent_redis_exporter_binary_checksum: sha256:d2f4740fa81e1a274ca99677783f3fe1544f6022fed997d4cd632d01a8eff1bb
 monitoring_agent_redis_exporter_binary_install_path: /usr/sbin/redis_exporter
 
 monitoring_agent_nginx_exporter_enabled: false
 monitoring_agent_nginx_exporter_image_registry: docker.io
 monitoring_agent_nginx_exporter_image_repository: nginx/nginx-prometheus-exporter
-monitoring_agent_nginx_exporter_image_version: "1.4.1"
+monitoring_agent_nginx_exporter_image_version: "1.5.0"
 monitoring_agent_nginx_exporter_image: >-
   {{ monitoring_agent_nginx_exporter_image_registry }}/{{ monitoring_agent_nginx_exporter_image_repository }}:{{ monitoring_agent_nginx_exporter_image_version }}
 monitoring_agent_nginx_exporter_port: '9113'
 monitoring_agent_nginx_exporter_scrape_uri: ""  # for example "http://localhost:80/basic_status", use stub for it
 monitoring_agent_nginx_exporter_systemd_name: nginx_exporter
 monitoring_agent_nginx_exporter_binary_download_url: https://github.com/nginx/nginx-prometheus-exporter/releases/download/v1.5.0/nginx-prometheus-exporter_1.5.0_linux_amd64.tar.gz
+monitoring_agent_nginx_exporter_binary_checksum: sha256:2614e4d18a181bee5828303df25a205f67449b6cb2de7b0ddfe1284a1f83e1df
 monitoring_agent_nginx_exporter_binary_install_path: /usr/sbin/nginx-prometheus-exporter
 
 monitoring_agent_nginxlog_exporter_enabled: false
@@ -94,6 +112,7 @@ monitoring_agent_nginxlog_exporter_metrics_prefix: "nginx"
 
 monitoring_agent_nginxlog_exporter_log_group: adm  # group for log directory
 monitoring_agent_nginxlog_exporter_binary_download_url: https://github.com/martin-helmich/prometheus-nginxlog-exporter/releases/download/v1.11.0/prometheus-nginxlog-exporter_1.11.0_linux_amd64.tar.gz
+monitoring_agent_nginxlog_exporter_binary_checksum: sha256:ab640b73b7e22d1f46197a98c3a06c548d66f9e3fb36b9437011997643569aa6
 monitoring_agent_nginxlog_exporter_binary_install_path: /usr/sbin/prometheus-nginxlog-exporter
 
 monitoring_agent_php_fpm_exporter_enabled: false
@@ -107,6 +126,7 @@ monitoring_agent_php_fpm_exporter_scrape_uri: ""  # for example "tcp://127.0.0.1
 monitoring_agent_php_fpm_exporter_systemd_name: php_fpm_exporter
 monitoring_agent_php_fpm_exporter_socket_group: www-data
 monitoring_agent_php_fpm_exporter_binary_download_url: https://github.com/hipages/php-fpm_exporter/releases/download/v2.2.0/php-fpm_exporter_2.2.0_linux_amd64.tar.gz
+monitoring_agent_php_fpm_exporter_binary_checksum: sha256:b1c207fcd89f9be20104fd90bc76b3c584987ea5a769c99d5759f79af8322449
 monitoring_agent_php_fpm_exporter_binary_install_path: /usr/sbin/php-fpm_exporter
 
 monitoring_agent_ipa_exporter_enabled: false
@@ -122,6 +142,7 @@ monitoring_agent_ipa_exporter_user: ""  # for example, uid=user,cn=users,cn=acco
 monitoring_agent_ipa_exporter_password: ""
 monitoring_agent_ipa_exporter_systemd_name: ipa_exporter
 monitoring_agent_ipa_exporter_binary_download_url: https://github.com/vinogradovia/ansible-devops-uslugi/releases/download/v1.0.0/freeipa-exporter-1.0.0.linux-amd64.tar.gz
+monitoring_agent_ipa_exporter_binary_checksum: sha256:e2718c8c258bbcf3a51de0d775547c2d8b4197041178739b2d4960acef831160
 monitoring_agent_ipa_exporter_binary_install_path: /usr/sbin/freeipa-exporter
 
 monitoring_agent_mysqld_exporter_enabled: false
@@ -136,7 +157,32 @@ monitoring_agent_mysqld_exporter_user: "mysql-exporter"
 monitoring_agent_mysqld_exporter_password: ""
 monitoring_agent_mysqld_exporter_systemd_name: mysqld_exporter
 monitoring_agent_mysqld_exporter_binary_download_url: https://github.com/prometheus/mysqld_exporter/releases/download/v0.18.0/mysqld_exporter-0.18.0.linux-amd64.tar.gz
+monitoring_agent_mysqld_exporter_binary_checksum: sha256:46e8f45654352bdd42d162b2b4a68f00055d45acc168f9c068235b9e3acc39c1
 monitoring_agent_mysqld_exporter_binary_install_path: /usr/sbin/mysqld_exporter
+
+# postgres_exporter — образец структуры переменных для нового экспортёра
+# (prometheus-community/postgres_exporter), см. AGENTS.md и mysqld_exporter выше. Используется
+# docs/adr/0005-postgresql-ha-replication-role.md §8 (postgresql_replication/odyssey) для
+# pg_replication_lag_seconds и т.п. Только systemd-режим (как и mysqld_exporter — без
+# docker-варианта).
+monitoring_agent_postgres_exporter_enabled: false
+# Порт, на котором сам экспортёр отдаёт метрики (:9187) — не путать с pg_port ниже (порт
+# PostgreSQL, к которому экспортёр подключается за метриками).
+monitoring_agent_postgres_exporter_port: '9187'
+monitoring_agent_postgres_exporter_host: "127.0.0.1"
+monitoring_agent_postgres_exporter_pg_port: 5432
+monitoring_agent_postgres_exporter_database: postgres
+# Отдельный exporter-пользователь с минимальными правами (роль pg_monitor, встроенная в
+# PostgreSQL) — НЕ repmgr/repl-пользователи из postgresql_replication (ADR §4, разделение по
+# назначению). Заведение этого пользователя на серверах PostgreSQL — забота
+# оператора/плейбука-оркестратора, не роли monitoring_agent (тот же принцип композиции, что и в
+# ADR §11).
+monitoring_agent_postgres_exporter_user: "postgres-exporter"
+monitoring_agent_postgres_exporter_password: ""
+monitoring_agent_postgres_exporter_systemd_name: postgres_exporter
+monitoring_agent_postgres_exporter_binary_download_url: https://github.com/prometheus-community/postgres_exporter/releases/download/v0.20.1/postgres_exporter-0.20.1.linux-amd64.tar.gz
+monitoring_agent_postgres_exporter_binary_checksum: sha256:89d4f7e7920cad48fdc3133f789556ef5253c330a9f5fdace3bdb6344c0a8b5a
+monitoring_agent_postgres_exporter_binary_install_path: /usr/sbin/postgres_exporter
 
 # pve_exporter
 monitoring_agent_pve_exporter_enabled: false
@@ -155,5 +201,20 @@ monitoring_agent_pve_exporter_verify_ssl: false
 monitoring_agent_pve_exporter_timeout: 15
 monitoring_agent_pve_exporter_systemd_name: pve_exporter
 monitoring_agent_pve_exporter_systemd_fullname: "{{ monitoring_agent_pve_exporter_systemd_name }}.service"
+
+# alloy (grafana-alloy, embedded exporter — только self-мониторинг, config.alloy без компонентов;
+# ROADMAP.md Backlog №34). Поддержаны оба оркестратора, в отличие от pve_exporter.
+monitoring_agent_alloy_enabled: false
+monitoring_agent_alloy_config_dir: "{{ monitoring_agent_config_dir }}/alloy"
+monitoring_agent_alloy_image_registry: docker.io
+monitoring_agent_alloy_image_repository: grafana/alloy
+monitoring_agent_alloy_image_version: "v1.18.0"
+monitoring_agent_alloy_image: >-
+  {{ monitoring_agent_alloy_image_registry }}/{{ monitoring_agent_alloy_image_repository }}:{{ monitoring_agent_alloy_image_version }}
+monitoring_agent_alloy_port: '12345'
+monitoring_agent_alloy_systemd_name: alloy
+monitoring_agent_alloy_binary_download_url: https://github.com/grafana/alloy/releases/download/v1.18.0/alloy-linux-amd64.zip
+monitoring_agent_alloy_binary_checksum: sha256:92f4c950aec4ec16a7fdbf6f805be4334d4d5fbbe458eecf514319c1c491bef4
+monitoring_agent_alloy_binary_install_path: /usr/sbin/alloy
 
 monitoring_agent_prom_client_enabled: false

@@ -1,0 +1,12 @@
+---
+# Тестовые (не боевые) значения — одноразовые ВМ этого сценария.
+mysql_replication_role: primary
+mysql_replication_server_id: 101
+mysql_replication_repl_password: molecule-test-repl-password
+
+# app_user/proxysql_monitor заводятся отдельным шагом converge.yml (не роль mysql_replication —
+# это фикстура сценария, приложенческие/служебные пользователи вне scope роли).
+molecule_app_user: appuser
+molecule_app_password: molecule-app-password
+molecule_monitor_user: proxysql_monitor
+molecule_monitor_password: molecule-monitor-password

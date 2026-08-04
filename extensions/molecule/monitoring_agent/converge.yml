@@ -1,0 +1,20 @@
+---
+- name: Converge (docker orchestrator)
+  hosts: monitoring_agent_docker
+  become: true
+  collections:
+    - devops.uslugi
+  tasks:
+    - name: Прогнать роль monitoring_agent (переменные — см. group_vars/monitoring_agent_docker.yml)
+      ansible.builtin.import_role:
+        name: monitoring_agent
+
+- name: Converge (systemd orchestrator)
+  hosts: monitoring_agent_systemd
+  become: true
+  collections:
+    - devops.uslugi
+  tasks:
+    - name: Прогнать роль monitoring_agent (переменные — см. group_vars/monitoring_agent_systemd.yml)
+      ansible.builtin.import_role:
+        name: monitoring_agent

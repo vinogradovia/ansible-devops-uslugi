@@ -1,0 +1,70 @@
+---
+# Подключение реплики к primary "звездой" — обе реплики напрямую от primary, не цепочкой
+# (ADR §4). Источник (-h) — приватный/туннельный адрес primary внутри уже существующей межДЦ-сети
+# (ADR §5), не публичный IP. Доступ на чтение обеспечивается штатным recovery-режимом PostgreSQL
+# (реплика физически не принимает записи) — отдельного read_only-флага, в отличие от MySQL, не
+# требуется (ADR §4).
+
+- name: Render repmgr.conf
+  ansible.builtin.template:
+    src: repmgr.conf.j2
+    dest: /etc/repmgr.conf
+    owner: postgres
+    group: postgres
+    mode: '0600'
+
+- name: Check whether this node is already a repmgr standby (standby.signal present)
+  ansible.builtin.stat:
+    path: "{{ postgresql_replication_datadir }}/standby.signal"
+  register: postgresql_replication_standby_signal
+
+# repmgr standby clone останавливает и пересоздаёт локальный datadir целиком (pg_basebackup от
+# primary) — выполняется ТОЛЬКО один раз, до того как узел стал standby, иначе стёрло бы уже
+# реплицирующий datadir. --force нужен, т.к. postinst свежепоставленного пакета postgresql уже
+# создал непустой datadir кластера "main" (fresh install, ADR §2) — без --force repmgr откажется
+# клонировать в непустой каталог.
+- name: Clone from primary (repmgr standby clone) — only if not already a standby
+  when: not postgresql_replication_standby_signal.stat.exists
+  block:
+    - name: Stop PostgreSQL before cloning
+      ansible.builtin.systemd:
+        name: "{{ postgresql_replication_service_name }}"
+        state: stopped
+
+    - name: Run repmgr standby clone
+      become: true
+      become_user: postgres
+      ansible.builtin.command: >-
+        repmgr -f /etc/repmgr.conf standby clone
+        -h {{ postgresql_replication_primary_host }}
+        -p {{ postgresql_replication_primary_port }}
+        -U {{ postgresql_replication_repmgr_user }}
+        -d {{ postgresql_replication_repmgr_db }}
+        --force
+      environment:
+        PGPASSWORD: "{{ postgresql_replication_repmgr_password }}"
+      changed_when: true
+
+    - name: Start PostgreSQL after cloning
+      ansible.builtin.systemd:
+        name: "{{ postgresql_replication_service_name }}"
+        state: started
+
+- name: Check whether this node is already registered with repmgr
+  become: true
+  become_user: postgres
+  ansible.builtin.command: repmgr -f /etc/repmgr.conf node check --role
+  register: postgresql_replication_replica_node_check
+  changed_when: false
+  failed_when: false
+  environment:
+    PGPASSWORD: "{{ postgresql_replication_repmgr_password }}"
+
+- name: Register standby with repmgr
+  when: postgresql_replication_replica_node_check.rc != 0
+  become: true
+  become_user: postgres
+  ansible.builtin.command: repmgr -f /etc/repmgr.conf standby register --force
+  environment:
+    PGPASSWORD: "{{ postgresql_replication_repmgr_password }}"
+  changed_when: true

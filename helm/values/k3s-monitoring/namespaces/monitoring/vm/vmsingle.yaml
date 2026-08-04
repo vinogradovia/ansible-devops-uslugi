@@ -1,0 +1,81 @@
+# Configures vmsingle params
+vmsingle:
+  # -- VMSingle labels
+  labels: {}
+  # -- VMSingle annotations
+  annotations: {}
+  # -- Create VMSingle CR
+  enabled: true
+  # -- Full spec for VMSingle CRD. Allowed values describe [here](https://docs.victoriametrics.com/operator/api/#vmsinglespec)
+  spec:
+    port: "8428"
+    # -- Data retention period. Possible units character: h(ours), d(ays), w(eeks), y(ears), if no unit character specified - month. The minimum retention period is 24h. See these [docs](https://docs.victoriametrics.com/victoriametrics/single-server-victoriametrics/#retention)
+    retentionPeriod: "1"
+    replicaCount: 1
+    extraArgs:
+      maxLabelsPerTimeseries: "50"
+    storage:
+      storageClassName: local-monitoring-storage
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: 20Gi
+  ingress:
+    # -- Enable deployment of ingress for server component
+    enabled: true
+    # -- Ingress annotations
+    annotations:
+      {}
+      # kubernetes.io/ingress.class: nginx
+      # kubernetes.io/tls-acme: "true"
+    # -- Ingress extra labels
+    labels: {}
+    # -- Ingress default path
+    path: ""
+    # -- Ingress path type
+    pathType: Prefix
+    # -- Ingress controller class name
+    ingressClassName: ""
+
+    # -- Array of host objects
+    hosts:
+      - vm.in.example.com
+    #  - vmsingle.domain.com
+    # -- Extra paths to prepend to every host configuration. This is useful when working with annotation based services.
+    extraPaths: []
+    # - path: /*
+    #   pathType: Prefix
+    #   backend:
+    #     service:
+    #       name: ssl-redirect
+    #       port:
+    #         name: service
+
+    # -- Array of TLS objects
+    tls: []
+    #  - secretName: vmsingle-ingress-tls
+    #    hosts:
+    #      - vmsingle.domain.com
+  route:
+    # -- Enable deployment of HTTPRoute for server component
+    enabled: false
+    # -- HTTPRoute annotations
+    annotations: {}
+    # -- HTTPRoute extra labels
+    labels: {}
+    # -- HTTPGateway objects refs
+    parentRefs: []
+    # -- Array of hostnames
+    hostnames: []
+    # -- Extra rules to prepend to route. This is useful when working with annotation based services.
+    extraRules: []
+    # -- Route port
+    port: '{{ .Values.vmsingle.spec.port }}'
+    # -- Filters for a default rule in HTTPRoute
+    filters: []
+    # -- Matches for a default rule in HTTPRoute
+    matches:
+      - path:
+          type: PathPrefix
+          value: '{{ dig "spec" "extraArgs" "http.pathPrefix" "/" .Values.vmsingle }}'

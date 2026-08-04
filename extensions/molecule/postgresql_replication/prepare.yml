@@ -1,0 +1,108 @@
+---
+- name: Prepare (все хосты — базовая готовность)
+  hosts: all
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Дождаться завершения cloud-init
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+      failed_when: false
+
+    - name: Обновить apt-кэш
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    # Нужен для become_user: postgres ниже в этом же playbook (см.
+    # roles/postgresql_replication/tasks/main.yml, тот же комментарий про ACL).
+    - name: "Установить acl (нужен become_user: postgres)"
+      ansible.builtin.apt:
+        name: acl
+        state: present
+
+# --- Симуляция adopt-режима (ADR §2): на primary PostgreSQL уже установлен (версия 16, а НЕ
+# дефолтная для роли 17 — намеренно, чтобы проверить, что реплики берут именно ОБНАРУЖЕННУЮ
+# версию, а не дефолт роли) и работает с "боевыми" данными ДО того, как роль
+# postgresql_replication вообще запускается. Устанавливаем напрямую через apt/PGDG, а не через
+# роль — тот же приём, что и в extensions/molecule/mysql_replication/prepare.yml.
+- name: Prepare (primary — pre-existing PostgreSQL 16 install, не через роль)
+  hosts: postgresql_primary
+  become: true
+  vars:
+    molecule_pg_apt_keyring_path: /etc/apt/keyrings/postgresql.asc
+    molecule_pg_preexisting_version: "16"
+  tasks:
+    - name: "[repo] Установить пакеты, необходимые для подключения репозитория"
+      ansible.builtin.apt:
+        name:
+          - curl
+          - ca-certificates
+          - gnupg
+        state: present
+        update_cache: true
+
+    - name: "[repo] Создать каталог для apt keyring'ов"
+      ansible.builtin.file:
+        path: "{{ molecule_pg_apt_keyring_path | dirname }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: "[repo] Скачать GPG-ключ apt.postgresql.org (PGDG)"
+      # Держать синхронно с roles/postgresql_replication/tasks/install-repo.yml.
+      ansible.builtin.get_url:
+        url: "https://www.postgresql.org/media/keys/ACCC4CF8.asc"
+        dest: "{{ molecule_pg_apt_keyring_path }}"
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: "[repo] Подключить репозиторий apt.postgresql.org (PGDG)"
+      ansible.builtin.apt_repository:
+        repo: >-
+          deb [signed-by={{ molecule_pg_apt_keyring_path }}]
+          https://apt.postgresql.org/pub/repos/apt
+          {{ ansible_distribution_release }}-pgdg main
+        state: present
+        filename: pgdg
+        update_cache: true
+
+    - name: "Установить PostgreSQL из PGDG (версия: {{ molecule_pg_preexisting_version }})"
+      ansible.builtin.apt:
+        name:
+          - "postgresql-{{ molecule_pg_preexisting_version }}"
+          - "postgresql-client-{{ molecule_pg_preexisting_version }}"
+        state: present
+
+    - name: Убедиться, что служба запущена
+      ansible.builtin.systemd:
+        name: "postgresql@{{ molecule_pg_preexisting_version }}-main"
+        state: started
+        enabled: true
+
+    - name: Создать "боевые" данные, существовавшие до роли (проверяется в verify.yml)
+      become: true
+      become_user: postgres
+      changed_when: true
+      ansible.builtin.command: >
+        psql -tc "SELECT 1 FROM pg_database WHERE datname = 'molecule_preexisting'"
+      register: molecule_preexisting_db_check
+      failed_when: false
+
+    - name: "[data] Создать БД molecule_preexisting"
+      when: molecule_preexisting_db_check.stdout | trim != '1'
+      become: true
+      become_user: postgres
+      changed_when: true
+      ansible.builtin.command: psql -c "CREATE DATABASE molecule_preexisting;"
+
+    - name: "[data] Создать таблицу-маркер и вставить строку"
+      become: true
+      become_user: postgres
+      changed_when: true
+      ansible.builtin.command: >
+        psql -d molecule_preexisting -c "
+        CREATE TABLE IF NOT EXISTS marker (id INT PRIMARY KEY, note VARCHAR(64));
+        INSERT INTO marker VALUES (1, 'adopted-not-reinstalled') ON CONFLICT (id) DO NOTHING;"

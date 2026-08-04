@@ -1,0 +1,35 @@
+---
+# Переменные роли monitoring_server для converge/verify этого сценария (group_vars/, а не vars:
+# playbook'ов — тот же приём, что и в остальных изолированных сценариях коллекции).
+
+monitoring_server_orchestrator: k3s
+
+# monitoring_server_helmwave_dir по умолчанию считается через role_path (доступен только пока
+# исполняется сама роль) — verify.yml роль не запускает, поэтому здесь нужен явный путь,
+# одинаково работающий и в converge.yml, и в verify.yml. Сценарий лежит в
+# extensions/molecule/monitoring_server_k3s/, три уровня вверх — корень коллекции.
+monitoring_server_helmwave_dir: "{{ playbook_dir }}/../../../helm"
+
+monitoring_server_grafana_enabled: true
+monitoring_server_grafana_security_admin_password: "Molecule_K3s_ChangeMe!23"
+
+# Одна dashboard-группа — проверяем полный k3s-путь провижининга (ADR-0007 §8): ConfigMap с JSON
+# дашборда + CRD GrafanaDashboard с folderRef, которую теперь реально подхватывает grafana-operator
+# (helm/values/.../grafana-operator/values.yaml заводит GrafanaFolder "Nginx"/"addons" под тем же
+# instanceSelector, что и роль).
+monitoring_server_grafana_dashboards_group_install:
+  nginx:
+    enable: true
+
+# Alert-правила (VMRule) НЕ отключаем — в отличие от docker-оркестратора, здесь Helmwave up реально
+# ставит VictoriaMetrics Operator (CRD VMRule), поэтому дефолтное поведение k3s-пути
+# (alert_rules_default_enabled: true для большинства экспортёров, см. defaults/main.yml §2.3) —
+# то, что и должно быть проверено, а не то, чего надо избегать.
+
+# helm/values/.../vm/values.yaml монтирует в vmagent ConfigMap vm-filesd-prom-client безусловно
+# (наравне с остальными 10 экспортёрами) — но monitoring_server_victoria_metrics_scrape_prom_client
+# по умолчанию false, и роль этот ConfigMap не создаёт. Без этой переменной vmagent виснет в
+# Pending (FailedMount: configmap "vm-filesd-prom-client" not found) — несоответствие примера
+# helm/ дефолтам роли, а не баг самой роли (единственный экспортёр, отключённый по умолчанию
+# наравне с blackbox/nodejs, но, в отличие от них, не закомментированный в extra-objects.yaml).
+monitoring_server_victoria_metrics_scrape_prom_client: true

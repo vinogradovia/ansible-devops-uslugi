@@ -1,0 +1,22 @@
+---
+- name: Converge
+  hosts: all
+  become: true
+  collections:
+    - devops.uslugi
+  tasks:
+    - name: Прогнать роль reverse_proxy_npm (переменные — см. group_vars/all.yml)
+      ansible.builtin.import_role:
+        name: reverse_proxy_npm
+
+    # Fixture-бэкенд (prepare.yml) должен быть доступен NPM по имени контейнера — см.
+    # roles/reverse_proxy_npm/README.md, «Проксирование на другие контейнеры на этом же хосте»:
+    # host.docker.internal не резолвится nginx-резолвером NPM, а вот имя контейнера в общей
+    # docker-сети (Docker embedded DNS) — резолвится. Сеть создаётся ролью (converge выше), поэтому
+    # подключение fixture-контейнера идёт уже после неё, а не в prepare.yml.
+    - name: Подключить fixture-бэкенд к docker-сети reverse_proxy_npm
+      community.docker.docker_network:
+        name: "{{ reverse_proxy_npm_docker_network }}"
+        connected:
+          - reverse-proxy-npm-fixture-backend
+        appends: true

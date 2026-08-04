@@ -116,6 +116,20 @@ services:
     volumes:
       - {{ monitoring_agent_config_dir }}/.mysqld_exporter_my.cnf:/.my.cnf
 {% endif %}
+{% if monitoring_agent_alloy_enabled %}
+  alloy:
+    image: {{ monitoring_agent_alloy_image }}
+    container_name: alloy
+    restart: "unless-stopped"
+    network_mode: host
+    command:
+      - "run"
+      - "/etc/alloy/config.alloy"
+      - "--storage.path=/var/lib/alloy/data"
+      - "--server.http.listen-addr=0.0.0.0:{{ monitoring_agent_alloy_port }}"
+    volumes:
+      - {{ monitoring_agent_alloy_config_dir }}/config.alloy:/etc/alloy/config.alloy:ro
+{% endif %}
 networks:
   monitoring_agent:
     driver: bridge

@@ -1,0 +1,22 @@
+---
+# tasks file for reverse_proxy_npm
+
+- name: Include check-and-install-requirements tasks
+  when: reverse_proxy_npm_enabled
+  ansible.builtin.include_tasks:
+    file: check-and-install-requirements.yml
+
+- name: Include deploy tasks
+  when: reverse_proxy_npm_enabled
+  ansible.builtin.include_tasks:
+    file: deploy.yml
+
+- name: Include admin-bootstrap tasks
+  when: reverse_proxy_npm_enabled
+  ansible.builtin.include_tasks:
+    file: admin-bootstrap.yml
+
+- name: Include manage-proxy-hosts tasks
+  when: reverse_proxy_npm_enabled
+  ansible.builtin.include_tasks:
+    file: manage-proxy-hosts.yml

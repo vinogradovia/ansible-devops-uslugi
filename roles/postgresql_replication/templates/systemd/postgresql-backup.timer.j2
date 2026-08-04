@@ -1,0 +1,9 @@
+[Unit]
+Description=Daily PostgreSQL physical backup ({{ postgresql_replication_backup_time }})
+
+[Timer]
+OnCalendar=*-*-* {{ postgresql_replication_backup_time }}
+Persistent=true
+
+[Install]
+WantedBy=timers.target

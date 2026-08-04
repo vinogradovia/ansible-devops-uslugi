@@ -1,0 +1,40 @@
+---
+# Единственный (пока) molecule-сценарий для роли nginx_multidomain — см. ROADMAP.md,
+# таблица P4, и roles/nginx_multidomain/docs/nginx_multidomain_role_architecture.md, §8.5.
+#
+# driver: vagrant/libvirt (единое требование для всех molecule-сценариев коллекции, см.
+# CLAUDE.md, «Molecule-тесты» — раньше был driver: docker, одноразовый systemd-контейнер):
+# полноценная одноразовая ВМ, полностью уничтожается на destroy. Поэтому явно обнуляем
+# ansible.executor.args.ansible_playbook, унаследованный из ../config.yml — там лежит
+# "--inventory=.../extensions/molecule/inventory/", а это статические реальные хосты
+# (группы monitoring_servers/monitoring_agents); слияние списков в molecule — это replace,
+# а не extend (см. molecule.util.merge_dicts), так что достаточно переопределить список здесь.
+driver:
+  name: vagrant
+  provider:
+    name: libvirt
+
+platforms:
+  - name: nginx-multidomain
+    box: cloud-image/ubuntu-24.04
+    memory: 1024
+    cpus: 1
+
+scenario:
+  test_sequence:
+    - dependency
+    - destroy
+    - syntax
+    - create
+    - prepare
+    - converge
+    - idempotence
+    - verify
+    - destroy
+
+shared_state: false
+
+ansible:
+  executor:
+    args:
+      ansible_playbook: []

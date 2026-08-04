@@ -1,0 +1,35 @@
+---
+# Molecule-сценарий для infra_dns — см. ROADMAP.md P4 («Molecule-сценарий с проверкой
+# named-checkconf/named-checkzone рендера forward+reverse зон, поймал бы №19, №20»). driver:
+# vagrant/libvirt (единое требование для всех molecule-сценариев коллекции, см. CLAUDE.md,
+# «Molecule-тесты» — раньше был driver: docker, одноразовый systemd-контейнер): полноценная
+# одноразовая ВМ, полностью уничтожается на destroy.
+driver:
+  name: vagrant
+  provider:
+    name: libvirt
+
+platforms:
+  - name: infra-dns
+    box: cloud-image/ubuntu-24.04
+    memory: 1024
+    cpus: 1
+
+scenario:
+  test_sequence:
+    - dependency
+    - destroy
+    - syntax
+    - create
+    - prepare
+    - converge
+    - idempotence
+    - verify
+    - destroy
+
+shared_state: false
+
+ansible:
+  executor:
+    args:
+      ansible_playbook: []

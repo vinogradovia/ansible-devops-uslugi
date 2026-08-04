@@ -1,0 +1,8 @@
+{%- set monitoring_server_victoria_metrics_scrape_alloy_targets=[] %}
+{%- for host in groups['monitoring_agents'] -%}
+{%- if hostvars[host].get('monitoring_agent_alloy_enabled', false) %}
+{%- set targethost = hostvars[host].get('ansible_host', host)  %}
+{{ monitoring_server_victoria_metrics_scrape_alloy_targets.append(targethost + ':' + (hostvars[host].get('monitoring_agent_alloy_port', monitoring_server_victoria_metrics_scrape_alloy_port_default) | string ) ) }}
+{%- endif %}
+{%- endfor %}
+{{ [{"targets": monitoring_server_victoria_metrics_scrape_alloy_targets}] | to_nice_json }}

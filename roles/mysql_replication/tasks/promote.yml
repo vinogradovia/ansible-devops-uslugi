@@ -1,0 +1,43 @@
+---
+# Ручная операция (ADR §7) — доступна ТОЛЬКО через явный тег, никогда не выполняется в обычном
+# прогоне (см. tags: [mysql_replication_promote, never] в tasks/main.yml). Рассчитана на
+# DR-реплику: ansible-playbook ... --tags mysql_replication_promote --limit <dr-replica-host>
+#
+# Это только техническая часть promote — переключение точки подключения ProxySQL/DNS,
+# верификация на живом трафике и обратное переключение описаны в письменной инструкции на
+# русском (docs/runbooks/mysql-failover.md, ADR §7), не автоматизируются этой задачей целиком.
+
+- name: Assert this is being run against a dr_replica host
+  ansible.builtin.assert:
+    that:
+      - mysql_replication_role == 'dr_replica'
+    fail_msg: >-
+      promote.yml запускается только против хоста с mysql_replication_role=dr_replica — это
+      деструктивная операция (RESET REPLICA ALL), которая не должна случайно затронуть
+      read_replica или primary.
+
+- name: Stop replication
+  ansible.mysql.mysql_replication:
+    login_unix_socket: /var/run/mysqld/mysqld.sock
+    mode: stopreplica
+
+- name: Reset replication configuration
+  ansible.mysql.mysql_replication:
+    login_unix_socket: /var/run/mysqld/mysqld.sock
+    mode: resetreplicaall
+
+- name: Disable read_only / super_read_only
+  ansible.mysql.mysql_variables:
+    login_unix_socket: /var/run/mysqld/mysqld.sock
+    variable: "{{ item }}"
+    value: "OFF"
+  loop:
+    - super_read_only
+    - read_only
+
+- name: Report promote result
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }} переведён в writable-режим. Следующие шаги (переключение
+      db-write на этот хост в ProxySQL/DNS, проверка на живом трафике) — по письменной
+      инструкции (ADR §7), не автоматизируются этой задачей.

@@ -1,0 +1,6 @@
+[Unit]
+Description=PostgreSQL physical backup (pgBackRest) to S3
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/postgresql-backup.sh

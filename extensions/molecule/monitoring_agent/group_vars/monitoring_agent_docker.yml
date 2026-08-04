@@ -1,0 +1,11 @@
+---
+monitoring_agent_orchestrator: docker
+
+monitoring_agent_node_exporter_enabled: true
+
+# docker_exporter: покрывает передачу ключа metrics-addr в /etc/docker/daemon.json через
+# зависимость на роль docker (ADR-0002 §6, monitoring_agent сама файл не пишет).
+monitoring_agent_docker_exporter_enabled: true
+
+# alloy (ROADMAP.md Backlog №34) — embedded exporter, покрыт на обоих оркестраторах.
+monitoring_agent_alloy_enabled: true

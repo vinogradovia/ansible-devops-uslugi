@@ -1,0 +1,63 @@
+---
+# Molecule-сценарий для monitoring_server_orchestrator: k3s — см. docs/adr/0007-monitoring-server-role.md
+# §6. В отличие от прежней версии этого раздела ADR, "Helmwave up" больше не закомментирован в
+# самой роли — этот сценарий проверяет реальный деплой стека (VictoriaMetrics Operator +
+# grafana-operator + grafana-alloy x3 через helm/, envs/k3s-monitoring.yaml).
+#
+# driver: vagrant/libvirt (Ubuntu 24.04) — единое требование для всех molecule-сценариев коллекции
+# (см. CLAUDE.md, «Molecule-тесты»); здесь ещё и потому, что k3s не имеет смысла гонять внутри
+# контейнера поверх другого контейнера (двойная виртуализация control-plane).
+#
+# Активация xanmanning.k3s (зависимость monitoring_server, meta/main.yml, tags: init/never) —
+# проверено эмпирически на минимальном примере, что "--tags init" один активирует ТОЛЬКО
+# never-зависимость и режет все нетегированные задачи самой роли (--tags — это whitelist), а
+# "--tags all" не активирует never вовсе. Только "--tags all,init" включает и never-зависимость,
+# и всё остальное как обычно — отсюда provisioner.options.tags ниже.
+#
+# kubernetes.core.k8s-задачи роли выполняются delegate_to: localhost (control-хост, а не ВМ) — им
+# нужен python-пакет kubernetes на хосте, где запускается molecule (добавлен в pyproject.toml dev
+# specifically для этого сценария), и helm+helmwave CLI на PATH control-хоста (проверяются
+# check-and-install-requirements.k3s.yml через "helmwave --version" fail-fast).
+#
+# Без idempotence (как extensions/molecule/proxysql, по другой причине): "Helmwave up" —
+# ansible.builtin.command без разбора stdout helmwave для changed_when, поэтому всегда
+# changed=true на уровне ansible-задачи — реальная идемпотентность смотрится на уровне самих
+# Helm-релизов (helmwave up второй раз ничего не меняет в кластере), а не через molecule idempotence.
+driver:
+  name: vagrant
+  provider:
+    name: libvirt
+
+platforms:
+  - name: monitoring-server-k3s
+    box: cloud-image/ubuntu-24.04
+    # k3s + VictoriaMetrics Operator + grafana-operator + 3x grafana-alloy — заметно тяжелее
+    # docker-сценария этой же роли.
+    memory: 6144
+    cpus: 4
+    groups:
+      - monitoring_servers
+      - monitoring_agents
+
+provisioner:
+  name: ansible
+  options:
+    tags: all,init
+
+scenario:
+  test_sequence:
+    - dependency
+    - destroy
+    - syntax
+    - create
+    - prepare
+    - converge
+    - verify
+    - destroy
+
+shared_state: false
+
+ansible:
+  executor:
+    args:
+      ansible_playbook: []

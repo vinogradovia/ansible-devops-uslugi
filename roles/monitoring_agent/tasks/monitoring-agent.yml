@@ -19,6 +19,8 @@
     - "{{ monitoring_agent_promtail_config_dir }}"
 
 - name: Provisioning promtail config
+  notify:
+    - Restart service promtail
   block:
     - name: Provisioning promtail config remove
       when: not monitoring_agent_promtail_enabled
@@ -70,61 +72,77 @@
         group: root
         mode: '0644'
 
+# alloy config (needed for both docker and systemd) — только self-мониторинг (embedded exporter,
+# ROADMAP.md Backlog №34), config.alloy без компонентов.
+- name: Create alloy config dirs
+  when: monitoring_agent_alloy_enabled
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - "{{ monitoring_agent_alloy_config_dir }}"
+
+- name: Provisioning alloy config
+  notify:
+    - Restart service alloy
+  block:
+    - name: Provisioning alloy config remove
+      when: not monitoring_agent_alloy_enabled
+      ansible.builtin.file:
+        owner: root
+        group: root
+        mode: '0644'
+        state: absent
+        dest: "{{ monitoring_agent_alloy_config_dir }}/config.alloy"
+    - name: Provisioning alloy config copy
+      when: monitoring_agent_alloy_enabled
+      ansible.builtin.template:
+        src: alloy-config.alloy.j2
+        dest: "{{ monitoring_agent_alloy_config_dir }}/config.alloy"
+        owner: root
+        group: root
+        mode: '0644'
+
 # mysqld-exporter
+# Под systemd сервис работает под User={{ monitoring_agent_mysqld_exporter_systemd_name }} (не
+# root, systemd-mysqld-exporter.yml) и без владения этим пользователем падает с PermissionError,
+# читая --config.my-cnf (тот же баг и фикс, что у pve-exporter, найдено при сборке
+# extensions/molecule/monitoring_agent). Под docker пользователь не существует (создаётся только
+# в systemd-ветке) — там файл монтируется в контейнер, root:root корректен, как и раньше.
+# Пользователь должен существовать ДО рендера (иначе template не может резолвить owner) —
+# создаётся здесь заранее для systemd, а не только позже в systemd-mysqld-exporter.yml (там тот же
+# вызов идемпотентен и вдобавок отвечает за удаление пользователя при disable).
+- name: Add the user for mysqld-exporter (нужен заранее для владения .my.cnf под systemd)
+  when: monitoring_agent_mysqld_exporter_enabled and monitoring_agent_orchestrator == 'systemd'
+  ansible.builtin.user:
+    name: "{{ monitoring_agent_mysqld_exporter_systemd_name }}"
+    create_home: false
+    shell: /bin/false
+    state: present
+
 - name: Render .my.cnf for mysqld-exporter
   when: monitoring_agent_mysqld_exporter_enabled
   register: monitoring_agent_mysqld_exporter_my_cnf_stat
+  no_log: true
   ansible.builtin.template:
     src: exporters/mysqld-exporter/mysqld_exporter_my.cnf.j2
     dest: "{{ monitoring_agent_config_dir }}/.mysqld_exporter_my.cnf"
-    owner: root
-    group: root
-    mode: '0644'
+    owner: >-
+      {{ monitoring_agent_mysqld_exporter_systemd_name if monitoring_agent_orchestrator == 'systemd' else 'root' }}
+    group: >-
+      {{ monitoring_agent_mysqld_exporter_systemd_name if monitoring_agent_orchestrator == 'systemd' else 'root' }}
+    mode: '0600'
 
 # monitoring-agent in docker
 - name: Block for monitoring_server_orchestrator docker
   when: monitoring_agent_orchestrator == "docker"
   block:
-    # docker-metrics
-    - name: Patch docker daemon for metrics-addr
-      when: monitoring_agent_docker_exporter_enabled and monitoring_agent_docker_exporter_patch_docker
-      notify:
-        - Restart Docker daemon
-      tags: debug
-      block:
-        - name: Create docker daemon.json
-          ansible.builtin.file:
-            path: monitoring_agent_docker_exporter_docker_daemon_json
-            mode: '0644'
-            owner: root
-            group: root
-            state: touch
-          changed_when: false
-
-        - name: Read daemon JSON file
-          ansible.builtin.slurp:
-            path: "{{ monitoring_agent_docker_exporter_docker_daemon_json }}"
-          register: monitoring_agent_docker_exporter_docker_daemon_json_raw
-
-        - name: Convert JSON content to string
-          when: monitoring_agent_docker_exporter_docker_daemon_json_raw.content != ""
-          ansible.builtin.set_fact:
-            monitoring_agent_docker_exporter_docker_daemon_json_content: "{{ monitoring_agent_docker_exporter_docker_daemon_json_raw.content | b64decode | from_json }}"
-
-        - name: Set empty JSON content
-          when: monitoring_agent_docker_exporter_docker_daemon_json_raw.content == ""
-          ansible.builtin.set_fact:
-            monitoring_agent_docker_exporter_docker_daemon_json_content: {}
-        - name: Add new metrics-addr
-          ansible.builtin.set_fact:
-            monitoring_agent_docker_exporter_docker_daemon_json_content: "{{ monitoring_agent_docker_exporter_docker_daemon_json_content | combine({'metrics-addr': (monitoring_agent_docker_exporter_docker_daemon_metrics_addr | string)}) }}"
-        - name: Write updated JSON content back to file
-          ansible.builtin.copy:
-            content: "{{ monitoring_agent_docker_exporter_docker_daemon_json_content | to_json }}\n"
-            dest: "{{ monitoring_agent_docker_exporter_docker_daemon_json }}"
-            mode: '0644'
-            owner: root
-            group: root
+    # docker-metrics: metrics-addr в /etc/docker/daemon.json теперь ставит роль docker
+    # (docs/adr/0002-docker-role.md §6), см. monitoring_agent_docker_daemon_json_options
+    # в defaults и зависимость в meta/main.yml.
 
     - name: Render monitoring-agent compose.yml
       ansible.builtin.template:
@@ -132,8 +150,9 @@
         dest: "{{ monitoring_agent_config_dir }}/compose.yml"
         owner: root
         group: root
-        mode: '0644'
+        mode: '0600'
         validate: docker compose -f %s config
+      no_log: true
       tags: debug
 
     - name: Create and start services
@@ -192,10 +211,34 @@
       ansible.builtin.include_tasks:
         file: systemd-ipa-exporter.yml
 
+    - name: Include systemd-alloy tasks
+      when: monitoring_agent_alloy_enabled
+      ansible.builtin.include_tasks:
+        file: systemd-alloy.yml
+
+    - name: Include systemd-promtail tasks
+      when: monitoring_agent_promtail_enabled
+      ansible.builtin.include_tasks:
+        file: systemd-promtail.yml
+
+    # ВАЖНО: mysqld-exporter/postgres-exporter должны идти последними среди
+    # "Include systemd-*-exporter tasks" в этом блоке. Оба форсируют meta: flush_handlers для
+    # СВОЕГО рестарта — а flush_handlers не умеет флашить выборочно, он сбрасывает ВСЕ отложенные
+    # хендлеры разом, включая уже notify'нутые из общей (не systemd-only) части файла выше
+    # (nginxlog/alloy/promtail — их config рендерится безусловно для обоих оркестраторов, до
+    # ветвления docker/systemd). Если чей-то systemd-юнит на момент этого flush ещё не создан
+    # (Include-таск идёт позже в списке), хендлер падает "Could not find the requested service"
+    # (найдено реальным прогоном site.yml с чистого хоста, ADR-0006/ADR-0005 — обе комбинации
+    # оркестраторов/экспортёров ни разу не были протестированы целиком до этого).
     - name: Include systemd-mysqld-exporter tasks
       when: monitoring_agent_mysqld_exporter_enabled
       ansible.builtin.include_tasks:
         file: systemd-mysqld-exporter.yml
+
+    - name: Include systemd-postgres-exporter tasks
+      when: monitoring_agent_postgres_exporter_enabled
+      ansible.builtin.include_tasks:
+        file: systemd-postgres-exporter.yml
 
 # New Style of Exporters Definotions
 # pve_exporter

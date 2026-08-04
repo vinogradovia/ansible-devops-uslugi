@@ -1,0 +1,78 @@
+---
+# Выполняется в цикле из main.yml с loop_var: domain.
+# Поддержаны domain.type in ['static', 'proxy'] (см. условие в main.yml).
+
+- name: "[{{ domain.name }}] Проверить обязательные поля для type: proxy"
+  ansible.builtin.assert:
+    that:
+      - domain.proxy_pass is defined or (domain.upstream is defined and domain.upstream.servers is defined)
+    fail_msg: >-
+      [{{ domain.name }}] type: proxy требует либо domain.proxy_pass (простой одиночный backend),
+      либо domain.upstream.servers (upstream-пул).
+    quiet: true
+  when: domain.type == 'proxy'
+
+- name: "[{{ domain.name }}] Проверить обязательные поля для type: static"
+  ansible.builtin.assert:
+    that:
+      - domain.root is defined
+    fail_msg: >-
+      [{{ domain.name }}] type: static требует domain.root (корневая директория сайта).
+    quiet: true
+  when: domain.type == 'static'
+
+- name: "[{{ domain.name }}] Запретить basic_auth и json-логи (ломают nginx -t, см. §9.3 архитектурного документа)"
+  ansible.builtin.assert:
+    that:
+      - not (domain.basic_auth is defined and (domain.basic_auth.enabled | default(false)))
+      - "'json' not in (domain.logs.format | default(nginx_default_log_formats) if domain.logs is defined else nginx_default_log_formats)"
+    fail_msg: >-
+      [{{ domain.name }}] domain.basic_auth.enabled и domain.logs.format: [json] пока не реализованы
+      до конца: шаблоны ссылаются на auth_basic_user_file/log_format nginx_json, которые роль не
+      создаёт, и включение любой из опций гарантированно ломает nginx -t (см. §8.3/§8.4/§9.3
+      roles/nginx_multidomain/docs/nginx_multidomain_role_architecture.md).
+    quiet: true
+
+- name: "[{{ domain.name }}] Создать корневую директорию сайта"
+  ansible.builtin.file:
+    path: "{{ domain.root }}"
+    state: directory
+    owner: "{{ nginx_user }}"
+    group: "{{ nginx_group }}"
+    mode: "0755"
+  when: domain.root is defined
+
+- name: "[{{ domain.name }}] Определить пути к сертификату и ключу"
+  ansible.builtin.set_fact:
+    _domain_ssl_cert: >-
+      {{ (domain.ssl.cert_file
+          if (domain.ssl.mode | default('') == 'custom')
+          else '/etc/letsencrypt/live/' ~ domain.name ~ '/fullchain.pem')
+         if (domain.ssl is defined and (domain.ssl.enabled | default(false)))
+         else '' }}
+    _domain_ssl_key: >-
+      {{ (domain.ssl.key_file
+          if (domain.ssl.mode | default('') == 'custom')
+          else '/etc/letsencrypt/live/' ~ domain.name ~ '/privkey.pem')
+         if (domain.ssl is defined and (domain.ssl.enabled | default(false)))
+         else '' }}
+
+- name: "[{{ domain.name }}] Отрендерить конфигурацию vhost"
+  ansible.builtin.template:
+    src: "vhost/{{ domain.type }}.conf.j2"
+    dest: "{{ nginx_sites_available_dir }}/{{ domain.name }}.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  vars:
+    ssl_cert: "{{ _domain_ssl_cert | default('') }}"
+    ssl_key: "{{ _domain_ssl_key | default('') }}"
+  notify: reload nginx
+
+- name: "[{{ domain.name }}] Включить vhost (symlink в sites-enabled)"
+  ansible.builtin.file:
+    src: "{{ nginx_sites_available_dir }}/{{ domain.name }}.conf"
+    dest: "{{ nginx_sites_enabled_dir }}/{{ domain.name }}.conf"
+    state: link
+    force: true
+  notify: reload nginx

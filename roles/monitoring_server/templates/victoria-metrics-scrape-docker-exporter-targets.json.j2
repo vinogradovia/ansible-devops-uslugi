@@ -2,7 +2,7 @@
 {%- for host in groups['monitoring_agents'] -%}
 {%- if hostvars[host].get('monitoring_agent_docker_exporter_enabled', false) %}
 {%- set targethost = hostvars[host].get('ansible_host', host)  %}
-{{ monitoring_server_victoria_metrics_scrape_docker_exporter_targets.append(targethost + ':' + (monitoring_agent_node_exporter_port | default(monitoring_server_victoria_metrics_scrape_docker_exporter_port_default) | string ) ) }}
+{{ monitoring_server_victoria_metrics_scrape_docker_exporter_targets.append(targethost + ':' + (hostvars[host].get('monitoring_agent_docker_exporter_port', monitoring_server_victoria_metrics_scrape_docker_exporter_port_default) | string ) ) }}
 {%- endif %}
 {%- endfor %}
 {{ [{"targets": monitoring_server_victoria_metrics_scrape_docker_exporter_targets}] | to_nice_json }}

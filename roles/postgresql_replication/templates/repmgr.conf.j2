@@ -1,0 +1,20 @@
+# {{ ansible_managed }}
+#
+# repmgr — управление кластером (регистрация узлов, clone, ручной promote), БЕЗ repmgrd
+# (демон автоматического failover не поднимается, ADR §4 — переключение только ручное).
+
+node_id={{ postgresql_replication_node_id }}
+node_name='{{ postgresql_replication_node_name }}'
+conninfo='host={{ postgresql_replication_advertise_host }} port={{ postgresql_replication_port }} user={{ postgresql_replication_repmgr_user }} dbname={{ postgresql_replication_repmgr_db }} password={{ postgresql_replication_repmgr_password }} connect_timeout=10'
+data_directory='{{ postgresql_replication_datadir }}'
+pg_bindir='/usr/lib/postgresql/{{ postgresql_replication_effective_version }}/bin'
+
+# Управление локальной службой PostgreSQL — repmgr запускается от имени OS-пользователя postgres,
+# который получил passwordless sudo ТОЛЬКО на systemctl этого юнита (см.
+# tasks/configure-postgresql.yml, "Allow postgres OS user passwordless sudo...").
+service_start_command='sudo systemctl start {{ postgresql_replication_service_name }}'
+service_stop_command='sudo systemctl stop {{ postgresql_replication_service_name }}'
+service_restart_command='sudo systemctl restart {{ postgresql_replication_service_name }}'
+service_reload_command='sudo systemctl reload {{ postgresql_replication_service_name }}'
+
+log_level=INFO

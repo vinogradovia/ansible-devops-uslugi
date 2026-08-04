@@ -1,0 +1,54 @@
+---
+# Molecule-сценарий для monitoring_agent — см. ROADMAP.md P4 («Molecule-сценарий, включающий хотя
+# бы по одному экспортеру на docker- и systemd-путях, plus pve-exporter под обоими оркестраторами,
+# поймал бы №9, №10»). Оба пути покрыты ДВУМЯ платформами в одном сценарии — тот же паттерн, что
+# extensions/molecule/mysql_replication (несколько хостов, per-group `group_vars/<group>.yml`).
+# driver: vagrant/libvirt (единое требование для всех molecule-сценариев коллекции, см. CLAUDE.md,
+# «Molecule-тесты» — раньше был driver: docker, оба хоста были одноразовыми systemd-контейнерами).
+#
+# monitoring-agent-docker: monitoring_agent_orchestrator: docker — роль сама тянет зависимость на
+# роль docker (meta/main.yml, when: orchestrator == docker), поэтому, как и в
+# reverse_proxy_traefik, prepare.yml Docker Engine вручную не ставит.
+#
+# monitoring-agent-systemd: monitoring_agent_orchestrator: systemd — обычные systemd-юниты (как
+# infra_dns), но pve-exporter ставится через pip/venv (systemd-pve-exporter.yml), поэтому
+# prepare.yml для этого хоста ставит python3-venv как внешний провижининг (роль сама этот пакет не
+# ставит).
+driver:
+  name: vagrant
+  provider:
+    name: libvirt
+
+platforms:
+  - name: monitoring-agent-docker
+    box: cloud-image/ubuntu-24.04
+    memory: 2048
+    cpus: 1
+    groups:
+      - monitoring_agent_docker
+
+  - name: monitoring-agent-systemd
+    box: cloud-image/ubuntu-24.04
+    memory: 1024
+    cpus: 1
+    groups:
+      - monitoring_agent_systemd
+
+scenario:
+  test_sequence:
+    - dependency
+    - destroy
+    - syntax
+    - create
+    - prepare
+    - converge
+    - idempotence
+    - verify
+    - destroy
+
+shared_state: false
+
+ansible:
+  executor:
+    args:
+      ansible_playbook: []

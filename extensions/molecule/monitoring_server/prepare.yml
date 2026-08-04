@@ -1,0 +1,24 @@
+---
+- name: Prepare
+  hosts: all
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Дождаться завершения cloud-init
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+      failed_when: false
+
+    - name: Обновить apt-кэш
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    # Docker Engine ставит сама роль (её зависимость через meta/main.yml — см. molecule.yml,
+    # почему здесь полноценная ВМ, а не docker-in-docker) — тут только то, что нужно verify.yml
+    # для community.docker.docker_container_info (Python SDK, не CLI-обёртка, в отличие от
+    # community.docker.docker_compose_v2, которым пользуется сама роль).
+    - name: Установить python3-docker (нужен community.docker.docker_container_info в verify.yml)
+      ansible.builtin.apt:
+        pkg:
+          - python3-docker

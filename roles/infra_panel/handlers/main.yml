@@ -1,0 +1,32 @@
+---
+# handlers file for infra_panel
+
+# config.yml монтируется в контейнер как отдельный bind-mount файла (не часть compose.yml) —
+# docker_compose_v2 не видит в нём изменений и не пересоздаёт контейнер сам; при этом
+# ansible.builtin.template переписывает файл атомарно (rename), а не in-place, поэтому уже
+# запущенный контейнер продолжает держать старый inode, пока его не перезапустят явно (см.
+# roles/monitoring_server/handlers/main.yml — тот же паттерн для grafana-dashboard-provider.yaml).
+- name: Restart homer
+  community.docker.docker_compose_v2:
+    project_src: "{{ infra_panel_config_dir }}"
+    services:
+      - homer
+    state: restarted
+
+# k3s: тот же subPath-mount инвалидационный баг, что и в docker-пути (см. выше) — Kubernetes
+# принципиально НЕ обновляет subPath-примонтированные ConfigMap/Secret volumes (в отличие от
+# монтирования всей директории), даже когда сам ConfigMap уже изменился в кластере (найдено
+# реальным прогоном: Helmwave показал реальный диф ConfigMap, но уже запущенный под homer
+# продолжал отдавать старый config.yml). Выполняется НА управляемом хосте (не delegate_to:
+# localhost) — kubectl уже есть локально там же, где k3s (roles/monitoring_server ставит его
+# через xanmanning.k3s), не нужен отдельный fetch kubeconfig только ради этого рестарта.
+# Флашится в конце ВСЕГО плея (стандартное поведение ansible), то есть уже ПОСЛЕ того, как
+# "Helmwave up" роли monitoring_server реально применит новый values-файл в кластер — порядок
+# ролей в плее (infra_panel раньше monitoring_server, см. README.md) для самого хендлера
+# значения не имеет.
+- name: Restart homer (k3s)
+  become: true
+  ansible.builtin.command: >-
+    kubectl -n {{ infra_panel_kubernetes_namespace }} rollout restart
+    deployment/{{ infra_panel_kubernetes_release_name }}-{{ infra_panel_kubernetes_release_name }}
+  changed_when: true

@@ -1,0 +1,13 @@
+---
+# SPDX-License-Identifier: MIT-0
+galaxy_info:
+  author: Ivan Vinogradov <vinogradovia@gmail.com>
+  description: dashboard with links to platform components (homer)
+  license: WTFPL
+  min_ansible_version: "2.2"
+  galaxy_tags:
+    - homer
+    - dashboard
+dependencies:
+  - role: docker
+    when: infra_panel_orchestrator == 'docker'

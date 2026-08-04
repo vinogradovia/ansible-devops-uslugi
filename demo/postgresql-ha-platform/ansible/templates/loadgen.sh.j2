@@ -1,0 +1,20 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# ADR-0006 §8: ad hoc генератор нагрузки — единственная точка входа: db-write/db-read (DNS,
+# group_vars/infra_dns.yml) → Odyssey (порт {{ odyssey_listen_port }}) → PostgreSQL.
+#
+# db-read НЕ читает те же строки, что пишет db-write (в отличие от MySQL/ProxySQL-версии этого
+# скрипта) — Odyssey маршрутизирует по имени БД подключения, а не по содержимому запроса
+# (roles/odyssey/README.md, "Ключевое отличие от proxysql"), поэтому db-write/db-read в этом
+# кейсе — намеренно разные БД (group_vars/odyssey_hosts.yml). Вместо повторного чтения — проверка
+# pg_is_in_recovery(), которая доказывает, что db-read реально ведёт на реплику, а не на primary.
+set -euo pipefail
+
+source /etc/loadgen/loadgen.env
+export PGPASSWORD="${LOADGEN_PASSWORD}"
+
+psql "host=db-write.{{ infra_dns_zone_name }} port=${ODYSSEY_PORT} user=${LOADGEN_USER} dbname=${WRITE_DB} sslmode=disable" \
+     -v ON_ERROR_STOP=1 -c "INSERT INTO pings (source) VALUES ('$(hostname)')"
+
+psql "host=db-read.{{ infra_dns_zone_name }} port=${ODYSSEY_PORT} user=${LOADGEN_USER} dbname=${READ_DB} sslmode=disable" \
+     -v ON_ERROR_STOP=1 -tAc "SELECT pg_is_in_recovery()" >/dev/null

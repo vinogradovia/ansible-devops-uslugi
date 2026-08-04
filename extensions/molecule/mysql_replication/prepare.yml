@@ -1,0 +1,88 @@
+---
+- name: Prepare (все хосты — базовая готовность)
+  hosts: all
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Дождаться завершения cloud-init
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+      failed_when: false
+
+    - name: Обновить apt-кэш
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+# --- Симуляция adopt-режима (ADR §2): на primary MySQL уже установлен и работает с "боевыми"
+# данными ДО того, как роль mysql_replication вообще запускается — ровно то состояние, из
+# которого роль должна забрать существующий инстанс, а не переустановить его. Устанавливаем
+# намеренно НАПРЯМУЮ через apt, а не через роль/её install-mysql.yml — но из того же
+# официального репозитория repo.mysql.com, что и роль: в стандартных репозиториях Debian
+# пакета mysql-server нет вообще (Debian с версии 9 поставляет только MariaDB под именем
+# default-mysql-server/mariadb-server, не настоящий MySQL) — без этого шага apt падает с
+# "No package matching 'mysql-server' is available". repo.mysql.com/apt/{{ ansible_distribution
+# | lower }}/{{ ansible_distribution_release }} резолвится по фактам хоста — работает и для
+# Debian, и для Ubuntu (см. molecule.yml, box параметризован через MOLECULE_BOX), отдельной
+# ветки не нужно.
+- name: Prepare (primary — pre-existing MySQL install, не через роль)
+  hosts: mysql_primary
+  become: true
+  vars:
+    mysql_replication_apt_keyring_path: /etc/apt/keyrings/mysql.asc
+    mysql_replication_repo_component: mysql-8.0
+  tasks:
+    - name: "[repo] Установить пакеты, необходимые для подключения репозитория"
+      ansible.builtin.apt:
+        name:
+          - curl
+          - ca-certificates
+          - gnupg
+        state: present
+        update_cache: true
+
+    - name: "[repo] Создать каталог для apt keyring'ов"
+      ansible.builtin.file:
+        path: "{{ mysql_replication_apt_keyring_path | dirname }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: "[repo] Скачать GPG-ключ repo.mysql.com"
+      # Держать синхронно с roles/mysql_replication/tasks/install-mysql.yml — тот же ключ,
+      # тот же комментарий про периодическое переиздание под новым годом в имени файла.
+      ansible.builtin.get_url:
+        url: "https://repo.mysql.com/RPM-GPG-KEY-mysql-2025"
+        dest: "{{ mysql_replication_apt_keyring_path }}"
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: "[repo] Подключить репозиторий repo.mysql.com (компонент: {{ mysql_replication_repo_component }})"
+      ansible.builtin.apt_repository:
+        repo: >-
+          deb [signed-by={{ mysql_replication_apt_keyring_path }}]
+          https://repo.mysql.com/apt/{{ ansible_distribution | lower }}
+          {{ ansible_distribution_release }} {{ mysql_replication_repo_component }}
+        state: present
+        filename: mysql
+        update_cache: true
+
+    - name: Установить mysql-server из официального репозитория MySQL
+      ansible.builtin.apt:
+        name: mysql-server
+        state: present
+
+    - name: Убедиться, что служба запущена
+      ansible.builtin.systemd:
+        name: mysql
+        state: started
+        enabled: true
+
+    - name: Создать "боевые" данные, существовавшие до роли (проверяется в verify.yml)
+      ansible.builtin.command: >
+        mysql -e "CREATE DATABASE IF NOT EXISTS molecule_preexisting;
+        CREATE TABLE IF NOT EXISTS molecule_preexisting.marker (id INT PRIMARY KEY, note VARCHAR(64));
+        INSERT IGNORE INTO molecule_preexisting.marker VALUES (1, 'adopted-not-reinstalled');"
+      changed_when: true

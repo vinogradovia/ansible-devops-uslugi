@@ -1,0 +1,108 @@
+---
+# wal_level/repmgr preload/archive_command/pg_hba — общая часть для всех трёх ролей хоста (ADR
+# §4). На adopt-хосте (primary) рестарт после этой правки не автоматический (ADR §2) — см.
+# handlers/main.yml, гейт postgresql_replication_allow_restart.
+
+# Debian-пакетирование PostgreSQL (postgresql-common) создаёт каталог conf.d/, но НЕ включает его
+# в postgresql.conf по умолчанию — в отличие от MySQL, где conf.d уже подключён пакетом. Правим
+# существующий postgresql.conf аддитивно (lineinfile, не перезаписываем целиком) — безопасно и
+# для adopt-хоста с уже настроенным конфигом.
+- name: Ensure conf.d directory exists
+  ansible.builtin.file:
+    path: "{{ postgresql_replication_config_dir }}/conf.d"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0750'
+
+- name: Ensure postgresql.conf includes conf.d/*.conf
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_replication_config_dir }}/postgresql.conf"
+    line: "include_dir = 'conf.d'"
+    insertafter: EOF
+    state: present
+  notify: Restart PostgreSQL
+
+- name: Render replication drop-in config
+  ansible.builtin.template:
+    src: postgresql-replication.conf.j2
+    dest: "{{ postgresql_replication_config_dir }}/conf.d/99-postgresql-replication.conf"
+    owner: postgres
+    group: postgres
+    mode: '0640'
+  notify: Restart PostgreSQL
+
+- name: Fail fast if adopt-primary config change needs a restart that isn't allowed yet
+  when:
+    - postgresql_replication_existing_instance
+    - not (postgresql_replication_allow_restart | bool)
+  ansible.builtin.debug:
+    msg: >-
+      Конфигурация репликации записана, но служба {{ postgresql_replication_service_name }} не
+      будет перезапущена (postgresql_replication_allow_restart=false). Изменения (wal_level,
+      shared_preload_libraries=repmgr и т.п.) вступят в силу только после ручного рестарта в
+      согласованное окно — см. README, "Рестарт на adopt-primary".
+
+# Хендлер Restart PostgreSQL иначе выполнился бы только в конце всего плея — а следующие шаги роли
+# (repmgr register/standby clone) требуют, чтобы shared_preload_libraries='repmgr' и wal_level уже
+# реально применились. Тот же паттерн, что и в mysql_replication/tasks/configure-replication.yml.
+- name: Force notified handlers (Restart PostgreSQL) to run now, not at the end of the play
+  ansible.builtin.meta: flush_handlers
+
+# pg_hba.conf — аддитивное управление через модуль (не перезаписывает существующие правила),
+# безопасно для adopt-хоста. Три отдельные записи, т.к. репликационный и repmgr-пользователи
+# имеют разные назначения (ADR §4):
+#   - repl_user: используется нативной potgresql streaming-репликацией (primary_conninfo реплики).
+#   - repmgr_user: используется командами repmgr (метаданные в БД repmgr + `repmgr standby clone`,
+#     который внутри дёргает pg_basebackup через тот же conninfo, поэтому тоже нужен доступ к
+#     псевдо-БД "replication").
+- name: Allow replication connections (repl user)
+  community.postgresql.postgresql_pg_hba:
+    dest: "{{ postgresql_replication_config_dir }}/pg_hba.conf"
+    contype: host
+    databases: replication
+    users: "{{ postgresql_replication_repl_user }}"
+    source: "{{ postgresql_replication_pg_hba_address }}"
+    method: scram-sha-256
+  notify: Reload PostgreSQL
+
+- name: Allow replication connections (repmgr user, used internally by `repmgr standby clone`)
+  community.postgresql.postgresql_pg_hba:
+    dest: "{{ postgresql_replication_config_dir }}/pg_hba.conf"
+    contype: host
+    databases: replication
+    users: "{{ postgresql_replication_repmgr_user }}"
+    source: "{{ postgresql_replication_pg_hba_address }}"
+    method: scram-sha-256
+  notify: Reload PostgreSQL
+
+- name: Allow repmgr metadata connections (repmgr database)
+  community.postgresql.postgresql_pg_hba:
+    dest: "{{ postgresql_replication_config_dir }}/pg_hba.conf"
+    contype: host
+    databases: "{{ postgresql_replication_repmgr_db }},all"
+    users: "{{ postgresql_replication_repmgr_user }}"
+    source: "{{ postgresql_replication_pg_hba_address }}"
+    method: scram-sha-256
+  notify: Reload PostgreSQL
+
+- name: Force notified handlers (Reload PostgreSQL) to run now
+  ansible.builtin.meta: flush_handlers
+
+# repmgr само управляет службой PostgreSQL на своём узле (service_start/stop/restart_command в
+# repmgr.conf) — например, `repmgr standby clone` останавливает и запускает локальный instance.
+# repmgr рекомендуется запускать от имени системного пользователя postgres (peer-auth к сокету
+# без пароля), поэтому postgres нужен passwordless sudo именно на systemctl этого юнита — не шире.
+- name: Allow postgres OS user passwordless sudo for the PostgreSQL service unit (needed by repmgr)
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/postgresql-replication-repmgr
+    owner: root
+    group: root
+    mode: '0440'
+    content: >-
+      postgres ALL=(root) NOPASSWD:
+      /bin/systemctl start {{ postgresql_replication_service_name }},
+      /bin/systemctl stop {{ postgresql_replication_service_name }},
+      /bin/systemctl restart {{ postgresql_replication_service_name }},
+      /bin/systemctl reload {{ postgresql_replication_service_name }}
+    validate: visudo -cf %s

@@ -1,0 +1,540 @@
+---
+- name: Verify (primary)
+  hosts: postgresql_primary
+  become: true
+  gather_facts: false
+  tasks:
+    # --- Adopt не должен переустанавливать PostgreSQL (ADR §2) — данные, созданные ДО роли
+    # (prepare.yml), должны пережить converge без потерь. -------------------------------------
+    - name: Проверить, что "боевые" данные пережили adopt
+      become: true
+      become_user: postgres
+      ansible.builtin.command: >
+        psql -tc "SELECT note FROM marker WHERE id=1;" -d molecule_preexisting
+      register: molecule_adopt_marker
+      changed_when: false
+
+    - name: Adopt не должен был переустановить PostgreSQL
+      ansible.builtin.assert:
+        that:
+          - molecule_adopt_marker.stdout | trim == 'adopted-not-reinstalled'
+        fail_msg: >-
+          Данные, созданные до роли, не найдены после converge — похоже, роль переустановила
+          PostgreSQL вместо adopt (см. tasks/detect-existing-instance.yml).
+        quiet: true
+
+    # --- wal_level/shared_preload_libraries/archive_mode (ADR §4/§8) --------------------------
+    - name: Прочитать настройки репликации на primary
+      become: true
+      become_user: postgres
+      ansible.builtin.command: >
+        psql -tc "SHOW wal_level;"
+      register: molecule_primary_wal_level
+      changed_when: false
+
+    - name: Прочитать shared_preload_libraries
+      become: true
+      become_user: postgres
+      ansible.builtin.command: >
+        psql -tc "SHOW shared_preload_libraries;"
+      register: molecule_primary_preload
+      changed_when: false
+
+    - name: Прочитать archive_mode (должен быть off на primary — backup_source_role=dr_replica)
+      become: true
+      become_user: postgres
+      ansible.builtin.command: >
+        psql -tc "SHOW archive_mode;"
+      register: molecule_primary_archive_mode
+      changed_when: false
+
+    - name: Настройки primary должны соответствовать роли
+      ansible.builtin.assert:
+        that:
+          - molecule_primary_wal_level.stdout | trim == 'replica'
+          - "'repmgr' in molecule_primary_preload.stdout"
+          - molecule_primary_archive_mode.stdout | trim == 'off'
+        fail_msg: >-
+          wal_level={{ molecule_primary_wal_level.stdout }}
+          shared_preload_libraries={{ molecule_primary_preload.stdout }}
+          archive_mode={{ molecule_primary_archive_mode.stdout }}
+        quiet: true
+
+    # --- Репликационный/repmgr пользователи (ADR §4) -------------------------------------------
+    - name: Проверить наличие репликационного и repmgr пользователей
+      become: true
+      become_user: postgres
+      ansible.builtin.command: >
+        psql -tc "SELECT rolname FROM pg_roles WHERE rolname IN ('repl','repmgr') ORDER BY rolname;"
+      register: molecule_primary_roles
+      changed_when: false
+
+    - name: Оба пользователя должны быть заведены
+      ansible.builtin.assert:
+        that:
+          - "'repl' in molecule_primary_roles.stdout"
+          - "'repmgr' in molecule_primary_roles.stdout"
+        fail_msg: "{{ molecule_primary_roles.stdout }}"
+        quiet: true
+
+    # --- Кластер repmgr должен видеть все три узла (ADR §10 — "verify проверяет repmgr cluster
+    # show") -------------------------------------------------------------------------------------
+    - name: Repmgr cluster show
+      become: true
+      become_user: postgres
+      ansible.builtin.command: repmgr -f /etc/repmgr.conf cluster show
+      environment:
+        PGPASSWORD: "{{ postgresql_replication_repmgr_password }}"
+      register: molecule_cluster_show
+      changed_when: false
+
+    - name: Кластер должен состоять из трёх узлов без failed/unreachable
+      ansible.builtin.assert:
+        that:
+          - "'primary' in molecule_cluster_show.stdout"
+          - molecule_cluster_show.stdout.count('standby') == 2
+          - "'failed' not in molecule_cluster_show.stdout"
+          - "'unreachable' not in molecule_cluster_show.stdout"
+        fail_msg: "{{ molecule_cluster_show.stdout }}"
+        quiet: true
+
+    # --- Функциональная проверка репликации: пишем тестовую строку -----------------------------
+    - name: Сгенерировать уникальный маркер для проверки репликации
+      ansible.builtin.set_fact:
+        molecule_test_marker: "{{ lookup('pipe', 'date +%s%N') }}"
+
+    - name: Создать тестовую схему/таблицу
+      become: true
+      become_user: postgres
+      changed_when: true
+      ansible.builtin.command: >
+        psql -tc "SELECT 1 FROM pg_database WHERE datname = 'molecule_test'"
+      register: molecule_test_db_check
+      failed_when: false
+
+    - name: Создать БД molecule_test, если её ещё нет
+      when: molecule_test_db_check.stdout | trim != '1'
+      become: true
+      become_user: postgres
+      changed_when: true
+      ansible.builtin.command: psql -c "CREATE DATABASE molecule_test;"
+
+    - name: Создать таблицу probe
+      become: true
+      become_user: postgres
+      changed_when: true
+      ansible.builtin.command: >
+        psql -d molecule_test -c "
+        CREATE TABLE IF NOT EXISTS probe (id SERIAL PRIMARY KEY, marker VARCHAR(64));"
+
+    - name: Записать маркер на primary
+      become: true
+      become_user: postgres
+      changed_when: true
+      ansible.builtin.command: >
+        psql -d molecule_test -c "INSERT INTO probe (marker) VALUES ('{{ molecule_test_marker }}');"
+
+- name: Verify (реплики)
+  hosts: postgresql_read_replica:postgresql_dr_replica
+  become: true
+  gather_facts: false
+  vars:
+    molecule_test_marker: "{{ hostvars[groups['postgresql_primary'][0]].molecule_test_marker }}"
+  tasks:
+    # --- Реплика должна быть в recovery-режиме (ADR §4 — read-only обеспечивается штатным
+    # recovery-режимом PostgreSQL, отдельного флага не требуется) ------------------------------
+    - name: Проверить pg_is_in_recovery()
+      become: true
+      become_user: postgres
+      ansible.builtin.command: >
+        psql -tc "SELECT pg_is_in_recovery();"
+      register: molecule_replica_recovery
+      changed_when: false
+
+    - name: Реплика должна быть в recovery-режиме
+      ansible.builtin.assert:
+        that:
+          - molecule_replica_recovery.stdout | trim == 't'
+        quiet: true
+
+    # --- Отставание репликации (аналог Seconds_Behind_Source в MySQL) --------------------------
+    - name: Прочитать отставание репликации
+      become: true
+      become_user: postgres
+      ansible.builtin.command: >
+        psql -tc "SELECT COALESCE(EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp())), 0);"
+      register: molecule_replica_lag
+      changed_when: false
+
+    - name: Отставание должно быть небольшим
+      ansible.builtin.assert:
+        that:
+          - (molecule_replica_lag.stdout | trim | float) < 30
+        fail_msg: "lag={{ molecule_replica_lag.stdout }}"
+        quiet: true
+
+    # --- Запись на реплику должна быть отклонена штатным recovery-режимом ----------------------
+    - name: Попытка записи на реплику
+      become: true
+      become_user: postgres
+      ansible.builtin.command: >
+        psql -d molecule_test -c "INSERT INTO probe (marker) VALUES ('should-be-rejected');"
+      register: molecule_write_attempt
+      failed_when: false
+      changed_when: false
+
+    - name: Запись на реплику должна завершиться ошибкой read-only транзакции
+      ansible.builtin.assert:
+        that:
+          - molecule_write_attempt.rc != 0
+          - "'read-only' in molecule_write_attempt.stderr | lower"
+        fail_msg: "{{ molecule_write_attempt.stderr }}"
+        quiet: true
+
+    # --- Тестовая запись с primary должна дойти "за секунды" ------------------------------------
+    - name: Дождаться появления тестовой записи, реплицированной с primary
+      become: true
+      become_user: postgres
+      ansible.builtin.command: >
+        psql -tc "SELECT COUNT(*) FROM probe WHERE marker='{{ molecule_test_marker }}';" -d molecule_test
+      register: molecule_probe_count
+      until: molecule_probe_count.stdout | trim == '1'
+      retries: 15
+      delay: 2
+      changed_when: false
+
+# --- Ручной promote (docs/runbooks/postgresql-failover.md, раздел 2, шаг 3; ADR §7) -------------
+# tasks/promote.yml спрятан в main.yml за тегами [postgresql_replication_promote, never] — обычный
+# ansible-playbook (в т.ч. converge.yml/verify.yml этого сценария) его не выполняет, поэтому здесь
+# он вызывается напрямую через include_role/tasks_from, в обход main.yml. Это даёт тот же эффект,
+# что и реальная команда оператора `--tags postgresql_replication_promote --limit <replica-host>`,
+# но НЕ проверяет сам механизм тегов в main.yml (include_tasks + apply.tags — без apply.tags
+# дочерние задачи promote.yml молча отфильтровываются при --tags postgresql_replication_promote;
+# реальный баг, найденный и исправленный отдельно, минимальным воспроизведением вне molecule, а не
+# этим сценарием) — только логику самого tasks/promote.yml (assert + repmgr standby promote).
+# Выполняется последним шагом verify.yml (после проверок штатной репликации выше), т.к. необратимо
+# меняет состояние DR-реплики на этих ВМ перед их уничтожением (destroy).
+
+- name: Verify (promote — защита от promote primary)
+  hosts: postgresql_primary
+  become: true
+  gather_facts: false
+  tasks:
+    # ignore_errors/register на include_role не перехватывают ошибку из ВЛОЖЕННОЙ задачи (известное
+    # ограничение динамических include в Ansible — сам include не падает, падает конкретная задача
+    # внутри), поэтому единственный надёжный способ проверить, что promote.yml падает — block/rescue.
+    - name: Попытка promote на primary (должна быть отклонена assert'ом tasks/promote.yml)
+      vars:
+        molecule_promote_sentinel_task: "Promote не должен был пройти без ошибки (баг в assert)"
+      block:
+        - name: Promote (ожидается ошибка assert)
+          ansible.builtin.include_role:
+            name: devops.uslugi.postgresql_replication
+            tasks_from: promote
+
+        - name: "{{ molecule_promote_sentinel_task }}"
+          ansible.builtin.fail:
+            msg: >-
+              promote.yml выполнился без ошибки на primary — assert
+              (postgresql_replication_role in ['read_replica', 'dr_replica']) не сработал.
+      rescue:
+        # Различаем: упал именно ожидаемый assert в promote.yml (ОК) — или наш sentinel-task выше
+        # (значит, assert НЕ сработал, и это реальный баг в роли, который нельзя молча проглотить).
+        - name: Убедиться, что упал именно ожидаемый assert, а не sentinel-задача
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_task.name != molecule_promote_sentinel_task
+            fail_msg: >-
+              promote.yml не вернул ошибку на primary — assert в tasks/promote.yml не сработал.
+            quiet: true
+
+        - name: Ожидаемая ошибка — promote на primary корректно отклонён assert'ом
+          ansible.builtin.debug:
+            msg: "OK: {{ ansible_failed_result.msg | default('promote отклонён') }}"
+
+- name: Verify (promote — остановить primary, раздел 2, шаг 1 инструкции)
+  hosts: postgresql_primary
+  become: true
+  gather_facts: false
+  vars:
+    # Держать синхронно с prepare.yml (molecule_pg_preexisting_version) — adopt-версия primary в
+    # этой фикстуре всегда 16.
+    molecule_pg_preexisting_version: "16"
+  tasks:
+    # Пока primary технически доступен, repmgr отказывает промоутить реплику ("this replication
+    # cluster already has an active primary server") — реальное защитное поведение repmgr,
+    # воспроизводящее предостережение раздела 2, шаг 1 инструкции (docs/runbooks/postgresql-failover.md):
+    # "если старый primary технически доступен — сначала остановить на нём службу".
+    - name: Остановить PostgreSQL на primary (симуляция аварии перед promote DR-реплики)
+      ansible.builtin.systemd:
+        name: "postgresql@{{ molecule_pg_preexisting_version }}-main"
+        state: stopped
+
+- name: Verify (promote — реальный promote DR-реплики)
+  hosts: postgresql_dr_replica
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Promote DR-реплику в writable-режим (repmgr standby promote)
+      ansible.builtin.include_role:
+        name: devops.uslugi.postgresql_replication
+        tasks_from: promote
+
+    - name: Дождаться выхода из recovery-режима после promote
+      become: true
+      become_user: postgres
+      ansible.builtin.command: >
+        psql -tc "SELECT pg_is_in_recovery();"
+      register: molecule_promoted_recovery
+      until: molecule_promoted_recovery.stdout | trim == 'f'
+      retries: 10
+      delay: 2
+      changed_when: false
+
+    - name: После promote узел должен быть writable (не в recovery-режиме)
+      ansible.builtin.assert:
+        that:
+          - molecule_promoted_recovery.stdout | trim == 'f'
+        fail_msg: "{{ molecule_promoted_recovery.stdout }}"
+        quiet: true
+
+    - name: Проверить, что promoted-узел теперь принимает запись
+      become: true
+      become_user: postgres
+      changed_when: true
+      ansible.builtin.command: >
+        psql -d molecule_test -c "INSERT INTO probe (marker) VALUES ('promoted-write-ok');"
+      register: molecule_promoted_write
+      failed_when: false
+
+    - name: Запись на promoted-узел должна пройти успешно
+      ansible.builtin.assert:
+        that:
+          - molecule_promoted_write.rc == 0
+        fail_msg: "{{ molecule_promoted_write.stderr }}"
+        quiet: true
+
+# --- Обратное переключение (failback), docs/runbooks/postgresql-failover.md, раздел 3 ------------
+# Старый primary в этот момент уже остановлен (play "Verify (promote — остановить primary...)"
+# выше) — то же состояние, в котором раздел 3 рунбука встречает старый primary после шага 2
+# ("Остановить PostgreSQL перед rejoin"). Дальше по разделу 3: rejoin как standby к новому primary
+# (шаг 3), дождаться синхронизации (шаг 4), остановить текущий primary перед повторным promote
+# (шаг 5.1 — repmgr иначе откажет: "this replication cluster already has an active primary
+# server", та же защита, что и в разделе 2, шаг 1, только в обратную сторону), повторный promote
+# старого primary (шаг 5.2) и переклонирование бывшей DR-реплики обратно в standby (шаг 6, тот же
+# паттерн "configure-replica.yml обнаружит отсутствие standby.signal", что уже описан в самом
+# рунбуке). Шаг 5.3 (переключение Odyssey) и раздел 3 целиком относятся к операторским действиям
+# вне этой роли — в сценарии нет хостов Odyssey, здесь не проверяются.
+
+- name: "Verify (failback — присоединить старый primary как standby к promoted DR-реплике, раздел 3, шаг 3)"
+  hosts: postgresql_primary
+  become: true
+  gather_facts: false
+  vars:
+    # Статический IP DR-реплики (extensions/molecule/postgresql_replication/molecule.yml,
+    # платформа postgresql-dr-replica) — она же новый primary после promote выше. Тот же приём,
+    # что и жёстко заданный postgresql_replication_primary_host в group_vars/postgresql_dr_replica.yml.
+    molecule_new_primary_host: 192.168.58.12
+  tasks:
+    - name: Repmgr node rejoin --force-rewind к новому primary
+      become: true
+      become_user: postgres
+      # user=repmgr/dbname=repmgr — литералы, а не постоянно "repmgr"-переменные роли
+      # (postgresql_replication_repmgr_user/_db): роль в этом плее не подключена (include_role),
+      # поэтому её defaults/main.yml здесь не в скоупе — тот же приём, что и в самой инструкции
+      # (docs/runbooks/postgresql-failover.md, раздел 3, шаг 3, там тоже литералы).
+      ansible.builtin.command: >
+        repmgr -f /etc/repmgr.conf node rejoin
+        -d "host={{ molecule_new_primary_host }} user=repmgr dbname=repmgr"
+        --force-rewind --verbose
+      environment:
+        PGPASSWORD: "{{ postgresql_replication_repmgr_password }}"
+      changed_when: true
+
+- name: "Verify (failback — дождаться синхронизации старого primary как standby, раздел 3, шаг 4)"
+  hosts: postgresql_primary
+  become: true
+  gather_facts: false
+  tasks:
+    # node rejoin сам запускает PostgreSQL по завершении (см. рунбук, шаг 3) — отдельного
+    # "start" не требуется.
+    - name: Дождаться выхода в recovery-режим (standby) после rejoin
+      become: true
+      become_user: postgres
+      ansible.builtin.command: >
+        psql -tc "SELECT pg_is_in_recovery();"
+      register: molecule_rejoined_recovery
+      until: molecule_rejoined_recovery.stdout | trim == 't'
+      retries: 15
+      delay: 2
+      changed_when: false
+
+    - name: Старый primary должен быть в recovery-режиме (standby нового primary)
+      ansible.builtin.assert:
+        that:
+          - molecule_rejoined_recovery.stdout | trim == 't'
+        fail_msg: "{{ molecule_rejoined_recovery.stdout }}"
+        quiet: true
+
+    - name: Дождаться, пока отставание после rejoin станет небольшим
+      become: true
+      become_user: postgres
+      ansible.builtin.command: >
+        psql -tc "SELECT COALESCE(EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp())), 0);"
+      register: molecule_rejoined_lag
+      until: (molecule_rejoined_lag.stdout | trim | float) < 30
+      retries: 15
+      delay: 2
+      changed_when: false
+
+    - name: Отставание после rejoin должно быть небольшим
+      ansible.builtin.assert:
+        that:
+          - (molecule_rejoined_lag.stdout | trim | float) < 30
+        fail_msg: "lag={{ molecule_rejoined_lag.stdout }}"
+        quiet: true
+
+    - name: Repmgr cluster show после rejoin
+      become: true
+      become_user: postgres
+      ansible.builtin.command: repmgr -f /etc/repmgr.conf cluster show
+      environment:
+        PGPASSWORD: "{{ postgresql_replication_repmgr_password }}"
+      register: molecule_cluster_show_after_rejoin
+      changed_when: false
+
+    - name: Старый primary должен числиться в кластере как running standby
+      ansible.builtin.assert:
+        that:
+          - (molecule_cluster_show_after_rejoin.stdout_lines | select('search', inventory_hostname) | select('search', 'standby') | list | length) > 0
+          - (molecule_cluster_show_after_rejoin.stdout_lines | select('search', inventory_hostname) | select('search', 'running') | list | length) > 0
+        fail_msg: "{{ molecule_cluster_show_after_rejoin.stdout }}"
+        quiet: true
+
+- name: "Verify (failback — остановить текущий primary перед повторным promote, раздел 3, шаг 5.1)"
+  hosts: postgresql_dr_replica
+  become: true
+  gather_facts: false
+  vars:
+    # dr_replica установлена той же версией, что и discovered-версия primary (converge.yml,
+    # postgresql_replication_target_version через hostvars) — совпадает с molecule_pg_preexisting_version
+    # из play "Verify (promote — остановить primary...)" выше.
+    molecule_pg_preexisting_version: "16"
+  tasks:
+    # repmgr standby promote (следующий play) откажет, пока текущий primary технически доступен
+    # ("this replication cluster already has an active primary server") — та же защита repmgr,
+    # что и в разделе 2, шаг 1, только в обратную сторону.
+    - name: Остановить PostgreSQL на текущем primary (бывшей DR-реплике)
+      ansible.builtin.systemd:
+        name: "postgresql@{{ molecule_pg_preexisting_version }}-main"
+        state: stopped
+
+- name: "Verify (failback — промоутить старого primary обратно в writer, раздел 3, шаг 5.2)"
+  hosts: postgresql_primary
+  become: true
+  gather_facts: false
+  vars:
+    # tasks/promote.yml проверяет ассертом *статическую* postgresql_replication_role — у этого
+    # хоста в group_vars она навсегда primary, хотя после rejoin выше он технически standby.
+    # Override только на этот вызов — тот же приём, что и `-e postgresql_replication_role=dr_replica`
+    # в docs/runbooks/postgresql-failover.md, раздел 3, шаг 5.
+    postgresql_replication_role: dr_replica
+  tasks:
+    - name: Promote старого primary обратно в writable-режим (repmgr standby promote)
+      ansible.builtin.include_role:
+        name: devops.uslugi.postgresql_replication
+        tasks_from: promote
+
+    - name: Дождаться выхода из recovery-режима после повторного promote
+      become: true
+      become_user: postgres
+      ansible.builtin.command: >
+        psql -tc "SELECT pg_is_in_recovery();"
+      register: molecule_refailback_recovery
+      until: molecule_refailback_recovery.stdout | trim == 'f'
+      retries: 10
+      delay: 2
+      changed_when: false
+
+    - name: Старый primary снова должен быть writable
+      ansible.builtin.assert:
+        that:
+          - molecule_refailback_recovery.stdout | trim == 'f'
+        fail_msg: "{{ molecule_refailback_recovery.stdout }}"
+        quiet: true
+
+    - name: Проверить, что старый primary снова принимает запись
+      become: true
+      become_user: postgres
+      changed_when: true
+      ansible.builtin.command: >
+        psql -d molecule_test -c "INSERT INTO probe (marker) VALUES ('failback-write-ok');"
+      register: molecule_refailback_write
+      failed_when: false
+
+    - name: Запись на старый primary после failback должна пройти успешно
+      ansible.builtin.assert:
+        that:
+          - molecule_refailback_write.rc == 0
+        fail_msg: "{{ molecule_refailback_write.stderr }}"
+        quiet: true
+
+- name: "Verify (failback — переклонировать бывшую DR-реплику обратно в standby, раздел 3, шаг 6)"
+  hosts: postgresql_dr_replica
+  become: true
+  gather_facts: false
+  vars:
+    # configure-replica.yml вызывается здесь напрямую (tasks_from), в обход main.yml — поэтому
+    # detect-existing-instance.yml не отрабатывает и postgresql_replication_target_version не
+    # приходит через hostvars от primary, как в Converge (реплики) converge.yml. Без явного
+    # override postgresql_replication_effective_version откатывается к дефолту роли (17), а
+    # реально установлена (и снова работает на primary) версия 16 — repmgr standby clone падает
+    # на "/usr/lib/postgresql/17/bin/pg_basebackup: not found". Держать синхронно с
+    # molecule_pg_preexisting_version в других play этого файла.
+    postgresql_replication_target_version: "16"
+  tasks:
+    # configure-replica.yml обнаружит отсутствие standby.signal (узел сейчас primary после promote
+    # выше) и выполнит repmgr standby clone заново — postgresql_replication_primary_host в
+    # group_vars/postgresql_dr_replica.yml не менялся и по-прежнему указывает на исходный primary
+    # (192.168.58.10), который снова writable после предыдущего play. Тот же паттерн, что и раздел
+    # 3, шаг 6 рунбука ("штатный прогон роли ... repmgr standby clone заново от нового primary").
+    - name: Переклонировать DR-реплику от старого primary (repmgr standby clone)
+      ansible.builtin.include_role:
+        name: devops.uslugi.postgresql_replication
+        tasks_from: configure-replica
+
+    - name: Дождаться recovery-режима на переклонированной DR-реплике
+      become: true
+      become_user: postgres
+      ansible.builtin.command: >
+        psql -tc "SELECT pg_is_in_recovery();"
+      register: molecule_reclone_recovery
+      until: molecule_reclone_recovery.stdout | trim == 't'
+      retries: 15
+      delay: 2
+      changed_when: false
+
+    - name: DR-реплика снова должна быть в recovery-режиме (standby)
+      ansible.builtin.assert:
+        that:
+          - molecule_reclone_recovery.stdout | trim == 't'
+        fail_msg: "{{ molecule_reclone_recovery.stdout }}"
+        quiet: true
+
+    - name: Дождаться репликации маркера failback-write-ok на переклонированную DR-реплику
+      become: true
+      become_user: postgres
+      ansible.builtin.command: >
+        psql -tc "SELECT COUNT(*) FROM probe WHERE marker='failback-write-ok';" -d molecule_test
+      register: molecule_failback_probe_count
+      until: molecule_failback_probe_count.stdout | trim == '1'
+      retries: 15
+      delay: 2
+      changed_when: false
+
+    - name: Маркер, записанный на старый primary после failback, должен дойти до DR-реплики
+      ansible.builtin.assert:
+        that:
+          - molecule_failback_probe_count.stdout | trim == '1'
+        fail_msg: "{{ molecule_failback_probe_count.stdout }}"
+        quiet: true

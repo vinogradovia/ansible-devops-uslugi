@@ -1,0 +1,45 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Odyssey listener должен принимать соединения
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ odyssey_listen_port }}"
+        timeout: 5
+
+    # --- Функциональная проверка реальной маршрутизации (ADR §6): db-write и db-read должны вести
+    # на РАЗНЫЕ физические backend'ы, помеченные в prepare.yml отличительной меткой -------------
+    - name: Подключиться через db-write и прочитать метку backend'а
+      ansible.builtin.command: >-
+        psql "host=127.0.0.1 port={{ odyssey_listen_port }} dbname={{ odyssey_write_database_name }}
+        user={{ odyssey_backend_user }}" -tc "SELECT DISTINCT source FROM probe;"
+      environment:
+        PGPASSWORD: "{{ odyssey_backend_password }}"
+      register: molecule_db_write_probe
+      changed_when: false
+
+    - name: db-write должен маршрутизировать на write-backend
+      ansible.builtin.assert:
+        that:
+          - molecule_db_write_probe.stdout | trim == 'write-backend'
+        fail_msg: "{{ molecule_db_write_probe.stdout }}"
+        quiet: true
+
+    - name: Подключиться через db-read и прочитать метку backend'а
+      ansible.builtin.command: >-
+        psql "host=127.0.0.1 port={{ odyssey_listen_port }} dbname={{ odyssey_read_database_name }}
+        user={{ odyssey_backend_user }}" -tc "SELECT DISTINCT source FROM probe;"
+      environment:
+        PGPASSWORD: "{{ odyssey_backend_password }}"
+      register: molecule_db_read_probe
+      changed_when: false
+
+    - name: db-read должен маршрутизировать на read-backend
+      ansible.builtin.assert:
+        that:
+          - molecule_db_read_probe.stdout | trim == 'read-backend'
+        fail_msg: "{{ molecule_db_read_probe.stdout }}"
+        quiet: true

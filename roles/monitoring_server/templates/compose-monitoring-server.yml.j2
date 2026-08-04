@@ -1,7 +1,10 @@
+x-logging: &logging-defaults
+  {{ monitoring_server_docker_logging_defaults | to_nice_yaml(indent=2) | indent(2) }}
+
 services:
 {% if monitoring_server_victoria_metrics_enabled %}
   victoria-metrics:
-    image: victoriametrics/victoria-metrics:latest
+    image: {{ monitoring_server_victoria_metrics_image }}
     container_name: vm_single_node
     ports:
       - "8428:8428"
@@ -21,7 +24,7 @@ services:
 {% endif %}
 {% if monitoring_server_grafana_enabled %}
   grafana:
-    image: grafana/grafana:latest
+    image: {{ monitoring_server_grafana_image }}
     container_name: grafana
     ports:
       - "3000:3000"
@@ -66,6 +69,7 @@ services:
   loki_read:
     image: {{ monitoring_server_grafana_loki_image }}
     command: "-config.file=/etc/loki/config.yaml -target=read"
+    restart: unless-stopped
     ports:
       - 3101:3100
       - 7946
@@ -74,34 +78,36 @@ services:
       - {{ monitoring_server_config_dir }}/loki/loki-config.yaml:/etc/loki/config.yaml
     depends_on:
       - s3
-    healthcheck:
-      test: [ "CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3100/ready || exit 1" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    # Без healthcheck: образ grafana/loki distroless — ни /bin/sh (нужен для CMD-SHELL), ни
+    # wget/curl/ls внутри нет вообще (проверено docker exec: "executable file not found in
+    # $PATH" даже для ls). CMD-SHELL+wget здесь технически невыполним — контейнер вечно
+    # висел unhealthy, хотя сам Loki исправно отвечал на запросы (найдено на живом
+    # демо-стенде, ADR-0006). Ничего в этом compose не завязано на health-статус loki_read/
+    # loki_write (depends_on без condition: service_healthy) — тот же подход, что уже у
+    # loki_backend ниже, у которого healthcheck не было изначально.
     networks: &loki-dns
       monitoring_net:
         aliases:
           - loki
+    logging:
+      <<: *logging-defaults
 
   loki_write:
     image: {{ monitoring_server_grafana_loki_image }}
     command: "-config.file=/etc/loki/config.yaml -target=write"
+    restart: unless-stopped
     ports:
       - 3102:3100
       - 7946
       - 9095
     volumes:
       - {{ monitoring_server_config_dir }}/loki/loki-config.yaml:/etc/loki/config.yaml
-    healthcheck:
-      test: [ "CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3100/ready || exit 1" ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
     depends_on:
       - s3
     networks:
       <<: *loki-dns
+    logging:
+      <<: *logging-defaults
 
   # alloy:
   #   image: grafana/alloy:latest
@@ -118,17 +124,23 @@ services:
 
   loki_backend:
     image: {{ monitoring_server_grafana_loki_image }}
+    restart: unless-stopped
     volumes:
       - {{ monitoring_server_config_dir }}/loki/loki-config.yaml:/etc/loki/config.yaml
     ports:
       - "3100"
       - "7946"
     command: "-config.file=/etc/loki/config.yaml -target=backend -legacy-read-mode=false"
+    depends_on:
+      - s3
     networks:
       - monitoring_net
+    logging:
+      <<: *logging-defaults
 
   loki_gateway:
     image: {{ monitoring_server_grafana_loki_gateway_image }}
+    restart: unless-stopped
     depends_on:
       - loki_read
       - loki_write
@@ -195,10 +207,14 @@ services:
       retries: 5
     networks:
       - monitoring_net
+    logging:
+      <<: *logging-defaults
+
 {% endif %}
 {% if monitoring_server_local_storage_s3_enabled %}
   s3:
     image: {{ monitoring_server_local_storage_s3_image }}
+    restart: unless-stopped
     entrypoint:
       - sh
       - -euc

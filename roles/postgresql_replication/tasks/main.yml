@@ -1,0 +1,89 @@
+---
+# tasks file for postgresql_replication
+#
+# Порядок веток см. docs/adr/0005-postgresql-ha-replication-role.md. Требование к структуре
+# плейбука-оркестратора: play на группе postgresql_primary должен отработать (минимум — собрать
+# факты и discovery версии) ДО play на postgresql_read_replica/postgresql_dr_replica, т.к. реплики
+# читают версию/адрес primary через hostvars (см. README, "Discovery версии").
+
+- name: Assert required variables are set
+  ansible.builtin.include_tasks:
+    file: assert-required-vars.yml
+
+# Требуется всем task-файлам роли, использующим community.postgresql.* (postgresql_user/
+# postgresql_db/postgresql_query/postgresql_pg_hba) — эти модули выполняются на управляемом хосте
+# и сами нуждаются в Python PostgreSQL-коннекторе там же (тот же паттерн, что python3-pymysql в
+# mysql_replication, ADR §2).
+- name: Install Python PostgreSQL client (required by community.postgresql.* modules)
+  ansible.builtin.apt:
+    name: python3-psycopg2
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+# Роль много где использует become_user: postgres (peer-auth к unix-сокету) — без пакета acl
+# Ansible не может корректно подготовить временные файлы при смене пользователя root -> postgres
+# и падает с "Failed to set permissions... invalid mode ‘A+user:...:allow’" (найдено реальным
+# прогоном molecule: на чистом Debian/Ubuntu пакет acl не установлен по умолчанию).
+- name: Install acl (required for become_user to work reliably)
+  ansible.builtin.apt:
+    name: acl
+    state: present
+
+- name: Detect existing PostgreSQL instance (adopt vs fresh install, ADR §2)
+  ansible.builtin.include_tasks:
+    file: detect-existing-instance.yml
+
+- name: Set up the PGDG apt repository (needed for PostgreSQL itself and/or repmgr/pgBackRest)
+  ansible.builtin.include_tasks:
+    file: install-repo.yml
+
+- name: Install PostgreSQL from PGDG (fresh install path only)
+  when: not postgresql_replication_existing_instance
+  ansible.builtin.include_tasks:
+    file: install-postgresql.yml
+
+# repmgr/pgBackRest — новые компоненты для этой роли независимо от adopt/fresh install: даже на
+# adopt-primary с уже работающим PostgreSQL они ещё не установлены (ADR §1).
+- name: Install repmgr and pgBackRest packages (both adopt and fresh-install paths)
+  ansible.builtin.include_tasks:
+    file: install-repmgr-pgbackrest.yml
+
+- name: Configure replication-related settings (wal_level, repmgr preload, pg_hba)
+  ansible.builtin.include_tasks:
+    file: configure-postgresql.yml
+
+- name: Create replication/repmgr users and register primary with repmgr (primary only)
+  when: postgresql_replication_role == 'primary'
+  ansible.builtin.include_tasks:
+    file: replication-user.yml
+
+- name: Clone from primary and register with repmgr (replicas only)
+  when: postgresql_replication_role in ['read_replica', 'dr_replica']
+  ansible.builtin.include_tasks:
+    file: configure-replica.yml
+
+- name: Configure physical backups (only on the designated backup source)
+  when:
+    - postgresql_replication_backup_enabled
+    - postgresql_replication_role == postgresql_replication_backup_source_role
+  ansible.builtin.include_tasks:
+    file: backup.yml
+
+# Ручная операция (ADR §7) — никогда не выполняется в обычном прогоне. Запускается оператором
+# явно: ansible-playbook ... --tags postgresql_replication_promote --limit <dr-replica-host>
+#
+# apply.tags обязателен: tags на include_tasks (динамический include, в отличие от import_tasks)
+# по умолчанию применяются ТОЛЬКО к самой задаче include, а не к задачам внутри promote.yml — без
+# apply они молча отфильтровываются при запуске с --tags postgresql_replication_promote (сам
+# include матчится и разворачивается, но ни assert, ни repmgr standby promote внутри не выполняются
+# — воспроизведено и подтверждено на минимальном примере, никаких изменений на хосте).
+- name: Promote replica to writable primary (manual operation only)
+  ansible.builtin.include_tasks:
+    file: promote.yml
+    apply:
+      tags:
+        - postgresql_replication_promote
+  tags:
+    - postgresql_replication_promote
+    - never

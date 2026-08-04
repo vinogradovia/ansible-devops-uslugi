@@ -1,0 +1,16 @@
+---
+# Произвольные http{}-level сниппеты (map{}/geo{} и т.п.), не привязанные к
+# конкретному домену из nginx_domains — например maps, от которых зависят
+# custom_locations/extra_server_directives нескольких доменов сразу.
+
+- name: Разложить conf.d файлы (nginx_conf_d_files)
+  ansible.builtin.copy:
+    content: "{{ item.content }}"
+    dest: "{{ nginx_confd_dir }}/{{ item.name }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ nginx_conf_d_files }}"
+  loop_control:
+    label: "{{ item.name }}"
+  notify: reload nginx

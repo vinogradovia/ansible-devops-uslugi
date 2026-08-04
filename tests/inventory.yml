@@ -21,35 +21,35 @@ all:
             - 8.8.8.8
             - 8.8.4.4
           infra_dns_zones:
-            - name: in.moon.ru
-              soa_ns: sl-dns-01.in.moon.ru
+            - name: in.example.com
+              soa_ns: sl-dns-01.in.example.com
               ns_records:
-                - "sl-dns-01.in.moon.ru."
+                - "sl-dns-01.in.example.com."
               records:
                 - {name: sl-dns-01, type: A, value: 10.20.30.240}
-                - {name: fd-mon-01, type: A, value: 10.20.30.15}
+                - {name: mon-01, type: A, value: 10.20.30.15}
                 - {name: fd-logs-01, type: A, value: 10.20.30.16}
                 - {name: sl-proxy-01, type: A, value: 10.20.30.110}
                 - {name: fd-zabbix-server-01, type: A, value: 10.20.30.3}
                 - {name: fd-mysql-01, type: A, value: 10.20.30.229}
-                - {name: fd-backend-moon-01, type: A, value: 10.20.30.11}
+                - {name: fd-backend-01, type: A, value: 10.20.30.11}
                 - {name: sl-ldap-01, type: A, value: 10.20.30.13}
                 - {name: sl-react-01, type: A, value: 10.20.30.14}
             - name: 30.20.10.in-addr.arpa
-              soa_ns: sl-dns-01.in.moon.ru
-              soa_contact: hostmaster.in.moon.ru
+              soa_ns: sl-dns-01.in.example.com
+              soa_contact: hostmaster.in.example.com
               ns_records:
-                - "sl-dns-01.in.moon.ru."
+                - "sl-dns-01.in.example.com."
               records:
-                - {name: "240", type: PTR, value: "sl-dns-01.in.moon.ru."}
-                - {name: "15", type: PTR, value: "fd-mon-01.in.moon.ru."}
-                - {name: "16", type: PTR, value: "fd-logs-01.in.moon.ru."}
-                - {name: "110", type: PTR, value: "sl-proxy-01.in.moon.ru."}
-                - {name: "3", type: PTR, value: "fd-zabbix-server-01.in.moon.ru."}
-                - {name: "229", type: PTR, value: "fd-mysql-01.in.moon.ru."}
-                - {name: "11", type: PTR, value: "fd-backend-moon-01.in.moon.ru."}
-                - {name: "13", type: PTR, value: "sl-ldap-01.in.moon.ru."}
-                - {name: "14", type: PTR, value: "sl-react-01.in.moon.ru."}
+                - {name: "240", type: PTR, value: "sl-dns-01.in.example.com."}
+                - {name: "15", type: PTR, value: "mon-01.in.example.com."}
+                - {name: "16", type: PTR, value: "fd-logs-01.in.example.com."}
+                - {name: "110", type: PTR, value: "sl-proxy-01.in.example.com."}
+                - {name: "3", type: PTR, value: "fd-zabbix-server-01.in.example.com."}
+                - {name: "229", type: PTR, value: "fd-mysql-01.in.example.com."}
+                - {name: "11", type: PTR, value: "fd-backend-01.in.example.com."}
+                - {name: "13", type: PTR, value: "sl-ldap-01.in.example.com."}
+                - {name: "14", type: PTR, value: "sl-react-01.in.example.com."}
               include_hosts: false
     monitoring_agents:
       hosts:

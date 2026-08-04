@@ -1,0 +1,65 @@
+---
+# defaults file for reverse_proxy_npm
+# См. docs/adr/0001-reverse-proxy-npm-role.md — обоснование каждого решения ниже.
+
+reverse_proxy_npm_enabled: true
+
+# --- Образ и деплой (docker-only, см. ADR §4) ---------------------------------------------
+reverse_proxy_npm_image_name: "jc21/nginx-proxy-manager"
+reverse_proxy_npm_image_version: "2.11.3"
+reverse_proxy_npm_image: "{{ reverse_proxy_npm_image_name }}:{{ reverse_proxy_npm_image_version }}"
+
+reverse_proxy_npm_config_dir: /opt/reverse-proxy-npm
+
+# Имя docker-сети, создаваемой compose-стеком NPM. Известное заранее имя, чтобы отдельные
+# контейнеры-бэкенды на этом же хосте можно было подключить к ней
+# (`docker network connect {{ reverse_proxy_npm_docker_network }} <container>`) и проксировать на
+# них по имени контейнера — nginx внутри NPM резолвит forward_host через Docker embedded DNS
+# (127.0.0.11), которое видит имена контейнеров общей сети, но не видит /etc/hosts
+# (host.docker.internal здесь не работает — проверено эмпирически при разработке роли).
+reverse_proxy_npm_docker_network: "reverse-proxy-npm"
+
+# Публичные порты трафика — слушают на всех интерфейсах, это и есть смысл reverse-proxy.
+reverse_proxy_npm_http_port: 80
+reverse_proxy_npm_https_port: 443
+
+# --- Admin UI (порт 81) — см. ADR §8 --------------------------------------------------------
+# Порт 81 по умолчанию биндится только на loopback. Внешний доступ включается НЕ через смену
+# reverse_proxy_npm_admin_ui_bind_address, а через reverse_proxy_npm_admin_ui_expose_host:
+# роль сама создаёт в NPM proxy-host на self (127.0.0.1:81) с Let's Encrypt под доменом
+# npm-ui-<host>.<reverse_proxy_npm_admin_ui_domain>, а сырой порт 81 наружу не открывается.
+reverse_proxy_npm_admin_ui_port: 81
+reverse_proxy_npm_admin_ui_bind_address: "127.0.0.1"
+reverse_proxy_npm_admin_ui_expose_host: false
+reverse_proxy_npm_admin_ui_domain: ""
+reverse_proxy_npm_admin_ui_letsencrypt_email: ""
+
+reverse_proxy_npm_api_url: "http://127.0.0.1:{{ reverse_proxy_npm_admin_ui_port }}/api"
+
+# --- Backend БД — см. ADR §6 ----------------------------------------------------------------
+# sqlite (по умолчанию, встроенный) | mysql (внешний MySQL/MariaDB)
+reverse_proxy_npm_db_driver: sqlite
+reverse_proxy_npm_mysql_host: ""
+reverse_proxy_npm_mysql_port: 3306
+reverse_proxy_npm_mysql_user: "npm"
+reverse_proxy_npm_mysql_password: ""
+reverse_proxy_npm_mysql_database: "npm"
+
+# --- Admin-аккаунт — см. ADR §5 --------------------------------------------------------------
+# Дефолтные credentials самого NPM при первом старте контейнера. Не менять — используются
+# ролью только для того, чтобы распознать "первый запуск" и сменить их на настоящие.
+reverse_proxy_npm_default_admin_email: "admin@example.com"
+reverse_proxy_npm_default_admin_password: "changeme"
+
+# ОБЯЗАТЕЛЬНЫ к переопределению в inventory/group_vars — без значения по умолчанию.
+# Роль падает на check-and-install-requirements.yml, если они не заданы или совпадают
+# с дефолтом NPM (см. ADR §5: fail-fast, а не молчаливый дефолт).
+reverse_proxy_npm_admin_email: ""
+reverse_proxy_npm_admin_password: ""
+reverse_proxy_npm_admin_name: "Administrator"
+reverse_proxy_npm_admin_nickname: "admin"
+
+# --- Управляемые proxy-хосты — см. ADR §3 (management-слой через REST API) -------------------
+# Каждый элемент: { domain_name, host, host_port (default 80), ssl_forced (default false),
+# letsencrypt_email (default ''), state (default present) }
+reverse_proxy_npm_proxy_hosts: []

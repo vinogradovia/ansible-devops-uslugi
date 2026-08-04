@@ -1,0 +1,33 @@
+---
+infra_dns_enabled: true
+
+infra_dns_listen_on:
+  - 10.66.6.40
+infra_dns_allow_query:
+  - 10.66.6.0/24
+
+infra_dns_zones:
+  - name: mysql-ha-platform.demo
+    soa_ns: infra-dns.mysql-ha-platform.demo
+    ns_records:
+      - infra-dns.mysql-ha-platform.demo.
+    # ADR-0004 §6: db-write/db-read → ProxySQL, короткий TTL (переключение на новый backend
+    # при promote должно разъезжаться быстро, не ждать дефолтные 600с зоны). record.ttl —
+    # опциональное расширение zone.j2, реализовано в этом же PR (было решено, но не сделано
+    # в ADR-0004, см. историю коммитов roles/infra_dns/templates/zone.j2).
+    records:
+      - {name: db-write, type: A, value: 10.66.6.30, ttl: 30}
+      - {name: db-read, type: A, value: 10.66.6.30, ttl: 30}
+      - {name: monitoring-server, type: A, value: 10.66.6.10}
+      # ADR-0008 (infra_panel) — reverse_proxy_traefik + infra_panel разворачиваются на том же
+      # хосте monitoring-server, поэтому все три указывают на тот же IP.
+      - {name: grafana, type: A, value: 10.66.6.10}
+      - {name: infra-panel, type: A, value: 10.66.6.10}
+      - {name: whoami, type: A, value: 10.66.6.10}
+      - {name: traefik-dashboard, type: A, value: 10.66.6.10}
+      - {name: mysql-primary, type: A, value: 10.66.6.21}
+      - {name: mysql-read-replica, type: A, value: 10.66.6.22}
+      - {name: mysql-dr-replica, type: A, value: 10.66.6.23}
+      - {name: proxysql, type: A, value: 10.66.6.30}
+      - {name: infra-dns, type: A, value: 10.66.6.40}
+      - {name: load-generator, type: A, value: 10.66.6.50}

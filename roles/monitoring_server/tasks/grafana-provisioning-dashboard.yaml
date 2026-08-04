@@ -6,9 +6,22 @@
 - name: Block for monitoring_server_orchestrator docker
   when: monitoring_server_orchestrator == 'docker'
   block:
+    # Дашборды в ADDONS/grafana_dashboards/ — экспорт с Grafana.com, используют __inputs-плейсхолдеры
+    # ${DS_VICTORIAMETRICS}/${DS_PROMETHEUS} (см. templating.list[datasource].current.value и
+    # panel.datasource.uid в самих JSON) — эта подстановка штатно происходит только при
+    # интерактивном Import через UI Grafana. У file-based provisioning (docker-путь) такого шага
+    # нет вообще: ansible.builtin.copy просто копировал JSON байт-в-байт, и панели получали
+    # buквально строку "${DS_VICTORIAMETRICS}" как datasource uid — "DS_VICTORIAMETRICS was not
+    # found" в UI (найдено реальным использованием demo-стенда, ADR-0006). k3s-путь ниже эту же
+    # проблему уже решает через spec.datasources grafana-operator'а — здесь тот же результат
+    # текстовой подстановкой на uid датасорса VictoriaMetrics, зафиксированный в
+    # monitoring-server.docker.yml (uid: victoriametrics).
     - name: Provisioning GrafanaDashboard {{ monitoring_server_grafana_dashboard_item.name }}
       ansible.builtin.copy:
-        src: "{{ role_path + '/' + monitoring_server_grafana_dashboard_item.src }}"
+        content: >-
+          {{ lookup('file', role_path + '/' + monitoring_server_grafana_dashboard_item.src)
+             | replace('${DS_VICTORIAMETRICS}', 'victoriametrics')
+             | replace('${DS_PROMETHEUS}', 'victoriametrics') }}
         dest: "{{ monitoring_server_config_dir }}/grafana/provisioning/dashboards/{{ monitoring_server_grafana_dashboard_item.src | basename }}"
         mode: "0644"
         owner: root

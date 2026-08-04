@@ -1,0 +1,57 @@
+---
+# Molecule-сценарий для monitoring_server — см. docs/adr/0007-monitoring-server-role.md, раздел 11
+# («Molecule-сценария нет вовсе»). driver: vagrant/libvirt — единое требование для всех
+# molecule-сценариев коллекции (см. CLAUDE.md, «Molecule-тесты»): роль под
+# monitoring_server_orchestrator: docker сама разворачивает многосервисный docker-compose стек
+# (VictoriaMetrics, Grafana, Loki read/write/backend/gateway, MinIO) — полноценная ВМ снимает
+# любые docker-in-docker ограничения целиком: Docker Engine ставится один раз, самой ролью docker
+# (её зависимость через meta/main.yml monitoring_server/monitoring_agent), поверх ubuntu24.04.
+#
+# Единственная ВМ: сама себя мониторит (тот же паттерн, что tests/inventory.yml в корне
+# коллекции — один реальный хост числится и в monitoring_servers, и в monitoring_agents). Поэтому
+# groups ниже — оба сразу, а не только monitoring_servers. В отличие от mysql_replication/
+# proxysql, здесь не нужна статическая приватная сеть (interfaces/type: static) — она там нужна
+# была для трафика МЕЖДУ несколькими ВМ (репликация MySQL), а здесь ВМ одна: node-exporter слушает
+# в network_mode: host (compose-monitoring-agent.yml.j2), т.е. на всех интерфейсах ВМ, включая тот,
+# что Ansible и так использует как ansible_host — victoria-metrics достаёт его без специальной
+# настройки таргетов (victoria-metrics-scrape-node-exporter-targets.json.j2 использует
+# hostvars[host].ansible_host).
+#
+# box — намеренно НЕ параметризован через MOLECULE_BOX (в отличие от mysql_replication/proxysql,
+# которые гоняют один и тот же ADR под несколько дистрибутивов): весь смысл этого сценария —
+# тестирование именно на Ubuntu 24.04 (см. roles/docker/defaults/main.yml,
+# docker_apt_version_suffix — суффикс версии docker-ce под ubuntu.24.04~noble уже учтён роли).
+driver:
+  name: vagrant
+  provider:
+    name: libvirt
+
+platforms:
+  - name: monitoring-server
+    box: cloud-image/ubuntu-24.04
+    # Полный стек (VictoriaMetrics + Grafana + Loki в 4 сервиса + MinIO + node-exporter) —
+    # заметно тяжелее, чем один mysqld/proxysql (1024 МБ), поэтому ВМ крупнее.
+    memory: 4096
+    cpus: 2
+    groups:
+      - monitoring_servers
+      - monitoring_agents
+
+scenario:
+  test_sequence:
+    - dependency
+    - destroy
+    - syntax
+    - create
+    - prepare
+    - converge
+    - idempotence
+    - verify
+    - destroy
+
+shared_state: false
+
+ansible:
+  executor:
+    args:
+      ansible_playbook: []

@@ -17,7 +17,24 @@ dependencies:
   community.general: ">=12.2.0"
   community.docker: ">=5.0.0"
   kubernetes.core: ">=6.2.0"
-  # xanmanning.k3s: ">=v3.6.2"
+  # ansible.mysql — mysql_user/mysql_variables/mysql_replication/mysql_query, используются
+  # ролями mysql_replication и proxysql (docs/adr/0004-mysql-ha-replication-role.md) для
+  # управления репликационным пользователем, read_only, CHANGE REPLICATION SOURCE и
+  # admin-интерфейсом ProxySQL. Каноническая коллекция для этих модулей начиная с
+  # community.mysql 5.0 (модули там теперь redirect-заглушки, см. community.mysql
+  # meta/runtime.yml) — используем ansible.mysql напрямую, без промежуточного deprecation-слоя.
+  ansible.mysql: ">=5.0.0"
+  # community.postgresql — postgresql_user/postgresql_db/postgresql_query/postgresql_pg_hba/
+  # postgresql_info, используются ролью postgresql_replication (docs/adr/0005-postgresql-ha-
+  # replication-role.md) для управления репликационным/repmgr-пользователями и pg_hba.conf.
+  # В отличие от MySQL, физическая репликация PostgreSQL не управляется через SQL-модули
+  # (CHANGE MASTER-аналога нет) — она обвязана через repmgr (command-модуль), эта коллекция
+  # нужна только для управления ролями/базами/pg_hba, а не самой репликацией.
+  community.postgresql: ">=3.0.0"
+  # xanmanning.k3s — обязательная зависимость roles/monitoring_server для k3s-оркестратора,
+  # но это standalone-роль, а не коллекция: поле dependencies принимает только namespace.name
+  # коллекций, поэтому её здесь объявить нельзя. Зависимость зафиксирована в requirements.yml
+  # в корне коллекции — установите её через `ansible-galaxy install -r requirements.yml`.
 
 repository: https://github.com/vinogradovia/devops-uslugi
 documentation: https://github.com/vinogradovia/devops-uslugi

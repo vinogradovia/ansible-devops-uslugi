@@ -1,0 +1,89 @@
+# homer (https://github.com/bastienwirtz/homer) — дашборд со ссылками на компоненты платформы
+# (infra-panel), развёрнутый через nxs-universal-chart (helm/localrepo/universal-chart).
+# Пример со статичным набором ссылок на уже задеплоенные этим же helmwave-проектом сервисы;
+# домены — плейсхолдеры в стиле остальных values этого примера (grafana.in.example.com и т.п.),
+# при адаптации под свой кластер замените на реальные.
+
+configMaps:
+  # ключ "config" -> итоговое имя ConfigMap "homer-config" (helpers.app.fullname: <release>-<key>,
+  # release = "homer", см. envs/k3s-monitoring.yaml) — на это же имя ссылается volumes.config ниже.
+  config:
+    data:
+      config.yml: |
+        title: "Infra Panel"
+        subtitle: "k3s-monitoring"
+        columns: "3"
+        connectivityCheck: false
+        services:
+          - name: Monitoring
+            icon: "mdi mdi-monitor-dashboard"
+            items:
+              - name: Grafana
+                logo: https://grafana.com/static/img/menu/grafana2.svg
+                url: https://grafana.in.example.com
+                target: _blank
+              - name: VictoriaMetrics
+                icon: "mdi mdi-chart-line"
+                url: https://vm.in.example.com
+                target: _blank
+
+# htpasswd-строка для basicAuth (см. middlewares.auth ниже) — плейсхолдер admin/admin из
+# официальных примеров Traefik, ОБЯЗАТЕЛЬНО заменить перед реальным использованием.
+secrets:
+  auth:
+    data:
+      users: |
+        admin:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/
+
+deployments:
+  homer:
+    containers:
+      - name: homer
+        image: b4bz/homer
+        imageTag: v26.4.2
+        env:
+          # config.yml уже приходит через ConfigMap (volumeMounts ниже) — отключаем
+          # entrypoint-скрипт образа, который иначе при пустом /www/assets разворачивает туда
+          # набор примеров.
+          - name: INIT_ASSETS
+            value: "0"
+        ports:
+          - name: http
+            containerPort: 8080
+        volumeMounts:
+          # subPath, а не монтирование всего /www/assets — иначе перекрывается остальное
+          # содержимое каталога (кастомные иконки инструментов и т.п.), нужен только сам файл.
+          - name: config
+            mountPath: /www/assets/config.yml
+            subPath: config.yml
+    volumes:
+      - name: config
+        type: configMap
+
+services:
+  homer:
+    ports:
+      - name: http
+        port: 8080
+
+# basicAuth.secret и ingressroutes[].routes[].middlewares[].name — не helper-имена, а буквальные
+# итоговые имена k8s-объектов (шаблоны рендерят их как есть, helpers.app.fullname тут не
+# применяется): "homer-auth" = <release>-<ключ secrets/middlewares> = "homer" + "-auth".
+middlewares:
+  auth:
+    basicAuth:
+      secret: homer-auth
+
+ingressroutes:
+  # аналогично: "homer-homer" в services ниже = <release>-<ключ services> = "homer" + "-homer".
+  homer:
+    entryPoints:
+      - websecure
+    routes:
+      "Host(`homer.in.example.com`)":
+        middlewares:
+          - name: homer-auth
+        services:
+          homer-homer:
+            port: 8080
+    tls: {}

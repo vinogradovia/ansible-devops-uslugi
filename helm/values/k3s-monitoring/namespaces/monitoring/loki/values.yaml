@@ -1,0 +1,77 @@
+# -- Grafana Loki под k3s (docs/adr/0007-monitoring-server-role.md §6).
+# deploymentMode: SingleBinary — не simple-scalable read/write/backend, как в docker-пути
+# (compose-monitoring-server.yml.j2): один под, проще для масштаба остального k3s-стенда.
+deploymentMode: SingleBinary
+
+loki:
+  commonConfig:
+    replication_factor: 1
+  # Реальная schema, а не loki.useTestSchema — зеркалим то, что уже задано в docker-пути
+  # (roles/monitoring_server/templates/loki-config.yaml.j2): tsdb/s3/v13, index_/24h.
+  schemaConfig:
+    configs:
+      - from: "2024-01-01"
+        store: tsdb
+        object_store: s3
+        schema: v13
+        index:
+          prefix: index_
+          period: 24h
+  storage:
+    type: s3
+    bucketNames:
+      chunks: chunks
+      ruler: ruler
+      admin: admin
+    # НЕ указываем storage.s3.endpoint/accessKeyId/secretAccessKey вручную — при minio.enabled: true
+    # чарт сам подставляет их из minio.rootUser/rootPassword и адреса бандлованного сабчарта
+    # (Service "<release>-minio"), переопределение здесь просто игнорируется чартом (проверено
+    # helm template).
+
+# singleBinary — единственный компонент, которому нужны реплики в этом режиме; read/write/backend
+# (SimpleScalable-компоненты) должны быть явно обнулены, иначе chart валидируется с ошибкой
+# "more than zero replicas configured for both single binary and simple scalable targets".
+singleBinary:
+  replicas: 1
+read:
+  replicas: 0
+write:
+  replicas: 0
+backend:
+  replicas: 0
+
+# Memcached-кэши (chunks/results) — дефолты чарта рассчитаны на продакшн-масштаб
+# (chunksCache.allocatedMemory: 8192 => запрос ~9.8Gi памяти у пода) и не влезают в маленький
+# тестовый/single-node кластер. Не нужны для "small Loki installations" (собственная формулировка
+# чарта про SingleBinary) — отключаем, а не тюнингуем размер, тот же принцип простоты, что и
+# отказ от read/write/backend-топологии.
+resultsCache:
+  enabled: false
+chunksCache:
+  enabled: false
+
+# MinIO — бандлованный сабчарт самого grafana/loki (не отдельный helm-релиз/StatefulSet, в отличие
+# от docker-пути, где MinIO — это отдельный сервис). ОБЯЗАТЕЛЬНО сменить перед реальным
+# использованием — те же CHANGEME-плейсхолдеры, что и Telegram bot_token в
+# ../vm/extra-objects.yaml.
+minio:
+  enabled: true
+  rootUser: CHANGEME_LOKI_MINIO_ROOT_USER
+  rootPassword: CHANGEME_LOKI_MINIO_ROOT_PASSWORD
+
+# Внешний доступ (monitoring_agent/Promtail с других хостов) — через builtin gateway chart'а
+# (nginx перед Loki, как и в docker-пути) и Ingress на встроенный в k3s Traefik, а не NodePort.
+# Хост "logs.in.example.com" — только для ЭТОГО внешнего пути; сама Grafana (тот же namespace,
+# тот же кластер) обращается к Loki по внутреннему cluster-DNS "loki-gateway" напрямую — см.
+# ../grafana-operator/values.yaml, datasource'ы loki/loki-infra.
+gateway:
+  enabled: true
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    tls: []
+    hosts:
+      - host: logs.in.example.com
+        paths:
+          - path: /
+            pathType: Prefix

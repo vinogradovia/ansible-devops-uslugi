@@ -1,0 +1,109 @@
+---
+# ADR-0006 §8: генератор нагрузки — ad hoc Ansible-таски локально в demo/, НЕ роль коллекции.
+# Даёт живые QPS/replication lag/число подключений на дашбордах Grafana.
+
+- name: load-generator
+  hosts: load_generator
+  become: true
+  vars:
+    infra_dns_zone_name: postgresql-ha-platform.demo
+    infra_dns_host_ip: 10.66.7.40
+    # = дефолт roles/odyssey/defaults/main.yml (group_vars/odyssey_hosts.yml его не
+    # переопределяет). hostvars-подстановка отсюда не работает — role defaults не остаются
+    # видны в hostvars за пределами play, где сама роль применяется (см.
+    # demo/mysql-ha-platform/ansible/load-generator.yml, тот же эффект для proxysql).
+    odyssey_listen_port: 6432
+  tasks:
+    # Split-DNS: db-write/db-read резолвятся через infra_dns (group_vars/infra_dns.yml), весь
+    # остальной трафик (apt и т.д.) — как обычно, через resolver сети (ADR-0006 §2).
+    - name: Create systemd-resolved drop-in dir
+      ansible.builtin.file:
+        path: /etc/systemd/resolved.conf.d
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Configure split-DNS for the demo zone
+      ansible.builtin.template:
+        src: 60-infra-dns.conf.j2
+        dest: /etc/systemd/resolved.conf.d/60-infra-dns.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart systemd-resolved
+
+    # Применить сразу, а не в конце play: если более поздний таск в этом же play упадёт,
+    # нотификация иначе не долетит до рестарта и split-DNS молча не применится (см.
+    # demo/mysql-ha-platform/ansible/load-generator.yml).
+    - name: Force notified handler (Restart systemd-resolved) to run now
+      ansible.builtin.meta: flush_handlers
+
+    - name: Install postgresql client
+      ansible.builtin.apt:
+        name: postgresql-client
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Create loadgen env dir
+      ansible.builtin.file:
+        path: /etc/loadgen
+        state: directory
+        owner: root
+        group: root
+        mode: '0750'
+
+    - name: Render loadgen env file (credentials)
+      ansible.builtin.template:
+        src: loadgen.env.j2
+        dest: /etc/loadgen/loadgen.env
+        owner: root
+        group: root
+        mode: '0600'
+      no_log: true
+
+    - name: Install loadgen script
+      ansible.builtin.template:
+        src: loadgen.sh.j2
+        dest: /usr/local/bin/loadgen.sh
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Install loadgen systemd service
+      ansible.builtin.template:
+        src: loadgen.service.j2
+        dest: /etc/systemd/system/loadgen.service
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Reload systemd daemon
+
+    - name: Install loadgen systemd timer
+      ansible.builtin.template:
+        src: loadgen.timer.j2
+        dest: /etc/systemd/system/loadgen.timer
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Reload systemd daemon
+
+    - name: Flush handlers before enabling the timer (needs the unit files on disk)
+      ansible.builtin.meta: flush_handlers
+
+    - name: Enable and start loadgen timer
+      ansible.builtin.systemd:
+        name: loadgen.timer
+        enabled: true
+        state: started
+
+  handlers:
+    - name: Restart systemd-resolved
+      ansible.builtin.systemd:
+        name: systemd-resolved
+        state: restarted
+
+    - name: Reload systemd daemon
+      ansible.builtin.systemd:
+        daemon_reload: true

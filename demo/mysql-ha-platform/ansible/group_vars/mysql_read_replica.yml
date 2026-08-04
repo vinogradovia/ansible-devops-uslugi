@@ -1,0 +1,11 @@
+---
+mysql_replication_role: read_replica
+mysql_replication_server_id: 2
+
+# Статический IP mysql-primary из Terraform (locals.vms в ../terraform/vms.tf) — адрес внутри
+# единственной плоской сети стенда (ADR-0006 §2, замена "приватной межДЦ-сети" из ADR-0004 §5).
+mysql_replication_primary_host: 10.66.6.21
+mysql_replication_repl_password: "demo-mysql-repl-pwd-CHANGEME"
+
+monitoring_agent_mysqld_exporter_enabled: true
+monitoring_agent_mysqld_exporter_password: "demo-mysqld-exporter-password-CHANGE-ME"

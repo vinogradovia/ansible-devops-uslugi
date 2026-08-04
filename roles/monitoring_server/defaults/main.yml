@@ -10,77 +10,154 @@ monitoring_server_helmwave_dir: "{{ role_path | dirname | dirname }}/helm"
 monitoring_server_helmwave_tmp: "{{ monitoring_server_helmwave_dir }}/tmp"
 monitoring_server_kubernetes_namespace: monitoring
 
+# helmwave up (см. docs/adr/0007-monitoring-server-role.md §6) — читает
+# {{ monitoring_server_helmwave_dir }}/envs/{{ monitoring_server_helmwave_k8s_cluster }}.yaml.
+# Дефолт "k3s-monitoring" соответствует единственному env-файлу, который сейчас есть в helm/envs/ —
+# пользователи коллекции с собственным helm/ должны переопределить под имя своего env-файла.
+monitoring_server_helmwave_k8s_cluster: k3s-monitoring
+# --yml/--templater нужны, только если monitoring_server_helmwave_dir использует шаблонизированный
+# helmwave.yml.tpl (gomplate: requiredEnv/readFile/fromYaml) — если у пользователя коллекции лежит
+# только статический helmwave.yml, выставьте monitoring_server_helmwave_auto_yml: false.
+monitoring_server_helmwave_auto_yml: true
+monitoring_server_helmwave_templater: gomplate
+# Механизм управления Loki-релизом под k3s через monitoring_server_grafana_loki_enabled
+# (ROADMAP.md P5-35, docs/adr/0007-monitoring-server-role.md §6). helmwave фильтрует релизы
+# ТОЛЬКО по тегам включения (whitelist) — нет способа сказать "всё, кроме loki", не перечислив
+# явно все остальные релизы пользователя. Поэтому:
+#   - monitoring_server_helmwave_other_tags пуст по умолчанию → monitoring_server_helmwave_tags
+#     вычисляется в [] → --tags вообще не передаётся → helmwave ставит ВСЁ из env-файла как
+#     раньше, monitoring_server_grafana_loki_enabled под k3s ни на что не влияет (поведение
+#     полностью совместимо с версией роли до этого пункта).
+#   - Как только пользователь явно перечисляет там теги ВСЕХ остальных релизов своего
+#     envs/<cluster>.yaml (например, для комплектного helm/envs/k3s-monitoring.yaml — [vm,
+#     grafana-alloy, grafana-alloy-blackbox, grafana-alloy-redis, grafana-operator]),
+#     monitoring_server_grafana_loki_enabled начинает реально управлять релизом loki: true
+#     добавляет его тег в список включения, false — оставляет только other_tags (loki
+#     отфильтровывается наравне с любым не перечисленным релизом).
+# Не читает и не парсит helm/-каталог пользователя — та архитектурная граница, о которой
+# написано в ADR, соблюдена: список "остального" сознательно остаётся ответственностью
+# пользователя, а не автоматически выводится ролью.
+monitoring_server_helmwave_other_tags: []
+monitoring_server_helmwave_loki_tag: loki
+monitoring_server_helmwave_tags: >-
+  {{
+    (monitoring_server_helmwave_other_tags
+     + ([monitoring_server_helmwave_loki_tag] if monitoring_server_grafana_loki_enabled else []))
+    if monitoring_server_helmwave_other_tags | length > 0
+    else []
+  }}
+
 monitoring_server_docker_proxy_network_external: true
 monitoring_server_docker_proxy_network_name: proxy
+monitoring_server_docker_logging_defaults:
+  driver: "json-file"
+  options:
+    max-size: "50m"
+    max-file: "5"
 
 monitoring_server_victoria_metrics_enabled: false
 monitoring_server_victoria_metrics_config_dir: "{{ monitoring_server_config_dir }}/victoria-metrics"
 
+# Версия закреплена явно (ADR-0007 §10.2) — раньше compose-monitoring-server.yml.j2 хардкодил
+# :latest, в отличие от всех остальных образов роли (loki/minio), у которых своя _image_version.
+monitoring_server_victoria_metrics_image_registry: docker.io
+monitoring_server_victoria_metrics_image_name: victoriametrics/victoria-metrics
+monitoring_server_victoria_metrics_image_version: v1.148.0
+monitoring_server_victoria_metrics_image: >-
+  {{ monitoring_server_victoria_metrics_image_registry }}/{{ monitoring_server_victoria_metrics_image_name }}:{{ monitoring_server_victoria_metrics_image_version }}
+
+# Alert-правила (VMAlert/VMRule) реализованы только для monitoring_server_orchestrator: k3s
+# (см. ROADMAP.md, P0-1 и P5-33) — в docker-режиме нет ни vmalert-сервиса, ни рендера alert-rules
+# в compose. Поэтому ..._alerts_rules_*_default ниже дополнительно гейтятся на
+# monitoring_server_orchestrator == 'k3s', а не только на соответствующий scrape_*-флаг — иначе
+# они были бы true по умолчанию и для docker (дефолт scrape_* — true для большинства
+# экспортеров), и check-and-install-requirements.docker.yml падал бы на любой дефолтной
+# docker-установке.
+
 # node_exporter
 monitoring_server_victoria_metrics_scrape_node_exporter: true
 monitoring_server_victoria_metrics_scrape_node_exporter_port_default: 9100
-monitoring_server_victoria_metrics_alerts_rules_node_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_node_exporter }}"
+monitoring_server_victoria_metrics_alerts_rules_node_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_node_exporter and monitoring_server_orchestrator == 'k3s' }}"
 
 # docker_exporter
 monitoring_server_victoria_metrics_scrape_docker_exporter: true
 monitoring_server_victoria_metrics_scrape_docker_exporter_port_default: 9323
-monitoring_server_victoria_metrics_alerts_rules_docker_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_docker_exporter }}"
+monitoring_server_victoria_metrics_alerts_rules_docker_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_docker_exporter and monitoring_server_orchestrator == 'k3s' }}"
 
 # cadvisor
 monitoring_server_victoria_metrics_scrape_cadvisor: true
 monitoring_server_victoria_metrics_scrape_cadvisor_port_default: 9326
-monitoring_server_victoria_metrics_alerts_rules_cadvisor_default: "{{ monitoring_server_victoria_metrics_scrape_cadvisor }}"
+monitoring_server_victoria_metrics_alerts_rules_cadvisor_default: "{{ monitoring_server_victoria_metrics_scrape_cadvisor and monitoring_server_orchestrator == 'k3s' }}"
 
 # ipa_exporter
 monitoring_server_victoria_metrics_scrape_ipa_exporter: true
 monitoring_server_victoria_metrics_scrape_ipa_exporter_port_default: 9189
-monitoring_server_victoria_metrics_alerts_rules_ipa_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_ipa_exporter }}"
+monitoring_server_victoria_metrics_alerts_rules_ipa_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_ipa_exporter and monitoring_server_orchestrator == 'k3s' }}"
 
 # redis_exporter
 monitoring_server_victoria_metrics_scrape_redis_exporter: true
 monitoring_server_victoria_metrics_scrape_redis_exporter_port_default: 9121
-monitoring_server_victoria_metrics_alerts_rules_redis_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_redis_exporter }}"
+monitoring_server_victoria_metrics_alerts_rules_redis_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_redis_exporter and monitoring_server_orchestrator == 'k3s' }}"
 
 # nginx_exporter
 monitoring_server_victoria_metrics_scrape_nginx_exporter: true
 monitoring_server_victoria_metrics_scrape_nginx_exporter_port_default: 9113
-monitoring_server_victoria_metrics_alerts_rules_nginx_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_nginx_exporter }}"
+monitoring_server_victoria_metrics_alerts_rules_nginx_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_nginx_exporter and monitoring_server_orchestrator == 'k3s' }}"
 
 # php_fpm_exporter
 monitoring_server_victoria_metrics_scrape_php_fpm_exporter: true
 monitoring_server_victoria_metrics_scrape_php_fpm_exporter_port_default: 9253
-monitoring_server_victoria_metrics_alerts_rules_php_fpm_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_php_fpm_exporter }}"
+monitoring_server_victoria_metrics_alerts_rules_php_fpm_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_php_fpm_exporter and monitoring_server_orchestrator == 'k3s' }}"
 
 # nginxlog_exporter
 monitoring_server_victoria_metrics_scrape_nginxlog_exporter: true
 monitoring_server_victoria_metrics_scrape_nginxlog_exporter_port_default: 4040
-monitoring_server_victoria_metrics_alerts_rules_nginxlog_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_nginxlog_exporter }}"
+monitoring_server_victoria_metrics_alerts_rules_nginxlog_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_nginxlog_exporter and monitoring_server_orchestrator == 'k3s' }}"
 
 # mysqld_exporter
 monitoring_server_victoria_metrics_scrape_mysqld_exporter: true
 monitoring_server_victoria_metrics_scrape_mysqld_exporter_port_default: 9104
-monitoring_server_victoria_metrics_alerts_rules_mysqld_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_mysqld_exporter }}"
+monitoring_server_victoria_metrics_alerts_rules_mysqld_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_mysqld_exporter and monitoring_server_orchestrator == 'k3s' }}"
+
+# postgres_exporter
+monitoring_server_victoria_metrics_scrape_postgres_exporter: true
+monitoring_server_victoria_metrics_scrape_postgres_exporter_port_default: 9187
+monitoring_server_victoria_metrics_alerts_rules_postgres_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_postgres_exporter and monitoring_server_orchestrator == 'k3s' }}"
 
 # prom_client
 monitoring_server_victoria_metrics_scrape_prom_client: false
 monitoring_server_victoria_metrics_scrape_prom_client_port_default: 9464
-monitoring_server_victoria_metrics_alerts_rules_prom_client_default: "{{ monitoring_server_victoria_metrics_scrape_prom_client }}"
+monitoring_server_victoria_metrics_alerts_rules_prom_client_default: "{{ monitoring_server_victoria_metrics_scrape_prom_client and monitoring_server_orchestrator == 'k3s' }}"
 
 # pve_exporter
 monitoring_server_victoria_metrics_scrape_pve_exporter: true
 monitoring_server_victoria_metrics_scrape_pve_exporter_port_default: 9221
-monitoring_server_victoria_metrics_alerts_rules_pve_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_pve_exporter }}"
+monitoring_server_victoria_metrics_alerts_rules_pve_exporter_default: "{{ monitoring_server_victoria_metrics_scrape_pve_exporter and monitoring_server_orchestrator == 'k3s' }}"
+
+# alloy (grafana-alloy, embedded exporter — self-мониторинг через alloy_build_info,
+# ROADMAP.md Backlog №34)
+monitoring_server_victoria_metrics_scrape_alloy: true
+monitoring_server_victoria_metrics_scrape_alloy_port_default: 12345
+monitoring_server_victoria_metrics_alerts_rules_alloy_default: "{{ monitoring_server_victoria_metrics_scrape_alloy and monitoring_server_orchestrator == 'k3s' }}"
 
 # blackbox
 monitoring_server_victoria_metrics_scrape_blackbox: false
-monitoring_server_victoria_metrics_alerts_rules_blackbox_default: true
+monitoring_server_victoria_metrics_alerts_rules_blackbox_default: "{{ monitoring_server_orchestrator == 'k3s' }}"
 
 # nodejs_exporter
 monitoring_server_victoria_metrics_scrape_nodejs_exporter: false
-monitoring_server_victoria_metrics_alerts_rules_nodejs_exporter_default: true
+monitoring_server_victoria_metrics_alerts_rules_nodejs_exporter_default: "{{ monitoring_server_orchestrator == 'k3s' }}"
 
 # -- start grafana block ----
 monitoring_server_grafana_enabled: false
+
+# Версия закреплена явно (ADR-0007 §10.2, тот же паттерн, что victoria-metrics выше) — обратите
+# внимание, у образа grafana/grafana тег без префикса "v" (в отличие от victoria-metrics/loki).
+monitoring_server_grafana_image_registry: docker.io
+monitoring_server_grafana_image_name: grafana/grafana
+monitoring_server_grafana_image_version: "13.1.1"
+monitoring_server_grafana_image: >-
+  {{ monitoring_server_grafana_image_registry }}/{{ monitoring_server_grafana_image_name }}:{{ monitoring_server_grafana_image_version }}
 
 monitoring_server_default_password: "PleAse_Change_ME!"
 
@@ -110,6 +187,39 @@ monitoring_server_grafana_dashboards_group_defaults_mysql:
       - name: Mysql
         uid: 549c2bf8936f7767ea6ac47c47b00f2a
         src: "../../ADDONS/grafana_dashboards/MySQL-1771724748006.json"
+
+# node_exporter включён в monitoring_agent по умолчанию (monitoring_agent_node_exporter_enabled:
+# true), но собственного готового дашборда под него в ADDONS не было — единственный экспортёр
+# коллекции без дашборда вообще (найдено реальным использованием demo-стенда, ADR-0006). "Node
+# Exporter Full" (grafana.com/dashboards/1860) — де-факто стандартный дашборд под этот экспортёр,
+# тот же источник (grafana.com), что и у остальных ADDON-дашбордов (nginx_9108.json,
+# blackbox_13659_rev1.json и т.д.). В отличие от старых __inputs/${DS_*}-дашбордов, использует
+# современный формат (templating-переменная ds_prometheus без сохранённого current — Grafana сама
+# подставляет дефолтный datasource подходящего типа), поэтому подстановка ${DS_VICTORIAMETRICS} в
+# grafana-provisioning-dashboard.yaml для него — no-op, а не обязательное условие.
+monitoring_server_grafana_dashboards_group_defaults_node_exporter:
+  node_exporter:
+    enable: false
+    dashboards:
+      - name: Node Exporter Full
+        uid: rYdddlPWk
+        src: "../../ADDONS/grafana_dashboards/node_exporter_full_1860.json"
+
+# postgres_exporter — как и node_exporter, в ADDONS готового дашборда не было (ADR-0005 добавил
+# сам экспортёр, но не дашборд для него). "PostgreSQL Exporter" (grafana.com/dashboards/12485) —
+# единственный из проверенных кандидатов с панелями репликационного лага (важно для ADR-0005 §8 —
+# порог алерта 300с на pg_replication_lag_seconds), Instance-переменная фильтрует по
+# job="postgres-exporter", что точно совпадает с job_name в vars/main.yml этой роли. __inputs в
+# исходнике был нестандартным (DS_OBSERVE-PROMETHEUS02) — нормализован на DS_PROMETHEUS перед
+# вендорингом, чтобы не заводить под него отдельную подстановку в
+# grafana-provisioning-dashboard.yaml (там уже общая ${DS_VICTORIAMETRICS}/${DS_PROMETHEUS}).
+monitoring_server_grafana_dashboards_group_defaults_postgres_exporter:
+  postgres_exporter:
+    enable: false
+    dashboards:
+      - name: PostgreSQL Exporter
+        uid: v5ciIbUZz
+        src: "../../ADDONS/grafana_dashboards/postgres_exporter_12485.json"
 
 monitoring_server_grafana_dashboards_group_defaults_pve1:
   pve1:

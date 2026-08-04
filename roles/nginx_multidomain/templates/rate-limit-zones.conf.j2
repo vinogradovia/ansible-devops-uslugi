@@ -1,0 +1,7 @@
+# {{ ansible_managed }}
+# Управляется ролью nginx_multidomain — не редактировать вручную.
+# Одна зона объявляется один раз, даже если её используют несколько доменов.
+
+{% for zone in _nginx_rate_limit_zones %}
+limit_req_zone $binary_remote_addr zone={{ zone.zone_name }}:{{ nginx_rate_limit_zone_size }} rate={{ zone.rate }};
+{% endfor %}

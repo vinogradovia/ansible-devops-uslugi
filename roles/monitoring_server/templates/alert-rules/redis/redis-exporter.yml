@@ -9,9 +9,16 @@ groups:
       for: 1m
       labels:
         severity: critical
+        service: redis
       annotations:
         summary: Redis service down (instance {{ $labels.instance }})
         description: "Redis instance is down on {{ $labels.instance }}\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+        service: redis
+        repo: https://wrk.moon.ru/webdev/9393
+        runbook_url: https://wrk.moon.ru/webdev/9393/-/blob/main/docs/diag/runbooks.md#redis
+        dashboard_url: https://grafana.in.moon.ru/explore?orgId=1
+        loki_tenant: tenant1
+        owner: devops
 
     - alert: RedisRestarted
       expr: 'redis_uptime_in_seconds < 60'

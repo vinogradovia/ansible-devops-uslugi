@@ -1,0 +1,12 @@
+# {{ ansible_managed }}
+# Управляется ролью nginx_multidomain — не редактировать вручную.
+server {
+    listen {{ nginx_stub_status.listen }};
+
+    location = {{ nginx_stub_status.location }} {
+        stub_status;
+        allow 127.0.0.1;
+        allow ::1;
+        deny all;
+    }
+}

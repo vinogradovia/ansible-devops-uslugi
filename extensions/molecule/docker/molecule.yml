@@ -1,0 +1,16 @@
+---
+# Molecule-сценарий для роли docker — см. docs/adr/0002-docker-role.md, §8.
+#
+# Единственное осознанное исключение из общего требования "driver: vagrant/libvirt" (см. CLAUDE.md,
+# «Molecule-тесты»): полноценная ВМ здесь не добавила бы покрытия сверх того, что уже проверяется
+# через reverse_proxy_traefik/monitoring_agent (обе тянут роль docker как зависимость на настоящей
+# ВМ и реально устанавливают Docker Engine в рамках своего converge). Поэтому test_sequence
+# ограничен syntax/create/destroy (driver: default, без реального хоста) — реальная установка
+# проверяется вручную (`molecule converge`) против целевого хоста, заданного в inventory
+# (группа docker_hosts), вне автоматического CI-контура.
+
+scenario:
+  test_sequence:
+    - syntax
+    - create
+    - destroy

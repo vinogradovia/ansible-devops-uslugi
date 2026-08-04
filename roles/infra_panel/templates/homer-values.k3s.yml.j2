@@ -1,0 +1,95 @@
+{# monitoring_server_grafana_server_domain ВСЕГДА "defined" — у роли monitoring_server есть
+   дефолт ".docker.localhost", поэтому одного "is defined" недостаточно. Под k3s Grafana
+   (grafana-operator CR) сейчас вообще не имеет внешнего Ingress/домена (roles/infra_panel/
+   README.md, "Статус") — условие ниже намеренно ВСЕГДА ложно для k3s, пока это не решено
+   отдельно; когда появится k3s-Ingress для Grafana, замените проверку на его реальный признак. #}
+{% set infra_panel_monitoring_items = [] %}
+{% if (monitoring_server_grafana_enabled | default(false)) and (monitoring_server_orchestrator | default('docker') == 'docker') and monitoring_server_grafana_server_domain is defined %}
+{%   set _ = infra_panel_monitoring_items.append({
+       'name': 'Grafana',
+       'logo': 'https://grafana.com/static/img/menu/grafana2.svg',
+       'url': 'https://' + monitoring_server_grafana_server_domain,
+       'target': '_blank',
+     }) %}
+{% endif %}
+{% set infra_panel_rendered_services = ([{
+     'name': infra_panel_auto_monitoring_group_name,
+     'icon': infra_panel_auto_monitoring_group_icon,
+     'items': infra_panel_monitoring_items,
+   }] if infra_panel_monitoring_items else []) + infra_panel_extra_services %}
+# СГЕНЕРИРОВАНО ролью devops.uslugi.infra_panel (infra_panel_orchestrator: k3s) —
+# roles/infra_panel/tasks/infra-panel.k3s.yml. Правки будут перезаписаны следующим прогоном
+# роли/Helmwave-стека. Форма (configMaps/secrets/middlewares/ingressroutes/deployments/services) —
+# nixys/universal-chart (helm/localrepo/universal-chart), та же, что и раньше была статичным
+# примером в этом файле (ADR-0008 §6) — теперь параметризована через
+# infra_panel_domain/infra_panel_users/infra_panel_extra_services вместо плейсхолдеров.
+configMaps:
+  # helper.fullname: "{{ infra_panel_kubernetes_release_name }}-config"
+  config:
+    data:
+      config.yml: |
+        title: "{{ infra_panel_title }}"
+{% if infra_panel_subtitle %}
+        subtitle: "{{ infra_panel_subtitle }}"
+{% endif %}
+        columns: "{{ infra_panel_columns }}"
+        connectivityCheck: false
+        services:
+          {{ infra_panel_rendered_services | to_nice_yaml(indent=2) | indent(10) }}
+
+secrets:
+  # helper.fullname: "{{ infra_panel_kubernetes_release_name }}-auth"
+  auth:
+    data:
+      users: |
+        {{ (infra_panel_htpasswd_file.content | b64decode) | indent(8) }}
+
+deployments:
+  {{ infra_panel_kubernetes_release_name }}:
+    containers:
+      - name: {{ infra_panel_kubernetes_release_name }}
+        image: {{ infra_panel_image_repository }}
+        imageTag: {{ infra_panel_image_version }}
+        env:
+          # config.yml приходит смонтированным (см. volumeMounts) — отключаем entrypoint-скрипт
+          # образа, который иначе при пустом /www/assets разворачивает туда набор примеров.
+          - name: INIT_ASSETS
+            value: "0"
+        ports:
+          - name: http
+            containerPort: 8080
+        volumeMounts:
+          - name: config
+            mountPath: /www/assets/config.yml
+            subPath: config.yml
+    volumes:
+      - name: config
+        type: configMap
+
+services:
+  {{ infra_panel_kubernetes_release_name }}:
+    ports:
+      - name: http
+        port: 8080
+
+# basicAuth.secret и ingressroutes[].routes[].middlewares[].name/services — буквальные итоговые
+# имена k8s-объектов (helper.fullname рендерит их как "<release>-<ключ>", release — реальное имя
+# Helm-релиза из helm/helmwave.yml, см. defaults/main.yml — infra_panel_kubernetes_release_name
+# должен совпадать с ним).
+middlewares:
+  auth:
+    basicAuth:
+      secret: {{ infra_panel_kubernetes_release_name }}-auth
+
+ingressroutes:
+  {{ infra_panel_kubernetes_release_name }}:
+    entryPoints:
+      - websecure
+    routes:
+      "Host(`{{ infra_panel_domain }}`)":
+        middlewares:
+          - name: {{ infra_panel_kubernetes_release_name }}-auth
+        services:
+          {{ infra_panel_kubernetes_release_name }}-{{ infra_panel_kubernetes_release_name }}:
+            port: 8080
+    tls: {}

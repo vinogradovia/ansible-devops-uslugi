@@ -1,0 +1,8 @@
+---
+# По запросу — "1 ВМ с node_exporter без специфических сервисов": единственный включённый
+# экспортёр, никакого docker-оркестратора/promtail/специфических сервисов (в отличие от
+# demo/mysql-ha-platform и demo/postgresql-ha-platform, где агентские хосты дополнительно
+# шлют логи в Loki через promtail — тут этого сознательно нет).
+monitoring_agent_orchestrator: systemd
+
+monitoring_agent_node_exporter_enabled: true

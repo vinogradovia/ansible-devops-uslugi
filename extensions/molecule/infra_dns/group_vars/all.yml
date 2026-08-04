@@ -1,0 +1,35 @@
+---
+# Переменные для converge/verify этого сценария. Лежат в group_vars/, а не в vars: playbook'ов —
+# тот же паттерн, что extensions/molecule/{nginx_multidomain,reverse_proxy_npm,reverse_proxy_traefik}/
+# group_vars/all.yml (нужны и prepare.yml, и verify.yml, не только converge.yml).
+
+infra_dns_enabled: true
+
+# Дефолт роли (roles/infra_dns/defaults/main.yml) продублирован здесь явно — verify.yml не
+# подключает роль и не видит её defaults/, а зона-файлы нужно проверять по конкретному пути.
+infra_dns_zone_dir: /etc/bind/master
+
+infra_dns_zones:
+  # Forward-зона: soa_contact намеренно не задан — покрывает дефолтную ветку
+  # ("hostmaster.<zone.name>", валидную для forward-зоны, см. defaults/main.yml). include_hosts не
+  # задан — использует дефолт true, покрывает ветку с $INCLUDE-файлом.
+  - name: dns.molecule.test
+    soa_ns: ns1.dns.molecule.test
+    ns_records:
+      - "ns1.dns.molecule.test."
+    records:
+      - {name: ns1, type: A, value: 10.10.10.1}
+      - {name: web-01, type: A, value: 10.10.10.50}
+      - {name: alias, type: CNAME, value: "web-01.dns.molecule.test."}
+
+  # Reverse-зона: soa_contact ОБЯЗАТЕЛЕН (P2-20, deploy_zone.yml падает assert'ом без него).
+  # include_hosts: false — покрывает вторую ветку (без $INCLUDE), как в tests/inventory.yml.
+  - name: 10.10.10.in-addr.arpa
+    soa_ns: ns1.dns.molecule.test
+    soa_contact: hostmaster.dns.molecule.test
+    ns_records:
+      - "ns1.dns.molecule.test."
+    records:
+      - {name: "1", type: PTR, value: "ns1.dns.molecule.test."}
+      - {name: "50", type: PTR, value: "web-01.dns.molecule.test."}
+    include_hosts: false

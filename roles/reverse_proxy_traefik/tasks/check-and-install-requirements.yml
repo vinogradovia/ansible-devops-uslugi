@@ -7,10 +7,12 @@
 
 # TODO: check OS version
 
-- name: Fail if using default_passwors
+- name: Fail if using default_password
   ansible.builtin.fail:
-    msg: "Error, hange default_passwors"
-  when: item.password == reverse_proxy_traefik_default_password
+    msg: "Error, change reverse_proxy_traefik_default_password"
+  when: >-
+    (item.state | default('present')) != 'absent' and
+    item.password == reverse_proxy_traefik_default_password
   # ignore_errors: True
   with_items:
     - "{{ reverse_proxy_traefik_dashboard_users }}"

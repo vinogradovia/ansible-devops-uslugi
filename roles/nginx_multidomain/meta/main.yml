@@ -1,0 +1,12 @@
+---
+# SPDX-License-Identifier: MIT-0
+galaxy_info:
+  author: Ivan Vinogradov <vinogradovia@gmail.com>
+  description: multi-domain nginx role for shared hosting (static/proxy vhosts, rate limiting, proxy cache)
+  license: WTFPL
+  min_ansible_version: "2.2"
+  galaxy_tags:
+    - nginx
+    - proxy
+    - hosting
+dependencies: []

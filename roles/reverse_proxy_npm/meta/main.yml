@@ -1,0 +1,13 @@
+---
+# SPDX-License-Identifier: MIT-0
+galaxy_info:
+  author: Ivan Vinogradov <vinogradovia@gmail.com>
+  description: deploy Nginx Proxy Manager (NPM) in docker and manage its proxy hosts via API
+  license: WTFPL
+  min_ansible_version: "2.2"
+  galaxy_tags:
+    - nginx
+    - proxy
+    - npm
+    - docker
+dependencies: []

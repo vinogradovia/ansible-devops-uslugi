@@ -1,0 +1,9 @@
+[Unit]
+Description=Daily MySQL physical backup ({{ mysql_replication_backup_time }})
+
+[Timer]
+OnCalendar=*-*-* {{ mysql_replication_backup_time }}
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,72 @@
+---
+# driver: vagrant/libvirt — тот же паттерн и то же обоснование, что и
+# extensions/molecule/mysql_replication/molecule.yml (ADR-0004 §10, переиспользовано в ADR-0005
+# §10): полноценная проверка репликации между несколькими systemd-инстансами PostgreSQL требует
+# настоящих ВМ, а не контейнеров.
+#
+# Приватная сеть 192.168.58.0/24 — отдельный диапазон от mysql_replication (56.x) и proxysql
+# (57.x), чтобы оба семейства сценариев можно было гонять параллельно без конфликта интерфейсов
+# libvirt. ansible.executor.args.ansible_playbook обнуляется — тот же приём, что и в
+# mysql_replication/proxysql (не подмешивать статический inventory monitoring_servers/
+# monitoring_agents из ../config.yml).
+driver:
+  name: vagrant
+  provider:
+    name: libvirt
+  default_box: generic/debian12
+
+platforms:
+  - name: postgresql-primary
+    box: "${MOLECULE_BOX:-generic/debian12}"
+    memory: 1024
+    cpus: 1
+    interfaces:
+      - auto_config: true
+        network_name: private_network
+        type: static
+        ip: 192.168.58.10
+    groups:
+      - postgresql_primary
+
+  - name: postgresql-read-replica
+    box: "${MOLECULE_BOX:-generic/debian12}"
+    memory: 1024
+    cpus: 1
+    interfaces:
+      - auto_config: true
+        network_name: private_network
+        type: static
+        ip: 192.168.58.11
+    groups:
+      - postgresql_read_replica
+
+  - name: postgresql-dr-replica
+    box: "${MOLECULE_BOX:-generic/debian12}"
+    memory: 1024
+    cpus: 1
+    interfaces:
+      - auto_config: true
+        network_name: private_network
+        type: static
+        ip: 192.168.58.12
+    groups:
+      - postgresql_dr_replica
+
+scenario:
+  test_sequence:
+    - dependency
+    - destroy
+    - syntax
+    - create
+    - prepare
+    - converge
+    - idempotence
+    - verify
+    - destroy
+
+shared_state: false
+
+ansible:
+  executor:
+    args:
+      ansible_playbook: []

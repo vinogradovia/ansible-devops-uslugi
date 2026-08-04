@@ -1,0 +1,41 @@
+---
+services:
+  npm:
+    image: "{{ reverse_proxy_npm_image }}"
+    container_name: "reverse-proxy-npm"
+    hostname: "reverse-proxy-npm"
+    restart: unless-stopped
+
+    ports:
+      - "{{ reverse_proxy_npm_http_port }}:80"
+      - "{{ reverse_proxy_npm_https_port }}:443"
+      - "{{ reverse_proxy_npm_admin_ui_bind_address }}:{{ reverse_proxy_npm_admin_ui_port }}:81"
+
+    volumes:
+      - ./data:/data
+      - ./letsencrypt:/etc/letsencrypt
+
+{% if reverse_proxy_npm_db_driver == 'mysql' %}
+    environment:
+      DB_MYSQL_HOST: "{{ reverse_proxy_npm_mysql_host }}"
+      DB_MYSQL_PORT: "{{ reverse_proxy_npm_mysql_port }}"
+      DB_MYSQL_USER: "{{ reverse_proxy_npm_mysql_user }}"
+      DB_MYSQL_PASSWORD: "{{ reverse_proxy_npm_mysql_password }}"
+      DB_MYSQL_NAME: "{{ reverse_proxy_npm_mysql_database }}"
+{% endif %}
+
+    healthcheck:
+      test: ["CMD", "/bin/check-health"]
+      interval: 10s
+      timeout: 3s
+
+networks:
+  default:
+    # Имя фиксированное и известное заранее, чтобы другие контейнеры на этом хосте можно было
+    # подключить к этой сети (`docker network connect {{ reverse_proxy_npm_docker_network }}
+    # <container>`) и проксировать на них по имени контейнера. host.docker.internal здесь не
+    # подходит: nginx внутри NPM резолвит forward_host динамически через свой resolver
+    # (Docker embedded DNS, 127.0.0.11), а не через /etc/hosts — host.docker.internal там не
+    # существует как DNS-запись, только как статическая запись /etc/hosts, которую резолвер
+    # nginx не читает (проверено: "host.docker.internal could not be resolved" в error.log).
+    name: "{{ reverse_proxy_npm_docker_network }}"

@@ -1,0 +1,68 @@
+---
+# Fresh install из официального репозитория repo.mysql.com (ADR §2). Только Debian/Ubuntu
+# (apt), signed-by keyring — тот же паттерн, что и roles/docker/tasks/install-repo.yml, НЕ
+# apt_key (устаревший модуль, техдолг nginx_multidomain, здесь не повторяем).
+#
+# Официальный установщик MySQL (mysql-apt-config .deb) в интерактивном режиме предлагает через
+# debconf выбрать конкретные компоненты/версию — здесь этот шаг заменён прямым apt_repository с
+# фиксированным компонентом (mysql_replication_repo_component), что детерминированно и не
+# требует debconf-автоматизации ценой того, что при смене мажорной версии MySQL компонент нужно
+# бампать вручную (аналогично docker_ce_version в roles/docker).
+
+- name: "[repo] Установить пакеты, необходимые для подключения репозитория"
+  ansible.builtin.apt:
+    name:
+      - curl
+      - ca-certificates
+      - gnupg
+    state: present
+    update_cache: true
+
+- name: "[repo] Создать каталог для apt keyring'ов"
+  ansible.builtin.file:
+    path: "{{ mysql_replication_apt_keyring_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: "[repo] Скачать GPG-ключ repo.mysql.com"
+  # URL версионирован по году переиздания сертификата (не по году создания ключа — сам ключ
+  # (fingerprint BCA43417C3B485DD128EC6D4B7B3B788A8D3785C) не меняется, MySQL периодически
+  # переиздаёт его с новым сроком действия под новым именем файла). Обнаружено реальным прогоном
+  # molecule (ADR §10): RPM-GPG-KEY-mysql-2023 истёк ~октябрь 2025 ("apt-get update" падает с
+  # EXPKEYSIG), актуальный на момент написания — RPM-GPG-KEY-mysql-2025. При следующем истечении
+  # проверить актуальный файл на https://repo.mysql.com/ (НЕ использовать RPM-GPG-KEY-mysql без
+  # года — это отдельный устаревший ключ 2003 года, не тот, которым подписан репозиторий).
+  ansible.builtin.get_url:
+    url: "https://repo.mysql.com/RPM-GPG-KEY-mysql-2025"
+    dest: "{{ mysql_replication_apt_keyring_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: "[repo] Подключить репозиторий repo.mysql.com (компонент: {{ mysql_replication_repo_component }})"
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [signed-by={{ mysql_replication_apt_keyring_path }}]
+      https://repo.mysql.com/apt/{{ ansible_distribution | lower }}
+      {{ ansible_distribution_release }} {{ mysql_replication_repo_component }}
+    state: present
+    filename: mysql
+    update_cache: true
+
+- name: "[repo] Установить MySQL Server{{ ' (' ~ mysql_replication_target_version ~ ')' if mysql_replication_target_version | length > 0 else '' }}"
+  ansible.builtin.apt:
+    name: >-
+      {{ mysql_replication_packages
+         | map('regex_replace', '^(.*)$',
+               '\1=' ~ mysql_replication_target_version ~ '*' if mysql_replication_target_version | length > 0 else '\1')
+         | list }}
+    state: present
+    update_cache: true
+
+- name: "[repo] Включить и запустить сервис {{ mysql_replication_service_name }}"
+  ansible.builtin.systemd:
+    name: "{{ mysql_replication_service_name }}"
+    enabled: true
+    state: started

@@ -1,0 +1,44 @@
+---
+- name: Prepare
+  hosts: all
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Дождаться завершения cloud-init
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+      failed_when: false
+
+    - name: Обновить apt-кэш
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    # --- Docker Engine — роль reverse_proxy_npm сама Docker не ставит (см. molecule.yml), поэтому
+    # для сценария это готовим здесь, как внешний провижининг хоста. Через роль docker коллекции
+    # (а не ad-hoc apt-задачи), а не наоборот — единое требование для всех molecule-сценариев,
+    # которым нужен Docker на хосте (см. CLAUDE.md, «Molecule-тесты»): переиспользует уже
+    # проверенную установку (пиннинг версии, arch/distro-логика, ADR-0002) и даёт то же самое
+    # Docker-окружение, что и в reverse_proxy_traefik/monitoring_agent/monitoring_server, где эту
+    # роль подключает зависимость самой роли.
+    - name: Установить Docker Engine через роль docker
+      ansible.builtin.include_role:
+        name: devops.uslugi.docker
+
+    - name: Установить python3-docker (нужен community.docker.docker_container для fixture-бэкенда)
+      ansible.builtin.apt:
+        pkg:
+          - python3-docker
+
+    # --- Fixture-бэкенд для тестового proxy-host'а (whoami.molecule.test, см. group_vars/all.yml).
+    # К docker-сети reverse_proxy_npm подключается отдельно в converge.yml (после роли — сеть
+    # создаёт сама роль). Публикация порта 18080 — только для ручной отладки docker exec/curl
+    # с хоста; NPM обращается к бэкенду по имени контейнера внутри общей сети, а не через этот порт.
+    - name: Запустить fixture-бэкенд (traefik/whoami)
+      community.docker.docker_container:
+        name: reverse-proxy-npm-fixture-backend
+        image: traefik/whoami
+        state: started
+        restart_policy: unless-stopped
+        ports:
+          - "18080:80"

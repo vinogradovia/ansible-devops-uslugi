@@ -7,6 +7,7 @@
 
 # fetch context TODO:auth
 - name: Fetch k3s context
+  become: true
   changed_when: false
   check_mode: false
   ansible.builtin.fetch:
@@ -86,22 +87,36 @@
         GF_SECURITY_ADMIN_USER: "{{ monitoring_server_grafana_security_admin_user }}"
       type: Opaque
 
-# - name: Helmwave up
-#   delegate_to: localhost
-#   delegate_facts: true
-#   become: false
-#   run_once: true
-#   ansible.builtin.command:
-#     chdir: "{{ monitoring_server_helmwave_dir }}"
-#     argv:
-#       - helmwave up --build --yml
-#   tags:
-#     helmwave
+- name: Helmwave up
+  delegate_to: localhost
+  delegate_facts: true
+  become: false
+  run_once: true
+  environment:
+    KUBECONFIG: "{{ monitoring_server_orchestrator_context.dest }}"
+    K8S_CLUSTER: "{{ monitoring_server_helmwave_k8s_cluster }}"
+    # helm/helmwave — Go-бинарники, уважающие (NO_)PROXY из окружения control-хоста; если там
+    # настроен HTTP(S)-прокси для доступа в интернет (нужен самому helmwave для тяни чартов),
+    # запрос к kube-apiserver кластера (адрес из ansible_facts, тот же, на который "Upgrade k3s
+    # context" выше патчит kubeconfig) уйдёт через прокси и не достучится до приватной сети —
+    # таймаут на "Kubernetes cluster unreachable", а не ошибка роли/helmwave.
+    NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+    no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+  ansible.builtin.command:
+    chdir: "{{ monitoring_server_helmwave_dir }}"
+    argv: >-
+      {{
+        ['helmwave', 'up', '--build']
+        + (['--yml', '--templater', monitoring_server_helmwave_templater] if monitoring_server_helmwave_auto_yml else [])
+        + (['--tags', monitoring_server_helmwave_tags | join(',')] if monitoring_server_helmwave_tags | length > 0 else [])
+      }}
+  register: monitoring_server_helmwave_up_result
+  changed_when: true
+  tags:
+    - helmwave
 
-# restat k3s after changed config/manifests
-# create config-map for exporters
-# reload vmaget? after update exporter configmap
-# helmwave build
-# helmwave build
-# helmwave up
-# install python kubernetes
+- name: Show monitoring_server_helmwave_up_result
+  ansible.builtin.debug:
+    var: monitoring_server_helmwave_up_result.stderr_lines
+  tags:
+    - helmwave

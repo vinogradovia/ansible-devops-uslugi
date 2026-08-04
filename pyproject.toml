@@ -1,0 +1,42 @@
+[project]
+name = "ansible-devops-uslugi"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Ivan Vinogradov",email = "vinogradovia@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "ansible-core (>=2.20,<2.21)"
+]
+
+[tool.poetry]
+package-mode = false
+
+[dependency-groups]
+dev = [
+    "molecule (>=26.3.0,<27.0.0)",
+    "ansible-dev-tools (>=26.2.0,<27.0.0)",
+    # vagrant/libvirt — обязательный driver для ВСЕХ molecule-сценариев коллекции (см. CLAUDE.md,
+    # «Molecule-тесты»). Требует Vagrant + плагин vagrant-libvirt на хосте, где запускается
+    # molecule — см. roles/mysql_replication/README.md, "Локальное тестирование".
+    # molecule-plugins[docker] больше не нужен — ни один сценарий не использует driver: docker.
+    "molecule-plugins[vagrant] (>=25.8.0,<26.0.0)",
+    # Python-клиент, без которого модули коллекции kubernetes.core (kubernetes.core.k8s и т.д.)
+    # не работают — используются в roles/monitoring_server/tasks/monitoring-server.k3s.yml
+    # (delegate_to: localhost). Без него monitoring_server_orchestrator: k3s падает на первой же
+    # такой задаче с "No module named 'kubernetes'" на control-хосте — см.
+    # extensions/molecule/monitoring_server_k3s/.
+    "kubernetes (>=32.0.0,<33.0.0)",
+    # community.general.htpasswd — используется с delegate_to: localhost в
+    # roles/infra_panel/tasks/infra-panel.k3s.yml (тот же паттерн, что kubernetes выше: весь k3s-
+    # оркестратор работает с control-хоста, не с целевой VM). Без него падает "Failed to import
+    # the required Python library (passlib)".
+    "passlib (>=1.7.4,<2.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

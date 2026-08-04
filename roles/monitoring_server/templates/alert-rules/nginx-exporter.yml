@@ -11,11 +11,19 @@ groups:
       for: 1m
       labels:
         severity: critical
+        service: nginx
       annotations:
         summary: Nginx service down (instance {{ $labels.instance }})
         description: >
           Nginx instance is down on {{ $labels.instance }}
           VALUE = {{ $value }}  LABELS = {{ $labels }}
+        service: nginx
+        repo: https://wrk.moon.ru/webdev/9393
+        runbook_url: https://wrk.moon.ru/webdev/9393/-/blob/main/docs/diag/runbooks.md#nginx
+        dashboard_url: https://grafana.in.moon.ru/explore?orgId=1
+        logql: '{cluster="moon-cluster", type="json_access", hostname="{{ $labels.instance }}"}'
+        loki_tenant: tenant1
+        owner: devops
 
     # =========================================================
     #  5xx ALERTS  — per-vhost thresholds
@@ -35,11 +43,19 @@ groups:
       for: 1m
       labels:
         severity: critical
+        service: react-api
       annotations:
         summary: "react-api.moon.ru: 5xx rate above 1%"
         description: >
           5xx rate on {{ $labels.instance }} ({{ $labels.vhost }}) = {{ $value | printf "%.1f" }}%.
           Baseline is ~0%, threshold set at 1%.
+        service: react-api
+        repo: https://wrk.moon.ru/webdev/moon-front
+        runbook_url: https://wrk.moon.ru/webdev/9393/-/blob/main/docs/diag/runbooks.md#react-api
+        dashboard_url: https://grafana.in.moon.ru/explore?orgId=1
+        logql: '{cluster="moon-cluster", host="react-api.moon.ru", status=~"5.."}'
+        loki_tenant: tenant1
+        owner: webdev
 
     # moon.ru: baseline ~0%, очень редкие микро-всплески.
     # Порог 2% достаточно, for 2m чтобы не дёргать на единичные ошибки.
@@ -55,11 +71,19 @@ groups:
       for: 2m
       labels:
         severity: critical
+        service: moon-front
       annotations:
         summary: "moon.ru: 5xx rate above 2%"
         description: >
           5xx rate on {{ $labels.instance }} ({{ $labels.vhost }}) = {{ $value | printf "%.1f" }}%.
           Baseline is ~0%, threshold set at 2%.
+        service: moon-front
+        repo: https://wrk.moon.ru/webdev/moon-front
+        runbook_url: https://wrk.moon.ru/webdev/9393/-/blob/main/docs/diag/runbooks.md#moon-front
+        dashboard_url: https://grafana.in.moon.ru/explore?orgId=1
+        logql: '{cluster="moon-cluster", host=~"moon.ru|www.moon.ru", status=~"5.."}'
+        loki_tenant: tenant1
+        owner: webdev
 
     # ekb.moon.ru: baseline ~0%, но был разовый всплеск до 17.5% (25.02).
     # Порог 2%, for 2m.
@@ -75,10 +99,18 @@ groups:
       for: 2m
       labels:
         severity: critical
+        service: ekb-moon
       annotations:
         summary: "ekb.moon.ru: 5xx rate above 2%"
         description: >
           5xx rate on {{ $labels.instance }} ({{ $labels.vhost }}) = {{ $value | printf "%.1f" }}%.
+        service: ekb-moon
+        repo: https://wrk.moon.ru/webdev/moon-front
+        runbook_url: https://wrk.moon.ru/webdev/9393/-/blob/main/docs/diag/runbooks.md#ekb-moon
+        dashboard_url: https://grafana.in.moon.ru/explore?orgId=1
+        logql: '{cluster="moon-cluster", host="ekb.moon.ru", status=~"5.."}'
+        loki_tenant: tenant1
+        owner: webdev
 
     # trade-union.ru: минимальный трафик, порог 3% + минимум RPS.
     - alert: NginxHigh5xxRate_TradeUnion
@@ -93,10 +125,18 @@ groups:
       for: 2m
       labels:
         severity: warning
+        service: trade-union
       annotations:
         summary: "trade-union.ru: 5xx rate above 3%"
         description: >
           5xx rate on {{ $labels.instance }} ({{ $labels.vhost }}) = {{ $value | printf "%.1f" }}%.
+        service: trade-union
+        repo: https://wrk.moon.ru/webdev/trade-union
+        runbook_url: https://wrk.moon.ru/webdev/9393/-/blob/main/docs/diag/runbooks.md#trade-union
+        dashboard_url: https://grafana.in.moon.ru/explore?orgId=1
+        logql: '{cluster="moon-cluster", host=~".*trade-union.ru", status=~"5.."}'
+        loki_tenant: tenant1
+        owner: webdev
 
     # =========================================================
     #  4xx ALERTS
@@ -113,10 +153,18 @@ groups:
       for: 5m
       labels:
         severity: warning
+        service: react-api
       annotations:
         summary: "react-api.moon.ru: 4xx rate above 40%"
         description: >
           4xx rate = {{ $value | printf "%.1f" }}%. Normal baseline is 15-25%.
+        service: react-api
+        repo: https://wrk.moon.ru/webdev/moon-front
+        runbook_url: https://wrk.moon.ru/webdev/9393/-/blob/main/docs/diag/runbooks.md#react-api
+        dashboard_url: https://grafana.in.moon.ru/explore?orgId=1
+        logql: '{cluster="moon-cluster", host="react-api.moon.ru", status=~"4.."}'
+        loki_tenant: tenant1
+        owner: webdev
 
     # moon.ru: baseline 5-15%.
     # Порог 25%.
@@ -129,10 +177,18 @@ groups:
       for: 5m
       labels:
         severity: warning
+        service: moon-front
       annotations:
         summary: "moon.ru: 4xx rate above 25%"
         description: >
           4xx rate = {{ $value | printf "%.1f" }}%. Normal baseline is 5-15%.
+        service: moon-front
+        repo: https://wrk.moon.ru/webdev/moon-front
+        runbook_url: https://wrk.moon.ru/webdev/9393/-/blob/main/docs/diag/runbooks.md#moon-front
+        dashboard_url: https://grafana.in.moon.ru/explore?orgId=1
+        logql: '{cluster="moon-cluster", host=~"moon.ru|www.moon.ru", status=~"4.."}'
+        loki_tenant: tenant1
+        owner: webdev
 
     # ekb.moon.ru и trade-union.ru: baseline низкий.
     # Общее правило, порог 15%.
@@ -145,10 +201,18 @@ groups:
       for: 5m
       labels:
         severity: warning
+        service: nginx
       annotations:
         summary: "{{ $labels.vhost }}: 4xx rate above 15%"
         description: >
           4xx rate on {{ $labels.vhost }} = {{ $value | printf "%.1f" }}%.
+        service: nginx
+        repo: https://wrk.moon.ru/webdev/9393
+        runbook_url: https://wrk.moon.ru/webdev/9393/-/blob/main/docs/diag/runbooks.md#nginx
+        dashboard_url: https://grafana.in.moon.ru/explore?orgId=1
+        logql: '{cluster="moon-cluster", host="{{ $labels.vhost }}", status=~"4.."}'
+        loki_tenant: tenant1
+        owner: webdev
 
     # =========================================================
     #  RPS SPIKE — единые правила, разный минимум RPS
@@ -169,11 +233,19 @@ groups:
       for: 3m
       labels:
         severity: warning
+        service: nginx
       annotations:
         summary: "{{ $labels.vhost }}: RPS spike (>3.5x vs 1h ago)"
         description: >
           RPS on {{ $labels.instance }} ({{ $labels.vhost }}) = {{ $value | printf "%.1f" }} req/s,
           more than 3.5x compared to 1 hour ago.
+        service: nginx
+        repo: https://wrk.moon.ru/webdev/9393
+        runbook_url: https://wrk.moon.ru/webdev/9393/-/blob/main/docs/diag/runbooks.md#nginx
+        dashboard_url: https://grafana.in.moon.ru/explore?orgId=1
+        logql: '{cluster="moon-cluster", host="{{ $labels.vhost }}", type="json_access"}'
+        loki_tenant: tenant1
+        owner: devops
 
     # =========================================================
     #  RESPONSE TIME
@@ -193,10 +265,18 @@ groups:
       for: 3m
       labels:
         severity: warning
+        service: react-api
       annotations:
         summary: "react-api.moon.ru: avg response time > 0.5s"
         description: >
           Average response time = {{ $value | printf "%.2f" }}s. Baseline is < 0.5s.
+        service: react-api
+        repo: https://wrk.moon.ru/webdev/moon-front
+        runbook_url: https://wrk.moon.ru/webdev/9393/-/blob/main/docs/diag/runbooks.md#react-api
+        dashboard_url: https://grafana.in.moon.ru/explore?orgId=1
+        logql: '{cluster="moon-cluster", host="react-api.moon.ru"}'
+        loki_tenant: tenant1
+        owner: webdev
 
     - alert: NginxHighResponseTimeCritical_ReactAPI
       expr: >
@@ -210,10 +290,18 @@ groups:
       for: 1m
       labels:
         severity: critical
+        service: react-api
       annotations:
         summary: "react-api.moon.ru: avg response time > 2s (CRITICAL)"
         description: >
           Average response time = {{ $value | printf "%.2f" }}s.
+        service: react-api
+        repo: https://wrk.moon.ru/webdev/moon-front
+        runbook_url: https://wrk.moon.ru/webdev/9393/-/blob/main/docs/diag/runbooks.md#react-api
+        dashboard_url: https://grafana.in.moon.ru/explore?orgId=1
+        logql: '{cluster="moon-cluster", host="react-api.moon.ru"}'
+        loki_tenant: tenant1
+        owner: webdev
 
     # ekb.moon.ru: обычно ~0, но были всплески до 5-7s.
     - alert: NginxHighResponseTime_EkbMoonRu
@@ -228,10 +316,18 @@ groups:
       for: 3m
       labels:
         severity: warning
+        service: ekb-moon
       annotations:
         summary: "ekb.moon.ru: avg response time > 1s"
         description: >
           Average response time = {{ $value | printf "%.2f" }}s.
+        service: ekb-moon
+        repo: https://wrk.moon.ru/webdev/moon-front
+        runbook_url: https://wrk.moon.ru/webdev/9393/-/blob/main/docs/diag/runbooks.md#ekb-moon
+        dashboard_url: https://grafana.in.moon.ru/explore?orgId=1
+        logql: '{cluster="moon-cluster", host="ekb.moon.ru"}'
+        loki_tenant: tenant1
+        owner: webdev
 
     # moon.ru и trade-union.ru: response time ~0, порог 1s.
     - alert: NginxHighResponseTime_Other
@@ -246,10 +342,18 @@ groups:
       for: 5m
       labels:
         severity: warning
+        service: nginx
       annotations:
         summary: "{{ $labels.vhost }}: avg response time > 1s"
         description: >
           Average response time = {{ $value | printf "%.2f" }}s.
+        service: nginx
+        repo: https://wrk.moon.ru/webdev/9393
+        runbook_url: https://wrk.moon.ru/webdev/9393/-/blob/main/docs/diag/runbooks.md#nginx
+        dashboard_url: https://grafana.in.moon.ru/explore?orgId=1
+        logql: '{cluster="moon-cluster", host="{{ $labels.vhost }}"}'
+        loki_tenant: tenant1
+        owner: webdev
 
     # =========================================================
     #  RESPONSE TIME SPIKE (relative to 1h ago)
@@ -276,11 +380,19 @@ groups:
       for: 5m
       labels:
         severity: warning
+        service: nginx
       annotations:
         summary: "{{ $labels.vhost }}: response time spike (>3x vs 1h ago, above 0.3s)"
         description: >
           Average response time on {{ $labels.instance }} ({{ $labels.vhost }}) = {{ $value | printf "%.2f" }}s,
           more than 3x compared to 1 hour ago. Minimum absolute threshold: 0.3s.
+        service: nginx
+        repo: https://wrk.moon.ru/webdev/9393
+        runbook_url: https://wrk.moon.ru/webdev/9393/-/blob/main/docs/diag/runbooks.md#nginx
+        dashboard_url: https://grafana.in.moon.ru/explore?orgId=1
+        logql: '{cluster="moon-cluster", host="{{ $labels.vhost }}"}'
+        loki_tenant: tenant1
+        owner: devops
 
     # =========================================================
     #  DISK SPACE
@@ -293,11 +405,17 @@ groups:
       for: 5m
       labels:
         severity: warning
+        service: nginx
       annotations:
         summary: Disk space low (instance {{ $labels.instance }})
         description: >
           Disk space on {{ $labels.instance }} ({{ $labels.mountpoint }}) is below 15%.
           VALUE = {{ $value | printf "%.1f" }}%
+        service: nginx
+        repo: https://wrk.moon.ru/webdev/9393
+        runbook_url: https://wrk.moon.ru/webdev/9393/-/blob/main/docs/diag/runbooks.md#nginx
+        dashboard_url: https://grafana.in.moon.ru/explore?orgId=1
+        owner: devops
 
     - alert: NginxDiskSpaceCritical
       expr: >
@@ -307,8 +425,14 @@ groups:
       for: 2m
       labels:
         severity: critical
+        service: nginx
       annotations:
         summary: Disk space critical (instance {{ $labels.instance }})
         description: >
           Disk space on {{ $labels.instance }} ({{ $labels.mountpoint }}) is below 5%.
           VALUE = {{ $value | printf "%.1f" }}%
+        service: nginx
+        repo: https://wrk.moon.ru/webdev/9393
+        runbook_url: https://wrk.moon.ru/webdev/9393/-/blob/main/docs/diag/runbooks.md#nginx
+        dashboard_url: https://grafana.in.moon.ru/explore?orgId=1
+        owner: devops

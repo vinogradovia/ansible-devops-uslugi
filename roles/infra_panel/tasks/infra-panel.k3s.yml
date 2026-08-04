@@ -1,0 +1,51 @@
+---
+# homer уже развёрнут отдельным Helmwave-релизом (см. defaults/main.yml, комментарий про
+# infra_panel_helmwave_dir) — эта роль не создаёт k8s-объекты сама, только рендерит его
+# values-файл на control-хосте. htpasswd-хэш считается тут же (delegate_to: localhost), а не на
+# управляемом хосте — в отличие от docker-пути, где хэш нужен на самой VM для Traefik-лейбла,
+# здесь итоговый values-файл в любом случае живёт и используется на control-хосте (там же, где
+# Helmwave).
+#
+# Рендерится ПОВЕРХ отслеживаемого git-репозиторием файла (тот же helm/values/.../homer/
+# values.yaml, что раньше был статичным примером, ADR-0008 §6/§9) — реальный прогон против
+# демо-стенда локально "грязнит" git (подставляет свои домен/хэш пароля вместо примера). Как и
+# helm/helmwave.yml (roles/monitoring_server), это ожидаемо — `git checkout` файл обратно после
+# демо-прогона, если не хотите закоммитить его как новый дефолтный пример.
+
+- name: Ensure infra-panel htpasswd cache dir exists (k3s)
+  delegate_to: localhost
+  become: false
+  ansible.builtin.file:
+    path: "{{ infra_panel_htpasswd_cache_path | dirname }}"
+    state: directory
+    mode: '0755'
+
+- name: Render htpasswd entries for infra-panel basic-auth (k3s)
+  delegate_to: localhost
+  become: false
+  community.general.htpasswd:
+    path: "{{ infra_panel_htpasswd_cache_path }}"
+    name: "{{ item.name }}"
+    password: "{{ item.password }}"
+    state: "{{ item.state | default('present') }}"
+    mode: '0600'
+  loop: "{{ infra_panel_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Read rendered infra-panel htpasswd file back (k3s)
+  delegate_to: localhost
+  become: false
+  ansible.builtin.slurp:
+    src: "{{ infra_panel_htpasswd_cache_path }}"
+  register: infra_panel_htpasswd_file
+
+- name: Render homer Helm values (k3s)
+  delegate_to: localhost
+  become: false
+  notify: Restart homer (k3s)
+  ansible.builtin.template:
+    src: homer-values.k3s.yml.j2
+    dest: >-
+      {{ infra_panel_helmwave_dir }}/values/{{ infra_panel_helmwave_k8s_cluster }}/namespaces/{{ infra_panel_kubernetes_namespace }}/{{ infra_panel_kubernetes_release_name }}/values.yaml
+    mode: '0644'

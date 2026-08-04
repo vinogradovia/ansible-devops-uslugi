@@ -1,0 +1,33 @@
+---
+# Ручная операция (ADR §7) — доступна ТОЛЬКО через явный тег, никогда не выполняется в обычном
+# прогоне (см. tags: [postgresql_replication_promote, never] в tasks/main.yml). ADR §7 явно
+# допускает promote и read-, и DR-реплики (в отличие от mysql_replication, где ограничение строго
+# dr_replica) — запускается оператором вручную: ansible-playbook ...
+# --tags postgresql_replication_promote --limit <replica-host>
+#
+# Это только техническая часть promote — переключение точки подключения Odyssey/DNS, верификация
+# на живом трафике и обратное переключение описаны в письменной инструкции на русском
+# (docs/runbooks/postgresql-failover.md, ADR §7), не автоматизируются этой задачей целиком.
+
+- name: Assert this is being run against a replica host, not the primary
+  ansible.builtin.assert:
+    that:
+      - postgresql_replication_role in ['read_replica', 'dr_replica']
+    fail_msg: >-
+      promote.yml запускается только против хоста с postgresql_replication_role=read_replica или
+      dr_replica — это деструктивная операция (repmgr standby promote), которая не должна случайно
+      затронуть primary.
+
+- name: Promote this replica to writable primary (repmgr standby promote)
+  become: true
+  become_user: postgres
+  ansible.builtin.command: repmgr -f /etc/repmgr.conf standby promote
+  changed_when: true
+
+- name: Report promote result
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }} переведён в writable-режим. Следующие шаги (переподключение
+      остальных узлов через `repmgr node rejoin`/`standby follow`, переключение db-write в Odyssey
+      на этот хост, проверка на живом трафике) — по письменной инструкции
+      (docs/runbooks/postgresql-failover.md, ADR §7), не автоматизируются этой задачей.

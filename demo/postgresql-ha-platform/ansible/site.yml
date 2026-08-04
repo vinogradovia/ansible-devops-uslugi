@@ -1,0 +1,180 @@
+---
+# ADR-0006 §6: запуск вручную —
+#   ansible-playbook -i inventory.yml site.yml
+#
+# Порядок плеев важен:
+#  1. monitoring_server (+ reverse_proxy_traefik/infra_panel, ADR-0008) — не зависит от остальных,
+#     можно первым. Роли внутри самого плея тоже упорядочены: reverse_proxy_traefik ДО
+#     monitoring_server — она владеет docker-сетью "proxy" (создаёт её), monitoring_server и
+#     infra_panel подключаются к ней как external: true (см. group_vars/monitoring_servers.yml).
+#  2. monitoring_agent — независим от postgresql_replication/odyssey (просто ставит экспортёры).
+#  3. postgresql_replication на postgresql_primary ДО реплик
+#     (roles/postgresql_replication/README.md, "Discovery версии" — реплики читают
+#     postgresql_replication_discovered_version через hostvars).
+#  4. Ad hoc DB-пользователи (postgres_exporter, odyssey backend, демо-схема) — заводятся здесь,
+#     а не в ролях (ADR-0005 §11, композиция на уровне плейбука-оркестратора, не
+#     meta-зависимость), ПОСЛЕ primary, но ДО odyssey (иначе backend будет отклонять подключения).
+#  5. odyssey — нужны живой backend (postgresql_primary/postgresql_read_replica) и
+#     app-пользователь.
+#  6. infra_dns — не зависит от остальных по порядку.
+#  7. load_generator — нужен весь стек живым (DNS → Odyssey → PostgreSQL).
+
+- name: monitoring_server (docker) + reverse_proxy_traefik + infra_panel (ADR-0008)
+  hosts: monitoring_servers
+  become: true
+  roles:
+    - reverse_proxy_traefik
+    - monitoring_server
+    - infra_panel
+
+- name: monitoring_agent (systemd) — node_exporter + promtail на всех агентских хостах
+  hosts: monitoring_agents
+  become: true
+  roles:
+    - monitoring_agent
+
+- name: postgresql_replication — primary
+  hosts: postgresql_primary
+  become: true
+  roles:
+    - postgresql_replication
+  tasks:
+    # Роль postgresql_replication открывает pg_hba.conf только для СВОИХ служебных пользователей
+    # (repl/repmgr, postgresql_replication_pg_hba_address) — приложенческий доступ (Odyssey →
+    # backend) сознательно не её забота (ADR-0005 §11, композиция, а не meta-зависимость).
+    # Без этого правила Odyssey падает "no pg_hba.conf entry for host ... user app" (найдено
+    # реальным прогоном site.yml). Используем postgresql_replication_config_dir/
+    # _service_name — они всё ещё резолвятся: это тот же play, что применял роль (в отличие от
+    # cross-play случая, role-facts/computed defaults не теряются в пределах одного play).
+    - name: Allow odyssey backend user to connect over TCP
+      community.postgresql.postgresql_pg_hba:
+        dest: "{{ postgresql_replication_config_dir }}/pg_hba.conf"
+        contype: host
+        databases: all
+        users: "{{ odyssey_backend_user }}"
+        address: 10.66.7.30/32
+        method: scram-sha-256
+      notify: Reload PostgreSQL
+
+- name: postgresql_replication — реплики
+  hosts: postgresql_read_replica:postgresql_dr_replica
+  become: true
+  vars:
+    postgresql_replication_target_version: >-
+      {{ hostvars[groups['postgresql_primary'][0]].postgresql_replication_discovered_version }}
+  roles:
+    - postgresql_replication
+  tasks:
+    - name: Allow odyssey backend user to connect over TCP
+      community.postgresql.postgresql_pg_hba:
+        dest: "{{ postgresql_replication_config_dir }}/pg_hba.conf"
+        contype: host
+        databases: all
+        users: "{{ odyssey_backend_user }}"
+        address: 10.66.7.30/32
+        method: scram-sha-256
+      notify: Reload PostgreSQL
+
+- name: Ad hoc DB-пользователи и demo-схема на primary (композиция, не зона ответственности ролей)
+  hosts: postgresql_primary
+  become: true
+  become_user: postgres
+  vars:
+    postgresql_login_unix_socket: /var/run/postgresql
+  tasks:
+    - name: Create postgres_exporter monitoring user
+      community.postgresql.postgresql_user:
+        login_unix_socket: "{{ postgresql_login_unix_socket }}"
+        name: "{{ monitoring_agent_postgres_exporter_user }}"
+        password: "{{ monitoring_agent_postgres_exporter_password }}"
+        role_attr_flags: LOGIN
+        state: present
+
+    # pg_monitor — встроенная роль PostgreSQL 10+ с ровно нужным набором прав для
+    # prometheus-community/postgres_exporter (pg_read_all_stats + view настроек), без SUPERUSER.
+    - name: Grant pg_monitor role to postgres_exporter user
+      community.postgresql.postgresql_membership:
+        login_unix_socket: "{{ postgresql_login_unix_socket }}"
+        group: pg_monitor
+        target_roles:
+          - "{{ monitoring_agent_postgres_exporter_user }}"
+        state: present
+
+    # odyssey_backend_user/_password (group_vars/all.yml) — тот же пользователь, которым Odyssey
+    # одновременно аутентифицирует клиентов db-write/db-read и подключается к backend'ам
+    # (roles/odyssey/README.md, "Учётная запись на backend'ах — забота оператора").
+    - name: Create odyssey backend application user
+      community.postgresql.postgresql_user:
+        login_unix_socket: "{{ postgresql_login_unix_socket }}"
+        name: "{{ odyssey_backend_user }}"
+        password: "{{ odyssey_backend_password }}"
+        role_attr_flags: LOGIN
+        state: present
+
+    # Физическая репликация копирует ВЕСЬ кластер целиком, включая эту БД — read/dr-реплики
+    # получат её автоматически под тем же именем.
+    - name: Create demo database for load-generator (odyssey db-write route target)
+      community.postgresql.postgresql_db:
+        login_unix_socket: "{{ postgresql_login_unix_socket }}"
+        name: "{{ odyssey_write_database_name }}"
+        owner: "{{ odyssey_backend_user }}"
+        state: present
+
+    - name: Create demo table for load-generator
+      community.postgresql.postgresql_query:
+        login_unix_socket: "{{ postgresql_login_unix_socket }}"
+        login_db: "{{ odyssey_write_database_name }}"
+        query: >-
+          CREATE TABLE IF NOT EXISTS pings (
+            id BIGSERIAL PRIMARY KEY,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            source VARCHAR(64) NOT NULL
+          )
+
+    - name: Grant table privileges on demo table to odyssey backend user
+      community.postgresql.postgresql_privs:
+        login_unix_socket: "{{ postgresql_login_unix_socket }}"
+        db: "{{ odyssey_write_database_name }}"
+        type: table
+        objs: pings
+        privs: SELECT,INSERT,UPDATE,DELETE
+        roles: "{{ odyssey_backend_user }}"
+
+    # BIGSERIAL создаёт отдельную последовательность pings_id_seq — права на таблицу на неё НЕ
+    # каскадируются (в отличие от MySQL AUTO_INCREMENT, это отдельный объект со своими ACL).
+    # Без этого INSERT падает "permission denied for sequence pings_id_seq" (найдено реальным
+    # прогоном site.yml).
+    - name: Grant sequence privileges for the demo table's serial column
+      community.postgresql.postgresql_privs:
+        login_unix_socket: "{{ postgresql_login_unix_socket }}"
+        db: "{{ odyssey_write_database_name }}"
+        type: sequence
+        objs: pings_id_seq
+        privs: USAGE,SELECT
+        roles: "{{ odyssey_backend_user }}"
+
+    # odyssey_read_database_name (group_vars/odyssey_hosts.yml) — намеренно "postgres" (штатная
+    # БД, существует на любом инстансе из коробки), нужна только чтобы доказать, что db-read
+    # маршрутизирует на другой backend (load-generator.yml, pg_is_in_recovery()) — Odyssey
+    # архитектурно не умеет читать те же строки, что были записаны через другое имя БД (README).
+    - name: Grant CONNECT on postgres db to odyssey backend user (db-read route target)
+      community.postgresql.postgresql_privs:
+        login_unix_socket: "{{ postgresql_login_unix_socket }}"
+        db: postgres
+        type: database
+        privs: CONNECT
+        roles: "{{ odyssey_backend_user }}"
+
+- name: odyssey
+  hosts: odyssey_hosts
+  become: true
+  roles:
+    - odyssey
+
+- name: infra_dns
+  hosts: infra_dns
+  become: true
+  roles:
+    - infra_dns
+
+- import_playbook: load-generator.yml
