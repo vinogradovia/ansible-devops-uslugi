@@ -1,0 +1,43 @@
+---
+# Molecule-сценарий для fail2ban_ui — driver: vagrant/libvirt (единое требование для всех
+# molecule-сценариев коллекции, см. CLAUDE.md, «Molecule-тесты»).
+#
+# Покрывает systemd-путь роли (fail2ban_ui_orchestrator: systemd) + fail2ban_ui_reverse_proxy:
+# nginx — самый новый и рискованный код (crane extraction вместо git checkout/vendored-бинарника,
+# htpasswd на постоянном control-хост кэше). docker-путь роли не покрыт отдельно: он использует
+# тот же community.docker.docker_compose_v2, что уже проверен в infra_panel/monitoring_agent/
+# reverse_proxy_npm — дополнительное покрытие здесь не добавило бы уверенности сверх этого.
+#
+# fail2ban_ui/meta/main.yml зависит от роли docker только when: fail2ban_ui_orchestrator ==
+# 'docker' — для systemd-пути (используемого здесь) Docker Engine не нужен вообще, prepare.yml
+# ставит только внешние пререквизиты, которые сама роль не устанавливает (fail2ban, nginx — ни
+# то, ни другое не разворачивается этой ролью, см. roles/fail2ban_ui/README.md).
+driver:
+  name: vagrant
+  provider:
+    name: libvirt
+
+platforms:
+  - name: fail2ban-ui
+    box: cloud-image/ubuntu-24.04
+    memory: 1024
+    cpus: 1
+
+scenario:
+  test_sequence:
+    - dependency
+    - destroy
+    - syntax
+    - create
+    - prepare
+    - converge
+    - idempotence
+    - verify
+    - destroy
+
+shared_state: false
+
+ansible:
+  executor:
+    args:
+      ansible_playbook: []

@@ -1,0 +1,29 @@
+---
+- name: Prepare
+  hosts: all
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Дождаться завершения cloud-init
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+      failed_when: false
+
+    - name: Обновить apt-кэш
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    # Ни fail2ban, ни nginx этой ролью не разворачиваются (README.md, "Обязательные шаги") —
+    # оба внешние пререквизиты, как и на реальном хосте.
+    - name: Установить fail2ban и nginx (внешние пререквизиты роли, ей не принадлежат)
+      ansible.builtin.apt:
+        pkg:
+          - fail2ban
+          - nginx
+
+    - name: Убедиться, что fail2ban запущен (нужен реальный /var/run/fail2ban/fail2ban.sock)
+      ansible.builtin.systemd:
+        name: fail2ban
+        state: started
+        enabled: true

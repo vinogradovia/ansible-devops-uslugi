@@ -1,0 +1,22 @@
+---
+# Переменные для converge/verify этого сценария — тот же паттерн, что и у остальных
+# molecule-сценариев коллекции (group_vars/, не vars: playbook'ов).
+
+fail2ban_ui_orchestrator: systemd
+fail2ban_ui_reverse_proxy: nginx
+
+# Явно (не полагаясь на дефолт роли) — verify.yml не подключает роль и не видит её
+# defaults/main.yml, а версию для сверки version-маркера ему взять больше неоткуда.
+fail2ban_ui_version: v1.5.3
+
+# Роль падает в check-and-install-requirements.yml, если пароль пользователя с state: present
+# совпадает с fail2ban_ui_reverse_proxy_default_password. olduser/state: absent — покрывает и
+# ветку удаления пользователя (htpasswd state: absent), как в reverse_proxy_traefik/molecule.yml.
+fail2ban_ui_reverse_proxy_users_auth:
+  - name: monitor
+    password: "Molecule_Test_ChangeMe!23"
+  - name: olduser
+    password: 'null'
+    state: absent
+
+fail2ban_ui_reverse_proxy_server_name: fail2ban-ui.molecule.test

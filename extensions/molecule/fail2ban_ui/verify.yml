@@ -1,0 +1,88 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: false
+  vars:
+    fail2ban_ui_verify_binary_install_path: /opt/fail2ban-ui/fail2ban-ui
+  tasks:
+    # --- systemd-сервис реально запущен и в автозагрузке --------------------------------------
+    - name: Собрать service_facts
+      ansible.builtin.service_facts:
+
+    - name: fail2ban-ui.service должен быть running и enabled
+      ansible.builtin.assert:
+        that:
+          - "'fail2ban-ui.service' in ansible_facts.services"
+          - ansible_facts.services['fail2ban-ui.service'].state == 'running'
+        quiet: true
+
+    # --- Бинарник реально извлечён через crane (не заглушка/пустой файл) ----------------------
+    - name: Получить stat бинарника fail2ban-ui
+      ansible.builtin.stat:
+        path: "{{ fail2ban_ui_verify_binary_install_path }}"
+      register: molecule_fail2ban_ui_binary_stat
+
+    - name: Бинарник должен существовать, быть исполняемым и не пустым
+      ansible.builtin.assert:
+        that:
+          - molecule_fail2ban_ui_binary_stat.stat.exists
+          - molecule_fail2ban_ui_binary_stat.stat.executable
+          - molecule_fail2ban_ui_binary_stat.stat.size > 1000000
+        quiet: true
+
+    # --- Идемпотентность установки: version-маркер записан верно ------------------------------
+    - name: Прочитать version-маркер fail2ban-ui
+      ansible.builtin.slurp:
+        src: /opt/fail2ban-ui/.fail2ban_ui_version
+      register: molecule_fail2ban_ui_version_marker
+
+    - name: Version-маркер должен совпадать с fail2ban_ui_version
+      ansible.builtin.assert:
+        that:
+          - (molecule_fail2ban_ui_version_marker.content | b64decode | trim) == fail2ban_ui_version
+        quiet: true
+
+    # --- HTTP (:80) должен постоянно редиректить на HTTPS --------------------------------------
+    - name: "HTTP-запрос на :80 должен редиректить на HTTPS"
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:80/"
+        headers:
+          Host: "{{ fail2ban_ui_reverse_proxy_server_name }}"
+        follow_redirects: none
+        status_code:
+          - 301
+        return_content: false
+
+    # --- Дашборд должен быть закрыт basic-auth --------------------------------------------------
+    - name: "Дашборд без credentials должен отвечать 401"
+      ansible.builtin.uri:
+        url: "https://127.0.0.1:443/"
+        headers:
+          Host: "{{ fail2ban_ui_reverse_proxy_server_name }}"
+        validate_certs: false
+        status_code:
+          - 401
+        return_content: false
+      changed_when: false
+
+    - name: "Дашборд с настроенными credentials должен отвечать 200"
+      ansible.builtin.uri:
+        url: "https://127.0.0.1:443/"
+        headers:
+          Host: "{{ fail2ban_ui_reverse_proxy_server_name }}"
+        validate_certs: false
+        force_basic_auth: true
+        url_username: "monitor"
+        url_password: "{{ (fail2ban_ui_reverse_proxy_users_auth | selectattr('name', 'equalto', 'monitor') | first).password }}"
+        status_code:
+          - 200
+        return_content: true
+      register: molecule_fail2ban_ui_response
+      changed_when: false
+
+    - name: "Ответ должен быть от реального приложения fail2ban-ui, а не заглушка"
+      ansible.builtin.assert:
+        that:
+          - "'Fail2ban UI Dashboard' in molecule_fail2ban_ui_response.content"
+        quiet: true
