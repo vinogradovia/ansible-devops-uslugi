@@ -31,6 +31,11 @@ dependencies:
   # (CHANGE MASTER-аналога нет) — она обвязана через repmgr (command-модуль), эта коллекция
   # нужна только для управления ролями/базами/pg_hba, а не самой репликацией.
   community.postgresql: ">=3.0.0"
+  # community.crypto — openssl_privatekey/openssl_csr/x509_certificate, используются ролью
+  # fail2ban_ui (fail2ban_ui_reverse_proxy: nginx) для генерации self-signed сертификата, если
+  # fail2ban_ui_reverse_proxy_nginx_ssl_certificate ещё не существует на хосте (тот же паттерн,
+  # что применяется и для остальных ролей-обёрток с собственным nginx-вхостом).
+  community.crypto: ">=2.0.0"
   # xanmanning.k3s — обязательная зависимость roles/monitoring_server для k3s-оркестратора,
   # но это standalone-роль, а не коллекция: поле dependencies принимает только namespace.name
   # коллекций, поэтому её здесь объявить нельзя. Зависимость зафиксирована в requirements.yml

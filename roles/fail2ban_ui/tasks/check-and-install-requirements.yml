@@ -1,0 +1,18 @@
+---
+# Fail-fast на дефолтный пароль basic-auth (тот же паттерн, что reverse_proxy_traefik/
+# reverse_proxy_npm/infra_panel) — панель управляет fail2ban (бан/анбан IP, jail-конфиги),
+# анонимный/дефолтный доступ недопустим. Актуально только при fail2ban_ui_reverse_proxy: nginx —
+# без reverse-proxy basic-auth вообще не заводится этой ролью.
+- name: Fail if using fail2ban_ui_reverse_proxy_default_password
+  ansible.builtin.fail:
+    msg: >-
+      Error, change fail2ban_ui_reverse_proxy_default_password (или пароль конкретного
+      пользователя в fail2ban_ui_reverse_proxy_users_auth) — fail2ban-ui управляет банами/jail'ами
+      fail2ban, анонимный/дефолтный доступ недопустим.
+  when:
+    - fail2ban_ui_reverse_proxy == 'nginx'
+    - (item.state | default('present')) != 'absent'
+    - item.password == fail2ban_ui_reverse_proxy_default_password
+  loop: "{{ fail2ban_ui_reverse_proxy_users_auth }}"
+  loop_control:
+    label: "{{ item.name }}"

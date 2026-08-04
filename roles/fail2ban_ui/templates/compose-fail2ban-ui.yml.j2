@@ -1,15 +1,9 @@
 services:
   fail2ban-ui:
-    # Use pre-built image from Docker Hub (default)
-    image: swissmakers/fail2ban-ui:latest
-
-    # Alternative: Use Swissmakers registry (fallback)
-    # image: registry.swissmakers.ch/infra/fail2ban-ui:latest
-
-    # Or build from source (uncomment to use):
-    # build:
-    #   context: .
-    #   dockerfile: Dockerfile
+    # fail2ban_ui_image (defaults/main.yml) — версия из fail2ban_ui_version, не ":latest" (было
+    # захардкожено раньше, игнорируя fail2ban_ui_image/_version — версия роли и реально
+    # развёрнутый образ расходились без предупреждения).
+    image: {{ fail2ban_ui_image }}
 
     container_name: fail2ban-ui
     #privileged: true # needed if you want to use a container-local fail2ban instance (because fail2ban.sock is owned by root)

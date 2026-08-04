@@ -33,7 +33,7 @@
         var: fail2ban_ui_start_result.stderr_lines
 
 # fail2ban-ui in systemd
-- name: Block for monitoring_server_orchestrator systemd
+- name: Block for fail2ban_ui_orchestrator systemd
   when: fail2ban_ui_orchestrator == "systemd"
   notify:
     - Reload systemd daemon
@@ -42,19 +42,80 @@
     - name: Populate service facts
       ansible.builtin.service_facts:
 
-    - name: Git checkout fail2ban repo
-      ansible.builtin.git:
-        repo: "{{ fail2ban_ui_git_repo }}"
-        dest: "{{ fail2ban_ui_config_dir }}"
-        version: "{{ fail2ban_ui_version }}"
-
-    - name: Install fail2ban-ui binary
-      ansible.builtin.copy:
-        src: "fail2ban-ui-{{ fail2ban_ui_version }}"
-        dest: "{{ fail2ban_ui_binary_install_path }}"
-        mode: "0755"
+    - name: Create fail2ban-ui dist dir
+      ansible.builtin.file:
+        path: "{{ fail2ban_ui_dist_dir }}"
+        state: directory
         owner: root
         group: root
+        mode: '0755'
+
+    - name: Download crane
+      ansible.builtin.get_url:
+        url: "{{ fail2ban_ui_crane_binary_download_url }}"
+        checksum: "{{ fail2ban_ui_crane_binary_checksum }}"
+        dest: "{{ fail2ban_ui_dist_dir }}"
+        tmp_dest: "{{ fail2ban_ui_dist_dir }}"
+        owner: root
+        group: root
+        mode: '0644'
+      register: fail2ban_ui_crane_download_result
+
+    - name: Unarchive crane
+      ansible.builtin.unarchive:
+        remote_src: true
+        src: "{{ fail2ban_ui_crane_download_result.dest }}"
+        include:
+          - crane
+        dest: "{{ fail2ban_ui_crane_install_path | dirname }}"
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Stat installed fail2ban-ui version marker
+      ansible.builtin.stat:
+        path: "{{ fail2ban_ui_config_dir }}/.fail2ban_ui_version"
+      register: fail2ban_ui_installed_version_stat
+
+    - name: Read installed fail2ban-ui version marker
+      when: fail2ban_ui_installed_version_stat.stat.exists
+      ansible.builtin.slurp:
+        src: "{{ fail2ban_ui_config_dir }}/.fail2ban_ui_version"
+      register: fail2ban_ui_installed_version_raw
+
+    # crane export потоково разворачивает файловую систему уже собранного апстримом
+    # multi-arch образа (см. defaults/main.yml) — без Docker-демона на хосте. Гейт по
+    # version-маркеру — сам shell-таск не умеет сравнить "уже установлена нужная версия",
+    # без него каждый прогон заново тянул бы образ и перезаписывал бинарник (никогда не был бы
+    # идемпотентным).
+    - name: Install fail2ban-ui binary from the upstream image
+      when: >-
+        not fail2ban_ui_installed_version_stat.stat.exists or
+        (fail2ban_ui_installed_version_raw.content | b64decode | trim) != fail2ban_ui_version
+      block:
+        - name: Extract fail2ban-ui image filesystem (app/) with crane
+          ansible.builtin.shell: >-
+            set -o pipefail &&
+            {{ fail2ban_ui_crane_install_path }} export {{ fail2ban_ui_image }} - |
+            tar -x -C {{ fail2ban_ui_config_dir }} --strip-components=1 app
+          changed_when: true
+          args:
+            executable: /bin/bash
+
+        - name: Make fail2ban-ui binary executable
+          ansible.builtin.file:
+            path: "{{ fail2ban_ui_binary_install_path }}"
+            owner: root
+            group: root
+            mode: '0755'
+
+        - name: Write installed fail2ban-ui version marker
+          ansible.builtin.copy:
+            content: "{{ fail2ban_ui_version }}"
+            dest: "{{ fail2ban_ui_config_dir }}/.fail2ban_ui_version"
+            owner: root
+            group: root
+            mode: '0644'
 
     - name: Render fail2ban-ui systemd service
       ansible.builtin.template:
@@ -120,54 +181,39 @@
             csr_path: "{{ fail2ban_ui_reverse_proxy_nginx_ssl_certificate_csr }}"
             provider: selfsigned
 
-    - name: Block for Add a user to a password file dashboard-users
+    - name: Ensure fail2ban-ui htpasswd cache dir exists
       delegate_to: localhost
-      delegate_facts: true
       become: false
-      block:
-        - name: Create tmpfile htpasswd
-          ansible.builtin.tempfile:
-            # path:
-            prefix: ansible-vm-filesd-
-          register: fail2ban_ui_reverse_proxy_users_auth_file_tempfile_htpasswd
-          check_mode: false
-          changed_when: false
+      ansible.builtin.file:
+        path: "{{ fail2ban_ui_reverse_proxy_users_auth_cache_path | dirname }}"
+        state: directory
+        mode: '0700'
 
-        - name: Add a user to a password file dashboard-users
-          community.general.htpasswd:
-            path: "{{ fail2ban_ui_reverse_proxy_users_auth_file_tempfile_htpasswd.path }}"
-            name: "{{ item.name }}"
-            password: "{{ item.password }}"
-            # owner: root
-            # group: www-data
-            mode: '0644'
-            state: "{{ item.state | default('present') }}"
-          with_items:
-            - "{{ fail2ban_ui_reverse_proxy_users_auth }}"
-          loop_control:
-            label: "{{ item.name }}"
-          changed_when: false
+    # Постоянный файл на control-хосте (не одноразовый tempfile) — иначе htpasswd не может
+    # сверить пароль с уже сохранённым хэшем (apr_md5_crypt каждый раз даёт новую случайную
+    # соль) и считается "changed" на каждом прогоне, даже когда пароль не менялся (см.
+    # fail2ban_ui_reverse_proxy_users_auth_cache_path в defaults/main.yml).
+    - name: Add a user to a password file dashboard-users
+      delegate_to: localhost
+      become: false
+      community.general.htpasswd:
+        path: "{{ fail2ban_ui_reverse_proxy_users_auth_cache_path }}"
+        name: "{{ item.name }}"
+        password: "{{ item.password }}"
+        mode: '0600'
+        state: "{{ item.state | default('present') }}"
+      with_items:
+        - "{{ fail2ban_ui_reverse_proxy_users_auth }}"
+      loop_control:
+        label: "{{ item.name }}"
 
-    - name: upload  password file dashboard-users
+    - name: Upload password file dashboard-users
       ansible.builtin.copy:
-        src: "{{ fail2ban_ui_reverse_proxy_users_auth_file_tempfile_htpasswd.path }}"
+        src: "{{ fail2ban_ui_reverse_proxy_users_auth_cache_path }}"
         dest: "{{ fail2ban_ui_reverse_proxy_users_auth_file }}"
         owner: root
         group: root
         mode: '0644'
-
-    - name: Delete tmpfile htpasswd
-      delegate_to: localhost
-      delegate_facts: true
-      become: false
-      ansible.builtin.file:
-        # owner: root
-        # group: root
-        # mode: '0644'
-        state: absent
-        dest: "{{ fail2ban_ui_reverse_proxy_users_auth_file_tempfile_htpasswd.path }}"
-      check_mode: false
-      changed_when: false
 
     - name: Render reverse_proxy config nginx
       ansible.builtin.template:

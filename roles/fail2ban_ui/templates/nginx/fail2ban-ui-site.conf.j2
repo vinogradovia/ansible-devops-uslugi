@@ -5,9 +5,13 @@ server {
 }
 
 server {
-    listen {{ fail2ban_ui_reverse_proxy_https_port }} ssl;
+    # "listen ... ssl http2;" (не раздельные "listen ... ssl;" + "http2 on;") — совместимость с
+    # nginx из штатных apt-репозиториев Debian 12/Ubuntu 24.04 (директива "http2 on;" появилась
+    # только в nginx 1.25.1, штатные пакеты этих дистрибутивов старше; nginx сам эту роль не
+    # ставит, см. README.md — предполагается уже установленным, версия не контролируется ролью).
+    # Найдено реальным прогоном extensions/molecule/fail2ban_ui/: "unknown directive http2".
+    listen {{ fail2ban_ui_reverse_proxy_https_port }} ssl http2;
     server_name {{ fail2ban_ui_reverse_proxy_server_name }};
-    http2 on;
 
     ssl_certificate     {{ fail2ban_ui_reverse_proxy_nginx_ssl_certificate }};
     ssl_certificate_key {{ fail2ban_ui_reverse_proxy_nginx_ssl_certificate_key }};

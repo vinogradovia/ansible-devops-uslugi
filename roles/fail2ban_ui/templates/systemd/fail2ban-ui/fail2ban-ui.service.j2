@@ -4,7 +4,13 @@ After=network.target
 Wants=fail2ban.service
 
 [Service]
-# User={{ fail2ban_ui_systemd_name }}
+# root — осознанный выбор, не забытый TODO: приложению нужен доступ к
+# /var/run/fail2ban/fail2ban.sock (root:root, создаётся самим fail2ban), права на чтение/запись
+# /etc/fail2ban/jail.d/*.conf, чтение всего /var/log (проверка logpath перед включением jail'а)
+# и systemctl restart fail2ban.service — тот же вывод, что и в комментарии к docker-compose.yml
+# апстрима про privileged: true для локального fail2ban. Дедайт fail2ban не поставляется этой
+# коллекцией (нет отдельной роли), поэтому сузить права выделенным пользователем без изменения
+# конфигурации самого fail2ban (сокет/группы) — вне контроля этой роли.
 User=root
 Group=root
 Type=simple

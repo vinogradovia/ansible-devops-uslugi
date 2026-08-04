@@ -8,7 +8,10 @@ fail2ban_ui_config_dir: /opt/fail2ban-ui
 fail2ban_ui_storage_dir: "{{ fail2ban_ui_config_dir }}/storage"
 fail2ban_ui_binary_install_path: "{{ fail2ban_ui_config_dir }}/fail2ban-ui"
 
-fail2ban_ui_version: v1.4.4
+# v1.4.4 (прошлая версия, зафиксированная в этой роли) больше не публикуется ни на Docker Hub,
+# ни в тегах апстрима — сняли с поддержки. v1.5.x взят как актуальный (проверено реальным
+# прогоном demo-кейса).
+fail2ban_ui_version: v1.5.3
 
 # docker, systemd
 fail2ban_ui_orchestrator: systemd
@@ -31,11 +34,25 @@ fail2ban_ui_image_version: "{{ fail2ban_ui_version }}"
 fail2ban_ui_image: >-
   {{ fail2ban_ui_image_registry }}/{{ fail2ban_ui_image_repository }}:{{ fail2ban_ui_image_version }}
 
-# fail2ban_ui_binary_download_url: TODO
-fail2ban_ui_git_repo: https://github.com/swissmakers/fail2ban-ui.git
+fail2ban_ui_dist_dir: "{{ fail2ban_ui_config_dir }}/dist"
 
-# reverse-proxy
-# false, nginx, traefik
+# Апстрим не публикует готовых бинарников в GitHub Releases для fail2ban-ui — только docker-образ
+# (roles/fail2ban_ui/README.md, "Как устроен systemd-путь"). crane (google/go-containerregistry)
+# извлекает файловую систему уже собранного апстримом multi-arch образа БЕЗ Docker-демона —
+# в v1.5.x /app образа содержит только сам бинарник (web-ассеты — templates/locales/static —
+# теперь встроены в него через go:embed, апстрим отказался от отдельных файлов между релизом
+# v1.4.4, на который была рассчитана эта роль изначально, и текущим v1.5.3), поэтому одной
+# командой достаём готовый к запуску бинарник — без git checkout репозитория, без vendoring
+# бинарника в git и без Go-тулчейна на управляемом хосте. Сам crane — обычный статический
+# Go-бинарник с checksum, тот же паттерн, что и у остальных экспортёров в monitoring_agent.
+fail2ban_ui_crane_version: v0.21.8
+fail2ban_ui_crane_binary_download_url: >-
+  https://github.com/google/go-containerregistry/releases/download/{{ fail2ban_ui_crane_version }}/go-containerregistry_Linux_x86_64.tar.gz
+fail2ban_ui_crane_binary_checksum: sha256:59b59f68ee37aba51f5523d69ec779ee925d9be4e279f9220eca357267f2ee67
+fail2ban_ui_crane_install_path: /usr/local/bin/crane
+
+# reverse-proxy: false, nginx (traefik заявлен как значение, но не реализован — нет ни шаблона,
+# ни задач под него; см. roles/fail2ban_ui/README.md, "Статус")
 fail2ban_ui_reverse_proxy: false
 
 fail2ban_ui_reverse_proxy_nginx_config_path: /etc/nginx/conf.d
@@ -55,7 +72,15 @@ fail2ban_ui_reverse_proxy_https_port: 443
 
 fail2ban_ui_reverse_proxy_default_password: "PleAse_Change_ME!"
 
-fail2ban_ui_reverse_proxy_users_auth_file: "/etc/nginx//users/{{ fail2ban_ui_reverse_proxy_server_name }}-auth"
+fail2ban_ui_reverse_proxy_users_auth_file: "/etc/nginx/users/{{ fail2ban_ui_reverse_proxy_server_name }}-auth"
 fail2ban_ui_reverse_proxy_users_auth:
   - {name: 'monitor', password: "{{ fail2ban_ui_reverse_proxy_default_password }}"}
   - {name: 'olduser', password: 'null', state: 'absent'}
+
+# Постоянный (не tempfile) путь на control-хосте — community.general.htpasswd идемпотентен
+# только когда пишет поверх УЖЕ существующего файла (сверяет пароль с сохранённым хэшем через
+# passlib.verify, а не строкой — apr_md5_crypt каждый раз даёт новую случайную соль даже для
+# того же пароля). Вне репозитория (~/.cache), в отличие от roles/infra_panel — здесь нет
+# своего git-игнорируемого дерева наподобие helm/tmp/.
+fail2ban_ui_reverse_proxy_users_auth_cache_path: >-
+  {{ lookup('env', 'HOME') }}/.cache/ansible-fail2ban-ui/{{ inventory_hostname }}-htpasswd
