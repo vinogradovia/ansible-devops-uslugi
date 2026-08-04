@@ -1,0 +1,25 @@
+---
+# ADR-0006 §6 / ADR-0007 §6/§11: запуск вручную —
+#   ansible-playbook -i inventory.yml site.yml --tags all,init
+#
+# --tags all,init обязателен для k3s-пути: roles/monitoring_server/meta/main.yml объявляет
+# зависимость на xanmanning.k3s с tags: [init, never] — "never" исключает роль из ЛЮБОГО прогона,
+# если явно не запросить тег "init"; но один только "--tags init" отфильтровал бы и все обычные
+# (без тегов) таски самой роли monitoring_server — нужна именно комбинация "all,init"
+# (эмпирически проверено, см. extensions/molecule/monitoring_server_k3s/molecule.yml,
+# provisioner.options.tags).
+#
+# Плеи независимы друг от друга (monitoring_agent просто ставит node_exporter, ни от чего не
+# зависит) — порядок не принципиален.
+
+- name: monitoring_server (k3s)
+  hosts: monitoring_servers
+  become: true
+  roles:
+    - monitoring_server
+
+- name: monitoring_agent (systemd) — только node_exporter
+  hosts: monitoring_agents
+  become: true
+  roles:
+    - monitoring_agent

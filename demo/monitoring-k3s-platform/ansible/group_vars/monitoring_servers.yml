@@ -1,0 +1,48 @@
+---
+# ADR-0007 §6/§11: monitoring_server, k3s-оркестратор — Helmwave поднимает VictoriaMetrics
+# Operator + grafana-operator + Loki + grafana-alloy через helm/envs/k3s-monitoring.yaml
+# (общий для коллекции env-файл, тот же, что использует extensions/molecule/
+# monitoring_server_k3s/). Helmwave-операции выполняются delegate_to: localhost — на
+# control-хосте (там, где запускается ansible-playbook), поэтому CLI helm/helmwave и python-
+# пакет kubernetes должны быть установлены именно там, не на VM.
+#
+# Пароли — открытым текстом (не Ansible Vault). Осознанное упрощение ТОЛЬКО для этого демо-стенда
+# (ADR-0006 §9): стенд не подключён к внешней сети, реальных данных не хранит.
+
+monitoring_server_orchestrator: k3s
+
+# demo/monitoring-k3s-platform/ansible/site.yml -> ../../../helm = корень коллекции/helm
+# (роль по умолчанию берёт "{{ role_path | dirname | dirname }}/helm" — путь внутри самой
+# коллекции, для playbook'а вне roles/ нужен явный override).
+monitoring_server_helmwave_dir: "{{ playbook_dir }}/../../../helm"
+
+monitoring_server_grafana_enabled: true
+monitoring_server_grafana_security_admin_password: "demo-grafana-admin-CHANGE-ME"
+
+# extensions/molecule/monitoring_server_k3s/group_vars/all.yml, комментарий: helm-чарт
+# vmagent (victoria-metrics-k8s-stack, helm/envs/k3s-monitoring.yaml) монтирует ConfigMap
+# prom-client безусловно, независимо от дефолта роли — без этого vmagent не поднимается
+# (ConfigMap не существует, Pending). Тот же workaround нужен здесь.
+monitoring_server_victoria_metrics_scrape_prom_client: true
+
+# helm/envs/k3s-monitoring.yaml включает релиз grafana-alloy-redis — ему нужен внешний Secret
+# "grafana-alloy-redis" с реквизитами реального Redis (не создаётся ролью, не часть этого
+# кейса — здесь нет ни одного Redis-хоста). Без override monitoring_server_helmwave_other_tags
+# (пуст по умолчанию → helmwave ставит ВСЁ из env-файла) этот релиз уходит в
+# CreateContainerConfigError (найдено реальным прогоном site.yml). Явные теги — весь набор
+# релизов env-файла (docs/adr/0007-monitoring-server-role.md §6, комментарий в defaults/main.yml)
+# МИНУС grafana-alloy-redis; loki добавляется отдельно через monitoring_server_grafana_loki_enabled.
+monitoring_server_helmwave_other_tags:
+  - vm
+  - grafana-alloy
+  - grafana-alloy-blackbox
+  - grafana-operator
+  - homer
+monitoring_server_grafana_loki_enabled: true
+
+# Единственный экспортёр в этом кейсе — node_exporter на агентском хосте
+# (group_vars/monitoring_agents.yml). Дашборд-группы (ADR-0007 §2.4/§8) — все
+# monitoring_server_grafana_dashboards_group_defaults_* по умолчанию enable: false.
+monitoring_server_grafana_dashboards_group_install:
+  node_exporter:
+    enable: true
