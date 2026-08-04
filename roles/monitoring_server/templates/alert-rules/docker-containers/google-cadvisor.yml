@@ -72,14 +72,15 @@ groups:
         summary: Container high low change CPU usage (instance {{ $labels.instance }})
         description: "This alert rule monitors the absolute change in CPU usage within a time window and triggers an alert when the change exceeds 25%.\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
 
-    - alert: ContainerLowCpuUtilization
-      expr: '(sum(rate(container_cpu_usage_seconds_total{container!=""}[5m])) by (pod, container) / sum(container_spec_cpu_quota{container!=""}/container_spec_cpu_period{container!=""}) by (pod, container) * 100) < 20'
-      for: 7d
-      labels:
-        severity: info
-      annotations:
-        summary: Container Low CPU utilization (instance {{ $labels.instance }})
-        description: "Container CPU utilization is under 20% for 1 week. Consider reducing the allocated CPU. (current: {{ $value | printf \"%.2f\" }}%)\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
+    # Disabled: noisy capacity-rightsizing hint, not an incident signal for Moon.
+    # - alert: ContainerLowCpuUtilization
+    #   expr: '(sum(rate(container_cpu_usage_seconds_total{container!=""}[5m])) by (pod, container) / sum(container_spec_cpu_quota{container!=""}/container_spec_cpu_period{container!=""}) by (pod, container) * 100) < 20'
+    #   for: 7d
+    #   labels:
+    #     severity: info
+    #   annotations:
+    #     summary: Container Low CPU utilization (instance {{ $labels.instance }})
+    #     description: "Container CPU utilization is under 20% for 1 week. Consider reducing the allocated CPU. (current: {{ $value | printf \"%.2f\" }}%)\n  VALUE = {{ $value }}\n  LABELS = {{ $labels }}"
 
     - alert: ContainerLowMemoryUsage
       expr: '(sum(container_memory_working_set_bytes{name!=""}) BY (instance, name) / sum(container_spec_memory_limit_bytes > 0) BY (instance, name) * 100) < 20'
