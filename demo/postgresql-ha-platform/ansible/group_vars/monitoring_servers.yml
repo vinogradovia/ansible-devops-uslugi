@@ -5,15 +5,22 @@
 
 monitoring_server_orchestrator: docker
 
-# В этом кейсе (в отличие от demo/mysql-ha-platform) reverse_proxy_traefik/infra_panel не
-# разворачиваются — стенд сфокусирован на демонстрации postgresql_replication + odyssey, а не
-# витрины всей платформы. Роль сама создаёт docker-сеть "proxy" (ADR-0007 §10.3).
-monitoring_server_docker_proxy_network_external: false
+# ADR-0008 (infra_panel) — reverse_proxy_traefik владеет docker-сетью "proxy" в этом кейсе (играется
+# ДО monitoring_server в site.yml), поэтому monitoring_server подключается к ней как external: true,
+# а не создаёт сама. Grafana/VictoriaMetrics по-прежнему остаются доступны напрямую по host-портам
+# (3000/8428) в дополнение к домену через Traefik.
+monitoring_server_docker_proxy_network_external: true
 
 monitoring_server_victoria_metrics_enabled: true
 
 monitoring_server_grafana_enabled: true
 monitoring_server_grafana_security_admin_password: "demo-grafana-admin-CHANGE-ME"
+
+# Реальный домен зоны postgresql-ha-platform.demo (group_vars/infra_dns.yml), а не дефолт роли
+# (.docker.localhost) — нужен и для собственного traefik-роута Grafana, и для авто-ссылки на
+# Grafana в infra_panel (ADR-0008 §3, читает именно эту переменную).
+monitoring_server_grafana_server_domain: grafana.postgresql-ha-platform.demo
+monitoring_server_grafana_server_root_url: "https://grafana.postgresql-ha-platform.demo"
 
 # ADR-0006 §5: Loki требует local_storage_s3_enabled (Loki хардкодит object_store: s3). Внешний
 # S3 не нужен — роль сама поднимает MinIO.
@@ -32,3 +39,35 @@ monitoring_server_grafana_dashboards_group_install:
     enable: true
   postgres_exporter:
     enable: true
+
+# --- reverse_proxy_traefik (ADR-0008) ---------------------------------------------------------
+# Владеет docker-сетью "proxy" в этом кейсе (см. комментарий выше про
+# monitoring_server_docker_proxy_network_external). Реальный домен зоны, а не дефолт роли
+# (docker.localhost) — чтобы whoami/дашборд Traefik тоже резолвились через infra_dns.
+reverse_proxy_traefik_internal_domain: postgresql-ha-platform.demo
+reverse_proxy_traefik_dashboard_users:
+  - name: monitor
+    password: "demo-traefik-dashboard-CHANGE-ME"
+
+# --- infra_panel (ADR-0008) --------------------------------------------------------------------
+infra_panel_domain: infra-panel.postgresql-ha-platform.demo
+infra_panel_users:
+  - name: admin
+    password: "demo-infra-panel-admin-CHANGE-ME"
+
+# Авто-блок (ADR-0008 §3) добавит только Grafana (единственный компонент monitoring_server с
+# собственным доменом в docker-пути) — VictoriaMetrics/MinIO своего домена/traefik-роута не
+# имеют (technical debt, см. ADR), поэтому заведены сюда вручную по прямым host-портам того же
+# хоста monitoring-server.
+infra_panel_extra_services:
+  - name: Storage
+    icon: "mdi mdi-database"
+    items:
+      - name: VictoriaMetrics
+        icon: "mdi mdi-chart-line"
+        url: "http://monitoring-server.postgresql-ha-platform.demo:8428/vmui/"
+        target: _blank
+      - name: MinIO Console
+        icon: "mdi mdi-bucket"
+        url: "http://monitoring-server.postgresql-ha-platform.demo:9001/"
+        target: _blank

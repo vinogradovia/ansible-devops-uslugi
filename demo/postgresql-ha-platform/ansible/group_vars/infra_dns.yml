@@ -17,6 +17,12 @@ infra_dns_zones:
       - {name: db-write, type: A, value: 10.66.7.30, ttl: 30}
       - {name: db-read, type: A, value: 10.66.7.30, ttl: 30}
       - {name: monitoring-server, type: A, value: 10.66.7.10}
+      # ADR-0008 (infra_panel) — reverse_proxy_traefik + infra_panel разворачиваются на том же
+      # хосте monitoring-server, поэтому все три указывают на тот же IP.
+      - {name: grafana, type: A, value: 10.66.7.10}
+      - {name: infra-panel, type: A, value: 10.66.7.10}
+      - {name: whoami, type: A, value: 10.66.7.10}
+      - {name: traefik-dashboard, type: A, value: 10.66.7.10}
       - {name: postgres-primary, type: A, value: 10.66.7.21}
       - {name: postgres-read-replica, type: A, value: 10.66.7.22}
       - {name: postgres-dr-replica, type: A, value: 10.66.7.23}

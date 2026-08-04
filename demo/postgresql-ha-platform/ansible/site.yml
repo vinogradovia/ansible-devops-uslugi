@@ -3,7 +3,10 @@
 #   ansible-playbook -i inventory.yml site.yml
 #
 # Порядок плеев важен:
-#  1. monitoring_server — не зависит от остальных, можно первым.
+#  1. monitoring_server (+ reverse_proxy_traefik/infra_panel, ADR-0008) — не зависит от остальных,
+#     можно первым. Роли внутри самого плея тоже упорядочены: reverse_proxy_traefik ДО
+#     monitoring_server — она владеет docker-сетью "proxy" (создаёт её), monitoring_server и
+#     infra_panel подключаются к ней как external: true (см. group_vars/monitoring_servers.yml).
 #  2. monitoring_agent — независим от postgresql_replication/odyssey (просто ставит экспортёры).
 #  3. postgresql_replication на postgresql_primary ДО реплик
 #     (roles/postgresql_replication/README.md, "Discovery версии" — реплики читают
@@ -16,11 +19,13 @@
 #  6. infra_dns — не зависит от остальных по порядку.
 #  7. load_generator — нужен весь стек живым (DNS → Odyssey → PostgreSQL).
 
-- name: monitoring_server (docker)
+- name: monitoring_server (docker) + reverse_proxy_traefik + infra_panel (ADR-0008)
   hosts: monitoring_servers
   become: true
   roles:
+    - reverse_proxy_traefik
     - monitoring_server
+    - infra_panel
 
 - name: monitoring_agent (systemd) — node_exporter + promtail на всех агентских хостах
   hosts: monitoring_agents
