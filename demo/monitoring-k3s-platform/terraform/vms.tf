@@ -94,10 +94,16 @@ resource "libvirt_volume" "cloudinit" {
   }
 }
 
+# name = "<network_name>-<vm>" (не голое each.key) — libvirt-домены живут в ОДНОМ общем
+# host-wide неймспейсе (в отличие от volumes/pools, у которых своя пер-стендовая изоляция) —
+# без префикса два стенда с одинаковой ролью хоста (у всех кейсов есть "monitoring-server")
+# не могут существовать одновременно, "Failed to define domain... already exists" (найдено
+# реальным прогоном, когда demo/monitoring-k3s-platform и demo/postgresql-ha-platform оказались
+# подняты одновременно).
 resource "libvirt_domain" "vm" {
   for_each = local.vms
 
-  name        = each.key
+  name        = "${var.network_name}-${each.key}"
   type        = "kvm"
   vcpu        = each.value.vcpu
   memory      = each.value.memory
@@ -207,7 +213,7 @@ resource "libvirt_domain" "vm" {
           type = "serial"
         }
         log = {
-          file   = "/tmp/${each.key}-console.log"
+          file   = "/tmp/${var.network_name}-${each.key}-console.log"
           append = "off"
         }
       }
