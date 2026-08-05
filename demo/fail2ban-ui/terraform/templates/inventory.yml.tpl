@@ -1,4 +1,4 @@
-# СГЕНЕРИРОВАНО Terraform (demo/fail2ban-ui-platform/terraform/inventory.tf) из local.vms —
+# СГЕНЕРИРОВАНО Terraform (demo/fail2ban-ui/terraform/inventory.tf) из local.vms —
 # см. ADR-0006 §6. Не редактировать руками: правки будут перезаписаны следующим `terraform
 # apply`. Переменные роли (fail2ban_ui_*) — в ../ansible/group_vars/*.yml рядом, не здесь
 # (ADR-0006 §9 — без Vault, но тоже не сюда).

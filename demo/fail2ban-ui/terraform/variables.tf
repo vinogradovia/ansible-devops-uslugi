@@ -7,19 +7,19 @@ variable "libvirt_uri" {
 variable "pool_name" {
   description = "Имя выделенного libvirt storage pool для стенда (ADR-0006 §3 — не смешивается с default pool хоста)"
   type        = string
-  default     = "demo-fail2ban-ui-platform"
+  default     = "demo-fail2ban-ui"
 }
 
 variable "pool_path" {
   description = "Путь на хосте для storage pool стенда"
   type        = string
-  default     = "/var/lib/libvirt/images/demo-fail2ban-ui-platform"
+  default     = "/var/lib/libvirt/images/demo-fail2ban-ui"
 }
 
 variable "network_name" {
   description = "Имя выделенной libvirt-сети стенда"
   type        = string
-  default     = "demo-fail2ban-ui-platform"
+  default     = "demo-fail2ban-ui"
 }
 
 variable "network_cidr" {
@@ -31,7 +31,7 @@ variable "network_cidr" {
 variable "network_domain" {
   description = "DNS-домен libvirt-сети (dnsmasq), используется и в fqdn VM"
   type        = string
-  default     = "fail2ban-ui-platform.demo"
+  default     = "fail2ban-ui.demo"
 }
 
 # ADR-0006 §7: официальный Debian 12 (bookworm) generic cloud image, один раз скачивается и

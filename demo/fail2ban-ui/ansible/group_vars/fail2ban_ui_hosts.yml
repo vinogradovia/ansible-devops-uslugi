@@ -10,7 +10,9 @@
 fail2ban_ui_orchestrator: systemd
 fail2ban_ui_reverse_proxy: nginx
 
-fail2ban_ui_reverse_proxy_server_name: fail2ban-ui.fail2ban-ui-platform.demo
+# Просто network_domain, без доп. поддомена — единственная VM стенда, разделять по
+# поддоменам нечего (subdomain совпал бы с самим доменом: "fail2ban-ui.fail2ban-ui.demo").
+fail2ban_ui_reverse_proxy_server_name: fail2ban-ui.demo
 
 fail2ban_ui_reverse_proxy_users_auth:
   - name: admin

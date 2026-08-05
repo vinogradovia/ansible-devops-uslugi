@@ -1,4 +1,4 @@
-# demo/fail2ban-ui-platform — ADR-0006 §1: provisioning через Terraform + libvirt-провайдер
+# demo/fail2ban-ui — ADR-0006 §1: provisioning через Terraform + libvirt-провайдер
 # (dmacvicar/terraform-provider-libvirt), не Vagrant и не голый virt-install.
 terraform {
   required_version = ">= 1.5"
