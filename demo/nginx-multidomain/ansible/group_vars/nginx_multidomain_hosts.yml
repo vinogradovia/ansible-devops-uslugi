@@ -1,19 +1,47 @@
 ---
-# roles/fail2ban_ui/README.md, "Статус" — systemd-путь + nginx reverse-proxy. Fail2Ban и nginx
-# сама роль не устанавливает (внешние пререквизиты) — ставятся ad hoc в site.yml, тот же принцип
-# композиции, что odyssey/postgresql_replication в demo/postgresql-ha-platform (ADR-0005 §11):
-# роль отвечает только за то, что реально её зона ответственности.
-#
 # Пароли — открытым текстом (не Ansible Vault). Осознанное упрощение ТОЛЬКО для этого демо-стенда
 # (ADR-0006 §9): стенд не подключён к внешней сети, реальных данных не хранит.
 
+# --- nginx_multidomain ---------------------------------------------------------------------
+# Один демо-домен с агрессивной rate-limit-зоной (1 запрос/сек, burst 2, nodelay) — нарочно
+# низкий порог, чтобы небольшой curl-цикл в реальной проверке гарантированно упирался в 503 и
+# писал "limiting requests..." в error-лог, который ловит fail2ban-jail ниже.
+nginx_domains:
+  - name: app.nginx-multidomain.demo
+    type: static
+    root: /var/www/app.nginx-multidomain.demo/public
+    rate_limit:
+      zone_name: demo_zone
+      rate: "1r/s"
+      burst: 2
+      nodelay: true
+
+# --- fail2ban (ROADMAP Backlog №47) ---------------------------------------------------------
+# nginx-limit-req — штатный фильтр из пакета fail2ban (не bundled-фильтр этой коллекции,
+# nginx_multidomain использует стоковый nginx-формат лога, roles/fail2ban/README.md, "Известные
+# интеграции"). Низкие maxretry/findtime — тот же демо-компромисс "быстро показать реальный бан",
+# что и rate-limit-зона выше.
+fail2ban_jails:
+  - name: sshd
+    filter: sshd
+    backend: systemd
+    port: ssh
+    maxretry: 5
+  - name: nginx-limit-req
+    filter: nginx-limit-req
+    logpath: /var/log/nginx/error_*.log
+    maxretry: 2
+    findtime: 60
+    bantime: 120
+
+# --- fail2ban_ui -----------------------------------------------------------------------------
 fail2ban_ui_orchestrator: systemd
 fail2ban_ui_reverse_proxy: nginx
 
-# Просто network_domain, без доп. поддомена — единственная VM стенда, разделять по
-# поддоменам нечего (subdomain совпал бы с самим доменом: "fail2ban-ui.fail2ban-ui.demo").
-fail2ban_ui_reverse_proxy_server_name: fail2ban-ui.demo
+# Просто network_domain, без доп. поддомена (в отличие от app.nginx-multidomain.demo выше) —
+# subdomain совпал бы с самим доменом ("nginx-multidomain.nginx-multidomain.demo").
+fail2ban_ui_reverse_proxy_server_name: nginx-multidomain.demo
 
 fail2ban_ui_reverse_proxy_users_auth:
   - name: admin
-    password: "demo-fail2ban-ui-admin-CHANGE-ME"
+    password: "demo-nginx-multidomain-admin-CHANGE-ME"

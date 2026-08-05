@@ -6,7 +6,7 @@
 # статической DHCP-резервации в network.tf (ips[].dhcp.hosts).
 locals {
   vms = {
-    fail2ban-ui = {
+    nginx-multidomain = {
       vcpu    = 1
       memory  = 1024
       disk_gb = 10

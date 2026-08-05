@@ -2,58 +2,53 @@
 # ADR-0006 §6: запуск вручную —
 #   ansible-playbook -i inventory.yml site.yml
 #
-# Fail2Ban и nginx — внешние пререквизиты роли fail2ban_ui (не разворачиваются ей самой, см.
-# roles/fail2ban_ui/README.md), поэтому ставятся здесь ad hoc, ДО применения самой роли.
+# Демонстрирует связку nginx_multidomain + fail2ban (ROADMAP Backlog №47): реальный вхост с
+# rate-limit-зоной (nginx_multidomain) банится через штатный filter: nginx-limit-req самого
+# пакета fail2ban — bundled-фильтр здесь не нужен (см. roles/fail2ban/README.md, "Известные
+# интеграции"). fail2ban_ui поверх — веб-панель для наблюдения за банами.
+#
+# Порядок ролей важен: nginx_multidomain — первая (ставит nginx, создаёт vhost и rate-limit-зону,
+# без которых fail2ban-jail из group_vars нечего было бы банить и не на что смотреть в error-логе);
+# fail2ban — вторая (ставит сам Fail2Ban и настраивает jail); fail2ban_ui — третья (её
+# nginx-reverse-proxy путь пишет ОТДЕЛЬНЫЙ файл в conf.d, не трогает vhost'ы nginx_multidomain —
+# оба сосуществуют на одном nginx через разные server_name).
 
-- name: fail2ban-ui
-  hosts: fail2ban_ui_hosts
+- name: nginx-multidomain
+  hosts: nginx_multidomain_hosts
   become: true
-  # pre_tasks, не tasks — в одном плее с roles: секция roles выполняется ДО tasks (порядок
-  # Ansible: pre_tasks -> roles -> tasks -> post_tasks), а fail2ban/nginx роли нужны уже
-  # установленными к моменту применения самой роли fail2ban_ui.
   pre_tasks:
     # Без ожидания cloud-init мог ещё держать /var/lib/apt/lists/lock своим собственным
-    # package_update — apt-задача ниже падает "No package matching 'fail2ban' is available"
-    # (гонка, найдено реальным прогоном на свежесозданной VM). Тот же паттерн, что
-    # extensions/molecule/*/prepare.yml.
+    # package_update — apt-задачи ролей ниже падают "No package matching ... is available"
+    # (гонка, найдено реальным прогоном на свежесозданной VM в demo/fail2ban-ui, ныне этот
+    # кейс). Тот же паттерн, что extensions/molecule/*/prepare.yml.
     - name: Дождаться завершения cloud-init
       ansible.builtin.command: cloud-init status --wait
       changed_when: false
       failed_when: false
 
-    - name: Install fail2ban and nginx (внешние пререквизиты роли fail2ban_ui)
-      ansible.builtin.apt:
-        pkg:
-          - fail2ban
-          - nginx
-        update_cache: true
-        cache_valid_time: 3600
+    # nginx_multidomain не создаёт содержимое сайта (только vhost-конфиг, docs/adr/
+    # 0003-ginx-multidomain-role.md) — root-каталог и index.html заводим ad hoc, тот же принцип
+    # композиции, что и demo-схема в других кейсах (роль отвечает только за свою зону
+    # ответственности).
+    - name: Создать root-каталог демо-домена
+      ansible.builtin.file:
+        path: /var/www/app.nginx-multidomain.demo/public
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: '0755'
 
-    # Демонстрационный jail — sshd защищён из коробки в jail.conf апстрима фильтром, но не
-    # enabled по умолчанию. jail.local переопределяет только нужное (drop-in поверх jail.conf,
-    # штатный механизм Fail2Ban — jail.conf трогать не нужно).
-    - name: Enable sshd jail (демонстрационная защита реального SSH на этом хосте)
+    - name: Создать index.html демо-домена
       ansible.builtin.copy:
-        dest: /etc/fail2ban/jail.local
-        owner: root
-        group: root
+        dest: /var/www/app.nginx-multidomain.demo/public/index.html
+        owner: www-data
+        group: www-data
         mode: '0644'
         content: |
-          [sshd]
-          enabled = true
-          port = ssh
-          backend = systemd
-      notify: Restart fail2ban
-
-    - name: Force notified handlers to run now (fail2ban must be up before the role manages its UI)
-      ansible.builtin.meta: flush_handlers
+          <!doctype html>
+          <html><body><h1>nginx_multidomain demo (rate-limited)</h1></body></html>
 
   roles:
+    - nginx_multidomain
+    - fail2ban
     - fail2ban_ui
-
-  handlers:
-    - name: Restart fail2ban
-      ansible.builtin.systemd:
-        name: fail2ban
-        state: restarted
-        enabled: true
