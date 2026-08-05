@@ -1,0 +1,57 @@
+---
+# ROADMAP Backlog №47 — reverse_proxy_npm + fail2ban (bundled-фильтр npm-proxy) + fail2ban_ui на
+# одном хосте. Пароли — открытым текстом (не Ansible Vault). Осознанное упрощение ТОЛЬКО для
+# этого демо-стенда (ADR-0006 §9): стенд не подключён к внешней сети, реальных данных не хранит.
+
+# --- reverse_proxy_npm -------------------------------------------------------------------------
+reverse_proxy_npm_admin_email: "admin@npm.demo"
+reverse_proxy_npm_admin_password: "demo-npm-admin-CHANGE-ME"
+
+# whoami.molecule.test-паттерн из extensions/molecule/reverse_proxy_npm/ — fixture-бэкенд
+# (traefik/whoami) поднимается ad hoc в site.yml и подключается к docker-сети роли ПОСЛЕ неё
+# (сеть создаёт сама роль). ssl_forced: false — Let's Encrypt в изолированной сети без
+# публичного DNS не пройдёт HTTP-01 (то же ограничение, что и в molecule-сценарии роли).
+reverse_proxy_npm_proxy_hosts:
+  - domain_name: "whoami.npm.demo"
+    host: "reverse-proxy-npm-fixture-backend"
+    host_port: 80
+    ssl_forced: false
+    state: present
+
+# --- fail2ban (ROADMAP Backlog №47) -------------------------------------------------------------
+# npm-proxy — bundled-фильтр этой коллекции (roles/fail2ban/templates/filter.d/npm-proxy.conf.j2),
+# NPM использует свой, нестандартный log_format, под который нет стокового фильтра fail2ban.
+# logpath покрывает и per-proxy-host access-логи (формат "proxy"), и fallback-лог (запросы с
+# Host, для которого вообще нет proxy-host'а — самый частый случай сканирования; формат
+# "standard", ДРУГОЕ число полей на строку, см. комментарий в самом фильтре) — оба в /data/logs
+# через bind-mount ./data:/data (roles/reverse_proxy_npm/templates/compose-reverse-proxy-npm.yml.j2),
+# на хосте — {{ reverse_proxy_npm_config_dir }}/data/logs/. Имя fallback-лога — "fallback_access.log"
+# (не "fallback_http_access.log", как в апстримном исходнике конфига — проверено реальным
+# прогоном, апстримный log-proxy.conf не совпадает с реальным именем файла в рантайме). Низкие
+# maxretry/findtime — тот же демо-компромисс "быстро показать реальный бан", что и в
+# demo/nginx-multidomain.
+fail2ban_jails:
+  - name: sshd
+    filter: sshd
+    backend: systemd
+    port: ssh
+    maxretry: 5
+  - name: npm-proxy
+    filter: npm-proxy
+    logpath:
+      - "{{ reverse_proxy_npm_config_dir }}/data/logs/proxy-host-*_access.log"
+      - "{{ reverse_proxy_npm_config_dir }}/data/logs/fallback_access.log"
+    maxretry: 2
+    findtime: 60
+    bantime: 120
+
+# --- fail2ban_ui -----------------------------------------------------------------------------
+# reverse_proxy: false (не nginx!) — reverse_proxy_npm уже занимает 80/443 на этом хосте (NPM,
+# как и nginx_multidomain/reverse_proxy_traefik, взаимоисключающий с любым другим владельцем этих
+# портов, ADR-0001). Панель торчит напрямую на своём порту, без basic-auth перед ней — тот же
+# компромисс "только для локальной изолированной demo-сети", что и открытые пароли выше, НЕ
+# паттерн для реального хоста (там см. demo/nginx-multidomain, где fail2ban_ui корректно закрыт
+# nginx + basic-auth, потому что там nginx не занят другим reverse-proxy).
+fail2ban_ui_orchestrator: systemd
+fail2ban_ui_reverse_proxy: false
+fail2ban_ui_bind_address: 0.0.0.0

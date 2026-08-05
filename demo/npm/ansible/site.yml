@@ -1,0 +1,62 @@
+---
+# ADR-0006 §6: запуск вручную —
+#   ansible-playbook -i inventory.yml site.yml
+#
+# Демонстрирует связку reverse_proxy_npm + fail2ban (ROADMAP Backlog №47): NPM использует свой
+# нестандартный log_format ("proxy") — bundled-фильтр npm-proxy этой коллекции (не штатный
+# фильтр пакета fail2ban, см. roles/fail2ban/README.md, "Известные интеграции") банит по
+# повторным 401/403/404 (сканирование несуществующих путей/доменов через fallback-лог NPM).
+# fail2ban_ui поверх — веб-панель, БЕЗ nginx reverse-proxy (порты 80/443 уже заняты NPM,
+# ADR-0001 — взаимоисключение с любым другим владельцем этих портов на одном хосте).
+#
+# Порядок ролей: docker (сама reverse_proxy_npm Docker не ставит, roles/reverse_proxy_npm/
+# README.md) -> reverse_proxy_npm (поднимает NPM + docker-сеть) -> fail2ban (jail на логи NPM,
+# которые уже пишутся) -> fail2ban_ui (панель поверх).
+
+- name: NPM
+  hosts: npm_hosts
+  become: true
+  pre_tasks:
+    # Без ожидания cloud-init мог ещё держать /var/lib/apt/lists/lock своим собственным
+    # package_update — apt-задачи ролей ниже падают "No package matching ... is available"
+    # (гонка, найдено реальным прогоном на свежесозданной VM в demo/nginx-multidomain). Тот же
+    # паттерн, что extensions/molecule/*/prepare.yml.
+    - name: Дождаться завершения cloud-init
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+      failed_when: false
+
+  roles:
+    - docker
+    - reverse_proxy_npm
+    - fail2ban
+    - fail2ban_ui
+
+  tasks:
+    # Fixture-бэкенд для тестового proxy-host'а (whoami.npm.demo, group_vars/npm_hosts.yml) —
+    # тот же паттерн, что extensions/molecule/reverse_proxy_npm/. python3-docker нужен для
+    # community.docker.docker_container/docker_network ниже (в отличие от
+    # community.docker.docker_compose_v2, которым управляет сама роль reverse_proxy_npm через
+    # Docker CLI, не Python SDK, — роль его не ставит).
+    - name: Установить python3-docker (нужен community.docker.docker_container/docker_network ниже)
+      ansible.builtin.apt:
+        pkg:
+          - python3-docker
+
+    - name: Запустить fixture-бэкенд (traefik/whoami)
+      community.docker.docker_container:
+        name: reverse-proxy-npm-fixture-backend
+        image: traefik/whoami
+        state: started
+        restart_policy: unless-stopped
+
+    # host.docker.internal не резолвится nginx-резолвером внутри NPM (roles/reverse_proxy_npm/
+    # README.md, "Проксирование на другие контейнеры на этом же хосте") — подключаем fixture к
+    # docker-сети роли (создаёт сама роль, поэтому ПОСЛЕ неё), NPM резолвит по имени контейнера
+    # через Docker embedded DNS.
+    - name: Подключить fixture-бэкенд к docker-сети reverse_proxy_npm
+      community.docker.docker_network:
+        name: "{{ reverse_proxy_npm_docker_network }}"
+        connected:
+          - reverse-proxy-npm-fixture-backend
+        appends: true
