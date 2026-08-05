@@ -1,0 +1,33 @@
+---
+# Переменные для converge/verify этого сценария — тот же паттерн, что и у остальных
+# molecule-сценариев коллекции (group_vars/, не vars: playbook'ов).
+
+fail2ban_jails:
+  # Стоковый filter (из пакета fail2ban, не bundled и не custom) — проверяет путь "filter без
+  # fail2ban_custom_filters" и backend: systemd (journal, не logpath-файл).
+  - name: sshd
+    filter: sshd
+    backend: systemd
+    port: ssh
+    maxretry: 5
+
+  # Синтетический custom-jail — проверяет весь путь целиком: свой filter.d-конфиг
+  # (fail2ban_custom_filters ниже) + реальный бан IP по повторным совпадениям в файле-логе.
+  - name: molecule-test
+    filter: molecule-test
+    logpath: /var/log/molecule-test.log
+    backend: polling
+    maxretry: 3
+    findtime: 600
+    bantime: 120
+
+fail2ban_custom_filters:
+  - name: molecule-test
+    # Без "^" — fail2ban сам детектит и вычленяет дату в начале строки (наша тестовая строка,
+    # verify.yml, содержит реальный "%Y-%m-%d %H:%M:%S" префикс) перед применением failregex к
+    # остатку; "^" тогда требовал бы совпадения от самого начала уже урезанной строки, но
+    # реальный остаток после вычленения — с ведущим пробелом-разделителем. Найдено реальным
+    # прогоном через fail2ban-regex -v ("0 matched, 1 missed" с "^", "1 matched" без).
+    content: |
+      failregex = authentication failure for <HOST>$
+      ignoreregex =

@@ -1,0 +1,77 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    # --- Сервис реально запущен и в автозагрузке -----------------------------------------------
+    - name: Собрать service_facts
+      ansible.builtin.service_facts:
+
+    - name: fail2ban.service должен быть running и enabled
+      ansible.builtin.assert:
+        that:
+          - "'fail2ban.service' in ansible_facts.services"
+          - ansible_facts.services['fail2ban.service'].state == 'running'
+        quiet: true
+
+    # --- Конфиг валиден с точки зрения самого fail2ban-client -----------------------------------
+    - name: fail2ban-client -t (уже проверено ролью, здесь — независимая перепроверка verify)
+      ansible.builtin.command: fail2ban-client -t
+      register: molecule_fail2ban_validate
+      changed_when: false
+
+    # --- Оба jail'а реально активны --------------------------------------------------------------
+    - name: Получить список активных jail'ов
+      ansible.builtin.command: fail2ban-client status
+      register: molecule_fail2ban_status
+      changed_when: false
+
+    - name: sshd и molecule-test должны быть в списке активных jail'ов
+      ansible.builtin.assert:
+        that:
+          - "'sshd' in molecule_fail2ban_status.stdout"
+          - "'molecule-test' in molecule_fail2ban_status.stdout"
+        quiet: true
+
+    # --- Bundled-фильтр npm-proxy установлен безусловно (README.md, "Известные интеграции") ----
+    - name: Bundled-фильтр npm-proxy.conf должен существовать
+      ansible.builtin.stat:
+        path: /etc/fail2ban/filter.d/npm-proxy.conf
+      register: molecule_npm_proxy_filter_stat
+
+    - name: npm-proxy.conf должен реально существовать
+      ansible.builtin.assert:
+        that:
+          - molecule_npm_proxy_filter_stat.stat.exists
+        quiet: true
+
+    # --- Функциональная проверка: custom-фильтр реально банит IP по повторным совпадениям ------
+    # maxretry: 3 (group_vars/all.yml) — трёх строк за findtime достаточно для срабатывания jail'а.
+    # ansible.builtin.lineinfile здесь не подходит — идемпотентен по содержимому строки, вторая и
+    # третья одинаковые строки молча не добавились бы (найдено реальным прогоном: "Total failed:
+    # 0" — на самом деле в файл ушла только ОДНА строка). Плюс fail2ban требует распознаваемую
+    # дату в строке лога, иначе просто пропускает её при разборе (тоже часть той же находки) —
+    # строка без даты не матчилась вообще, не только не считалась достаточной для бана.
+    - name: Дописать в лог-файл строки, совпадающие с custom failregex (имитация атаки)
+      ansible.builtin.shell: >-
+        echo "$(date '+%Y-%m-%d %H:%M:%S') authentication failure for 203.0.113.99"
+        >> /var/log/molecule-test.log
+      changed_when: true
+      loop: "{{ range(1, 4) | list }}"
+      loop_control:
+        label: "attempt {{ item }}"
+
+    - name: Дождаться, пока fail2ban реально забанит 203.0.113.99 (polling backend, не мгновенно)
+      ansible.builtin.command: fail2ban-client status molecule-test
+      register: molecule_jail_status
+      until: "'203.0.113.99' in molecule_jail_status.stdout"
+      retries: 12
+      delay: 5
+      changed_when: false
+
+    - name: 203.0.113.99 должен быть в списке забаненных IP jail'а molecule-test
+      ansible.builtin.assert:
+        that:
+          - "'203.0.113.99' in molecule_jail_status.stdout"
+        quiet: true

@@ -1,0 +1,27 @@
+---
+- name: Prepare
+  hosts: all
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Дождаться завершения cloud-init
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+      failed_when: false
+
+    - name: Обновить apt-кэш
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    # Файл под тестовый custom-jail (test-custom, group_vars/all.yml) — fail2ban должен
+    # обнаружить и отслеживать его сам после converge, здесь только гарантируем, что он
+    # существует ДО первого старта fail2ban (пустой файл, создаваемый после старта, тоже
+    # подхватывается через polling, но так — детерминированнее для теста).
+    - name: Создать пустой лог-файл под тестовый jail
+      ansible.builtin.file:
+        path: /var/log/molecule-test.log
+        state: touch
+        owner: root
+        group: root
+        mode: '0644'
