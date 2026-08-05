@@ -1,26 +1,30 @@
 # Fail2Ban filter для Nginx Proxy Manager (roles/reverse_proxy_npm) — не стоковый nginx-формат
 # лога, поэтому не подходят фильтры из самого пакета fail2ban (nginx-http-auth/nginx-botsearch
-# рассчитаны на дефолтный combined/nginx access-лог). Формат — апстримный "proxy" log_format
-# NPM (github.com/NginxProxyManager/nginx-proxy-manager,
-# docker/rootfs/etc/nginx/conf.d/include/log-proxy.conf):
+# рассчитаны на дефолтный combined/nginx access-лог). NPM реально использует ДВА своих формата
+# (проверено реальным прогоном demo/npm, а не только чтением апстримного исходника — на
+# per-proxy-host access-логе и на fallback-логе (запросы с Host, для которого нет ни одного
+# proxy-host'а — самый частый случай "сканирования") разное число полей перед $status):
 #
-#   log_format proxy '[$time_local] $upstream_cache_status $upstream_status $status - '
-#                     '$request_method $scheme $host "$request_uri" [Client $remote_addr] '
-#                     '[Length $body_bytes_sent] [Gzip $gzip_ratio] [Sent-to $server] '
-#                     '"$http_user_agent" "$http_referer"';
+#   log_format proxy    '[$time_local] $upstream_cache_status $upstream_status $status - '
+#                        '$request_method $scheme $host "$request_uri" [Client $remote_addr] ...'
+#   log_format standard '[$time_local] $status - $request_method $scheme $host "$request_uri" '
+#                        '[Client $remote_addr] ...'  # без cache_status/upstream_status, без [Sent-to]
 #
-# Пишется в /data/logs/proxy-host-<id>_access.log на каждый proxy-host (backend/templates/
-# proxy_host.conf), доступно с хоста через bind-mount ./data:/data
-# (roles/reverse_proxy_npm/templates/compose-reverse-proxy-npm.yml.j2).
+# Пишется в /data/logs/proxy-host-<id>_access.log (per-host, формат proxy) и
+# /data/logs/fallback_access.log (формат standard) — оба доступны с хоста через bind-mount
+# ./data:/data (roles/reverse_proxy_npm/templates/compose-reverse-proxy-npm.yml.j2). Файл
+# апстримного "log-proxy.conf" (docker/rootfs/etc/nginx/conf.d/include/log-proxy.conf) указывает
+# "fallback_http_access.log" для fallback — на практике реальное имя другое
+# ("fallback_access.log"), ориентируйтесь на logpath в jail, не на апстримный конфиг-файл.
 #
 # Банит по повторным 401/403/404 от одного client IP — эвристика "сканирование/перебор путей",
-# та же идея, что nginx-botsearch/nginx-http-auth для стокового формата, адаптированная под
-# порядок полей NPM. jail должен указывать logpath на этот файл (glob по всем proxy-host'ам),
-# см. roles/fail2ban/README.md, "Известные интеграции".
+# та же идея, что nginx-botsearch/nginx-http-auth для стокового nginx-формата, адаптированная под
+# оба формата NPM (опциональная группа "cache_status upstream_status" перед $status). jail должен
+# указывать logpath на оба файла (см. roles/fail2ban/README.md, "Известные интеграции").
 
 [Definition]
 
-failregex = ^\[\S+ \S+\] \S+ \S+ (?:401|403|404) - \S+ \S+ \S+ "[^"]*" \[Client <HOST>\]
+failregex = ^\[\S+ \S+\] (?:\S+ \S+ )?(?:401|403|404) - \S+ \S+ \S+ "[^"]*" \[Client <HOST>\]
 
 ignoreregex =
 
