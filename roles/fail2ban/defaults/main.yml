@@ -1,0 +1,45 @@
+---
+# defaults file for fail2ban
+
+fail2ban_enabled: true
+
+# [DEFAULT]-секция jail.local — глобальные значения, каждый jail в fail2ban_jails может
+# переопределить своими maxretry/findtime/bantime/backend (см. ниже).
+fail2ban_bantime: 3600
+fail2ban_findtime: 600
+fail2ban_maxretry: 5
+# 127.0.0.1/8, ::1 — стандартный дефолт самого fail2ban (jail.conf), явно продублирован здесь,
+# чтобы roles-потребители (demo/*) могли расширить список (fail2ban_ignoreip | default([]) + [...])
+# без риска потерять localhost, если просто переопределят переменную с нуля.
+fail2ban_ignoreip:
+  - 127.0.0.1/8
+  - ::1
+fail2ban_backend: auto
+
+# Список jail'ов — полностью декларативный: jail.local перерендеривается целиком на каждом
+# прогоне (см. templates/jail.local.j2), выключить/удалить jail — значит убрать его из этого
+# списка (или проставить enabled: false), отдельного "state: absent" не нужно, в отличие от
+# htpasswd-подобных incremental-задач в других ролях коллекции.
+#
+# Схема одного элемента:
+#   name: sshd               # обязательное, имя секции [name] в jail.local
+#   enabled: true             # по умолчанию true
+#   filter: sshd              # имя filter.d-конфига (без .conf) — стоковый fail2ban или свой,
+#                              # см. fail2ban_custom_filters ниже. По умолчанию — не задаётся,
+#                              # fail2ban сам берёт filter = name (штатное поведение jail.conf).
+#   logpath: /var/log/...     # строка или список путей/glob'ов
+#   port: ssh                 # опционально
+#   backend: systemd           # опционально, переопределяет fail2ban_backend для этого jail'а
+#   maxretry/findtime/bantime  # опционально, переопределяют глобальные дефолты для этого jail'а
+#   action:                    # опционально, переопределяет дефолтный action
+fail2ban_jails: []
+
+# Кастомные filter.d-конфиги для нестандартных форматов логов (например, Nginx Proxy Manager —
+# roles/reverse_proxy_npm — свой log_format, не совпадает со стоковым combined/nginx, под который
+# рассчитаны фильтры из самого пакета fail2ban). Каждый элемент — {name, content}: content — это
+# ГОТОВОЕ содержимое секции [Definition] (failregex/ignoreregex/datepattern и т.п.), рендерится
+# как есть в /etc/fail2ban/filter.d/<name>.conf.
+fail2ban_custom_filters: []
+
+fail2ban_jail_local_path: /etc/fail2ban/jail.local
+fail2ban_filter_d_dir: /etc/fail2ban/filter.d

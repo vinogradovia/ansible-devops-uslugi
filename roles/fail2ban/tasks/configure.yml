@@ -1,0 +1,56 @@
+---
+# Bundled-фильтры под известные интеграции коллекции (roles/fail2ban/README.md, "Известные
+# интеграции") — устанавливаются безусловно, как и стоковые фильтры самого пакета fail2ban:
+# инертны, пока на них не сослался активный jail в fail2ban_jails. nginx_multidomain отдельного
+# bundled-фильтра не требует (стоковый nginx-формат лога — используется штатный
+# filter: nginx-limit-req из пакета fail2ban).
+- name: Render bundled filter.d configs (известные интеграции коллекции)
+  ansible.builtin.template:
+    src: "filter.d/{{ item }}.conf.j2"
+    dest: "{{ fail2ban_filter_d_dir }}/{{ item }}.conf"
+    owner: root
+    group: root
+    mode: '0644'
+  loop:
+    - npm-proxy
+  notify: Restart fail2ban
+
+- name: Render custom filter.d configs
+  ansible.builtin.template:
+    src: filter.d/custom.conf.j2
+    dest: "{{ fail2ban_filter_d_dir }}/{{ item.name }}.conf"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ fail2ban_custom_filters }}"
+  loop_control:
+    label: "{{ item.name }}"
+    loop_var: item
+  notify: Restart fail2ban
+
+- name: Render jail.local
+  ansible.builtin.template:
+    src: jail.local.j2
+    dest: "{{ fail2ban_jail_local_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart fail2ban
+
+# fail2ban-client -t не умеет валидировать отдельный файл-кандидат (в отличие от "nginx -t -c
+# %s") — -c принимает только целый каталог конфигурации (jail.conf/jail.d/filter.d вместе), а
+# ansible.builtin.template.validate подставляет %s как путь к одному временному файлу.
+# Валидируем постфактум, уже применённый /etc/fail2ban целиком — тот же результат (понятная
+# ошибка вместо непонятного краша systemd-юнита), но нельзя проверить ДО того, как переписан
+# боевой jail.local.
+- name: Validate fail2ban config (jail.local уже применён)
+  ansible.builtin.command: fail2ban-client -t
+  register: fail2ban_validate_result
+  changed_when: false
+  failed_when: fail2ban_validate_result.rc != 0
+
+- name: State service fail2ban
+  ansible.builtin.systemd:
+    name: fail2ban
+    enabled: "{{ fail2ban_enabled }}"
+    state: "{{ 'started' if fail2ban_enabled else 'stopped' }}"

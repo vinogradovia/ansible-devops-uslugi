@@ -1,0 +1,33 @@
+# Fail2Ban filter для Nginx Proxy Manager (roles/reverse_proxy_npm) — не стоковый nginx-формат
+# лога, поэтому не подходят фильтры из самого пакета fail2ban (nginx-http-auth/nginx-botsearch
+# рассчитаны на дефолтный combined/nginx access-лог). Формат — апстримный "proxy" log_format
+# NPM (github.com/NginxProxyManager/nginx-proxy-manager,
+# docker/rootfs/etc/nginx/conf.d/include/log-proxy.conf):
+#
+#   log_format proxy '[$time_local] $upstream_cache_status $upstream_status $status - '
+#                     '$request_method $scheme $host "$request_uri" [Client $remote_addr] '
+#                     '[Length $body_bytes_sent] [Gzip $gzip_ratio] [Sent-to $server] '
+#                     '"$http_user_agent" "$http_referer"';
+#
+# Пишется в /data/logs/proxy-host-<id>_access.log на каждый proxy-host (backend/templates/
+# proxy_host.conf), доступно с хоста через bind-mount ./data:/data
+# (roles/reverse_proxy_npm/templates/compose-reverse-proxy-npm.yml.j2).
+#
+# Банит по повторным 401/403/404 от одного client IP — эвристика "сканирование/перебор путей",
+# та же идея, что nginx-botsearch/nginx-http-auth для стокового формата, адаптированная под
+# порядок полей NPM. jail должен указывать logpath на этот файл (glob по всем proxy-host'ам),
+# см. roles/fail2ban/README.md, "Известные интеграции".
+
+[Definition]
+
+failregex = ^\[\S+ \S+\] \S+ \S+ (?:401|403|404) - \S+ \S+ \S+ "[^"]*" \[Client <HOST>\]
+
+ignoreregex =
+
+# datepattern = {NONE} — обязателен: наш ^-anchored failregex сам вычленяет "[$time_local]" из
+# начала строки, но fail2ban по умолчанию тоже пытается автоматически найти и "съесть" дату
+# ГДЕ УГОДНО в строке (в т.ч. внутри тех же квадратных скобок), оставляя после себя пустой "[]"
+# или обрывок — из-за этого ^\[\S+ \S+\] переставал матчиться вообще (0 из 1 строк). Найдено
+# реальным прогоном extensions/molecule/fail2ban/ через fail2ban-regex -v: без {NONE} — "0
+# matched, 1 missed" на заведомо корректной по формату строке; с {NONE} — совпадает.
+datepattern = {NONE}
