@@ -540,41 +540,41 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
     `monitoring_agent_orchestrator: docker`, а таким сочетанием ни один существующий тест/сценарий
     не пользовался.
 
-47. **Новая роль `fail2ban` + реорганизация nginx/npm-демок вокруг неё.** Записано
-    2026-08-05 по итогам сессии, добавившей `roles/fail2ban_ui` (ADR — нет, решения
-    зафиксированы только здесь и в памяти агента) — план, не начатая реализация.
+47. ~~**Новая роль `fail2ban` + реорганизация nginx/npm-демок вокруг неё.**~~ — **сделано**
+    (2026-08-05). Все пять частей плана реализованы и проверены реальными прогонами:
 
-    - **Роль `fail2ban`** — сейчас Fail2Ban ставится и настраивается только ad hoc
-      (`demo/fail2ban-ui/ansible/site.yml`: голый `apt install fail2ban` + инлайновый
-      `jail.local`) — `roles/fail2ban_ui` сознательно считает Fail2Ban внешним пререквизитом,
-      не своей зоной ответственности (см. `roles/fail2ban_ui/README.md`). Нужна отдельная роль
-      коллекции: установка пакета, управление `jail.local`/`jail.d/*.conf` (список jail'ов —
-      параметризуемый список переменных, как `nginx_domains` у `nginx_multidomain`), фильтры,
-      бан-экшены. `fail2ban_ui` после этого должен получить на неё meta-зависимость (или
-      композицию на уровне demo/site.yml, как сейчас с `postgresql_replication`/`odyssey`, ADR-0005
-      §11 — решить, какой паттерн уместнее) вместо самостоятельной установки пакета в demo.
-    - **Связать `reverse_proxy_npm` + `fail2ban` и, отдельно, `nginx_multidomain` + `fail2ban`**
-      (уточнено пользователем 2026-08-05 — не «связать npm с nginx_multidomain» друг с другом,
-      а связать КАЖДУЮ из них с `fail2ban` по отдельности). Для каждой роли — свой jail/filter
-      под её собственные логи: `nginx_multidomain` пишет стандартный nginx access/error log
-      (нужен `filter.d`-конфиг под nginx, которого пока нет ни в одной роли коллекции — тот же,
-      что понадобится и для demo/nginx-multidomain ниже); `reverse_proxy_npm` — NPM свой
-      access-лог формат (в docker-контейнере, другой путь монтирования, другой формат строки —
-      нужен отдельный filter, не переиспользуется nginx-фильтр один-в-один, хотя NPM тоже на
-      nginx-движке внутри). Оба — взаимоисключающие альтернативы reverse-proxy на одном хосте
-      (ADR-0001 §порт-конфликт 80/443), поэтому это два параллельных, а не общих, направления
-      работы.
-    - **Переименовать `demo/fail2ban-ui` → `demo/nginx-multidomain`** и добавить в него роль
-      `nginx_multidomain` (сейчас у `nginx_multidomain` вообще нет demo-кейса, только molecule) —
-      реальный вхост, защищённый и nginx-basic-auth (уже умеет `fail2ban_ui`), и настоящим
-      `fail2ban` jail'ом на nginx-логи (потребует `filter.d`-конфиг для nginx, которого пока нет
-      ни в одной роли коллекции).
-    - **Новый `demo/npm`** — `reverse_proxy_npm` + `fail2ban` + `fail2ban_ui`, тот же паттерн
-      защиты, что и в переименованном `demo/nginx-multidomain`, но для NPM-пути. Показывает, что
-      `fail2ban_ui`/`fail2ban` одинаково применимы к обеим взаимоисключающим reverse-proxy ролям.
-    - Порядок реализации: сначала роль `fail2ban` (без неё нечего добавлять в demo-кейсы), затем
-      её фильтры под nginx/NPM-логи (см. выше), потом реорганизация demo (переименование + два
-      demo-кейса).
+    - **Роль `fail2ban`** (`roles/fail2ban/`) — устанавливает пакет, полностью декларативный
+      `jail.local` из списка `fail2ban_jails`, опциональные custom `filter.d` (`fail2ban_custom_filters`)
+      + bundled-фильтры под известные интеграции коллекции. `fail2ban-client -t` не умеет
+      валидировать одиночный файл-кандидат (`-c` принимает только целый каталог конфигурации) —
+      валидация постфактум отдельным command-таском, а не через `validate:` в `template`.
+      Molecule-сценарий (`extensions/molecule/fail2ban/`) — не только валидность конфига, а
+      реальный функциональный тест: дописывает строки в лог, дожидается настоящего бана IP.
+    - **`nginx_multidomain` + `fail2ban`** — кастомный фильтр не понадобился: роль использует
+      стоковый nginx-формат лога, штатный `filter: nginx-limit-req` из пакета `fail2ban` банит
+      по превышению уже реализованной в роли rate-limit-зоны.
+    - **`reverse_proxy_npm` + `fail2ban`** — bundled-фильтр `npm-proxy`
+      (`roles/fail2ban/templates/filter.d/npm-proxy.conf.j2`). Два реальных расхождения с
+      апстримным исходником NPM нашлись только живым прогоном на `demo/npm`, не при чтении кода:
+      (а) NPM пишет ДВА разных формата лога — per-proxy-host access-лог и fallback-лог (запросы
+      без совпавшего proxy-host, самый частый случай сканирования) — с разным числом полей перед
+      `$status`, failregex сначала матчил только первый; (б) апстримный `log-proxy.conf` называет
+      fallback-файл `fallback_http_access.log`, реальное имя в рантайме — `fallback_access.log`.
+      Отдельно найдено и решено через `datepattern = {NONE}`: fail2ban сам пытается вычленить дату
+      из строки ДО failregex, что ломало `^`-якорь обоих фильтров этого пункта плана — см.
+      `roles/fail2ban/README.md`, "Известные интеграции".
+    - **`demo/fail2ban-ui` → `demo/nginx-multidomain`** — переименован (тот же паттерн, что
+      `mysql-ha-observability` → `mysql-ha-platform`), роли `nginx_multidomain`+`fail2ban`
+      добавлены поверх уже существовавшего `fail2ban_ui`.
+    - **Новый `demo/npm`** — `reverse_proxy_npm` + `fail2ban` + `fail2ban_ui`. Реальный
+      архитектурный конфликт пойман до написания кода: `fail2ban_ui_reverse_proxy: nginx`
+      конфликтовал бы с `reverse_proxy_npm` за порты 80/443 (то же взаимоисключение, что
+      ADR-0001 документирует для `nginx_multidomain`/`reverse_proxy_traefik`) — здесь `fail2ban_ui`
+      без nginx-прокси, напрямую на своём порту.
+
+    Оба demo-кейса проверены полным циклом: реальный бан IP по превышению лимита/сканированию
+    (в `demo/npm` бан зацепил и SSH — fail2ban банит IP целиком), автоматический разбан по
+    истечении `bantime`, идемпотентность (второй подряд прогон `site.yml` — `changed=0`).
 
 ---
 
