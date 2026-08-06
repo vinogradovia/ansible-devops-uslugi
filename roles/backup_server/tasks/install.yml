@@ -1,0 +1,39 @@
+---
+# Пакеты подтверждены реальным листингом Packages того же репозитория (download.bareos.org/current/
+# xUbuntu_24.04) — bareos-filedaemon нужен и здесь (не только на будущих backup_agent-хостах): именно
+# он бекапит catalog-дамп + /etc/bareos самого backup_server (см. defaults: backup_server_self_backup_*).
+- name: Установить пакеты Bareos (director, storage daemon, file daemon, catalog-бэкенд, bconsole)
+  ansible.builtin.apt:
+    name:
+      - bareos-director
+      - bareos-storage
+      - bareos-filedaemon
+      - bareos-database-postgresql
+      - bareos-database-common
+      - bareos-bconsole
+    state: present
+    update_cache: true
+
+# Дистрибутивный пакет (не PGDG, в отличие от roles/postgresql_replication) — каталог Bareos не
+# участвует ни в какой репликации коллекции, пиннинг версии избыточен для внутренней служебной БД.
+- name: Установить PostgreSQL для каталога Bareos
+  ansible.builtin.apt:
+    name: postgresql
+    state: present
+
+- name: Включить и запустить сервис postgresql
+  ansible.builtin.systemd:
+    name: postgresql
+    enabled: true
+    state: started
+
+# Оба пакета нужны catalog-bootstrap.yml: python3-psycopg2 — коннектор для community.postgresql.*
+# модулей на управляемом хосте, acl — без него become_user: postgres не может корректно готовить
+# временные файлы (тот же паттерн и то же найденное вживую требование, что roles/postgresql_replication,
+# tasks/main.yml).
+- name: Установить зависимости community.postgresql.* (python3-psycopg2, acl)
+  ansible.builtin.apt:
+    name:
+      - python3-psycopg2
+      - acl
+    state: present

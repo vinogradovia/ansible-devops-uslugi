@@ -1,0 +1,83 @@
+---
+# Пакет bareos-storage тоже сам разворачивает дефолтные ресурсы в bareos-sd.d/ при первой установке
+# (тот же механизм, что director-config.yml) — director/bareos-mon.conf (Director-ресурс для
+# tray-monitor) эта роль не декларирует и не использует, удаляем для чистоты "конфиг = source of
+# truth" (остальное — device/storage/director/messages — совпадают по имени с рендером ниже и
+# корректно перезаписываются).
+- name: Удалить недекларируемые пакетные дефолты bareos-sd.d
+  ansible.builtin.file:
+    path: "{{ backup_server_storage_config_dir }}/director/bareos-mon.conf"
+    state: absent
+  notify:
+    - Restart bareos-storage
+
+- name: Ensure bareos-sd.d resource subdirectories exist
+  ansible.builtin.file:
+    path: "{{ backup_server_storage_config_dir }}/{{ item }}"
+    state: directory
+    owner: root
+    group: bareos
+    mode: '0750'
+  loop:
+    - storage
+    - director
+    - device
+    - messages
+  notify:
+    - Restart bareos-storage
+
+# Каталог тома должен существовать и принадлежать пользователю bareos (тем, от чьего имени
+# работает bareos-storage) ещё до старта сервиса — иначе Device не откроется.
+- name: Ensure archive device directory exists
+  ansible.builtin.file:
+    path: "{{ backup_server_storage_archive_device }}"
+    state: directory
+    owner: bareos
+    group: bareos
+    mode: '0770'
+
+- name: Render bareos-sd.d/storage resource
+  ansible.builtin.template:
+    src: bareos-sd.d/storage/storage.conf.j2
+    dest: "{{ backup_server_storage_config_dir }}/storage/bareos-sd.conf"
+    owner: root
+    group: bareos
+    mode: '0640'
+  notify:
+    - Restart bareos-storage
+
+- name: Render bareos-sd.d/director resource
+  ansible.builtin.template:
+    src: bareos-sd.d/director/director.conf.j2
+    dest: "{{ backup_server_storage_config_dir }}/director/{{ backup_server_director_name }}.conf"
+    owner: root
+    group: bareos
+    mode: '0640'
+  no_log: true
+  notify:
+    - Restart bareos-storage
+
+- name: Render bareos-sd.d/device resource
+  ansible.builtin.template:
+    src: bareos-sd.d/device/device.conf.j2
+    dest: "{{ backup_server_storage_config_dir }}/device/FileStorage.conf"
+    owner: root
+    group: bareos
+    mode: '0640'
+  notify:
+    - Restart bareos-storage
+
+- name: Render bareos-sd.d/messages resource
+  ansible.builtin.template:
+    src: bareos-sd.d/messages/messages.conf.j2
+    dest: "{{ backup_server_storage_config_dir }}/messages/Standard.conf"
+    owner: root
+    group: bareos
+    mode: '0640'
+  notify:
+    - Restart bareos-storage
+
+# Постфактум-валидация, тот же принцип, что director-config.yml (multi-file resource dir).
+- name: Validate bareos-sd config (bareos-sd -t)
+  ansible.builtin.command: "bareos-sd -t -c {{ backup_server_storage_conf_path }}"
+  changed_when: false

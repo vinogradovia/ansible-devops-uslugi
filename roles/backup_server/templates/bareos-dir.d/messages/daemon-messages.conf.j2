@@ -1,0 +1,14 @@
+{#
+Упрощено относительно апстрима (core/src/defaultconfigs/bareos-dir.d/messages/Daemon.conf.in):
+без operator/mail (bsmtp) — не тащим в MVP настройку почтового релея, см. README "Известные
+упрощения". Имя файла (Daemon.conf) намеренно совпадает с тем, что разворачивает сам пакет
+(deploy_config --init при первой установке) — рендер этой роли должен полностью перекрыть
+пакетный дефолт, а не создать второй одноимённый Messages-ресурс в отдельном файле (дубликат
+имени ресурса — фатальная ошибка парсера Bareos).
+#}
+Messages {
+  Name = Daemon
+  Description = "Message delivery for daemon messages (no job)."
+  console = all, !skipped, !saved, !audit
+  append = "/var/log/bareos/bareos.log" = all, !skipped, !audit
+}

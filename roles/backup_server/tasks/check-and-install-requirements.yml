@@ -1,0 +1,52 @@
+---
+# Fail-fast без скрытых дефолтов (тот же паттерн, что reverse_proxy_npm/reverse_proxy_traefik/
+# infra_panel/fail2ban_ui) — все три пароля используются для внутренней аутентификации между
+# компонентами Bareos (director/storage daemon/catalog), пустое значение обнаружится не сразу
+# (Bareos сам не проверяет непустоту пароля), а сломает converge заметно позже, на этапе -t/старта
+# сервисов — лучше упасть здесь с понятным сообщением.
+
+- name: Fail if backup_server_director_password is not set
+  ansible.builtin.assert:
+    that:
+      - backup_server_director_password is defined
+      - backup_server_director_password | length > 0
+    fail_msg: >-
+      backup_server_director_password обязателен — пароль director<->bconsole/storage daemon,
+      задайте настоящее значение в inventory/group_vars (vault).
+    quiet: true
+  no_log: true
+
+- name: Fail if backup_server_storage_password is not set
+  ansible.builtin.assert:
+    that:
+      - backup_server_storage_password is defined
+      - backup_server_storage_password | length > 0
+    fail_msg: >-
+      backup_server_storage_password обязателен — пароль director<->storage daemon, задайте
+      настоящее значение в inventory/group_vars (vault).
+    quiet: true
+  no_log: true
+
+- name: Fail if backup_server_catalog_db_password is not set
+  ansible.builtin.assert:
+    that:
+      - backup_server_catalog_db_password is defined
+      - backup_server_catalog_db_password | length > 0
+    fail_msg: >-
+      backup_server_catalog_db_password обязателен — пароль роли PostgreSQL каталога Bareos,
+      задайте настоящее значение в inventory/group_vars (vault).
+    quiet: true
+  no_log: true
+
+- name: Fail if backup_server_self_backup_client_password is not set
+  ansible.builtin.assert:
+    that:
+      - backup_server_self_backup_client_password is defined
+      - backup_server_self_backup_client_password | length > 0
+    fail_msg: >-
+      backup_server_self_backup_client_password обязателен при backup_server_self_backup_enabled:
+      true — пароль director<->локальный file daemon, задайте настоящее значение в
+      inventory/group_vars (vault).
+    quiet: true
+  no_log: true
+  when: backup_server_self_backup_enabled

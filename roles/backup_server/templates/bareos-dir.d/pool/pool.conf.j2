@@ -1,0 +1,10 @@
+Pool {
+  Name = {{ item.name }}
+  Pool Type = {{ item.pool_type | default('Backup') }}
+  Recycle = yes
+  AutoPrune = yes
+  Volume Retention = {{ item.volume_retention }}
+  Maximum Volume Bytes = {{ item.maximum_volume_bytes }}
+  Maximum Volumes = {{ item.maximum_volumes | default(100) }}
+  Label Format = "{{ item.name }}-"
+}

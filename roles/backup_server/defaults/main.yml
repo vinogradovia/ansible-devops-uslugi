@@ -1,0 +1,120 @@
+---
+# defaults file for backup_server
+#
+# ROADMAP.md Backlog №48 — Bareos director + storage daemon + catalog. См. roles/backup_server/README.md
+# для полного описания механизма (репозиторий, bootstrap каталога, self-backup валидация).
+
+# --- Пакеты/репозиторий ---
+# download.bareos.org (community-репозиторий, OBS-стиль) — путь подтверждён напрямую по реальному
+# листингу (bareos.list): "deb https://download.bareos.org/current/xUbuntu_24.04 /", плоский репозиторий
+# без dist/component. current — стабильная ветка (в отличие от next).
+backup_server_bareos_repo_channel: current
+backup_server_bareos_repo_os_path: >-
+  {{ 'xUbuntu_' + ansible_distribution_version if ansible_distribution == 'Ubuntu'
+     else 'Debian_' + ansible_distribution_major_version }}
+backup_server_bareos_repo_url: "https://download.bareos.org/{{ backup_server_bareos_repo_channel }}/{{ backup_server_bareos_repo_os_path }}"
+backup_server_bareos_repo_keyring_path: /etc/apt/keyrings/bareos.asc
+
+# --- Каталог (PostgreSQL) ---
+# Дистрибутивный пакет postgresql (не PGDG, в отличие от roles/postgresql_replication) — каталог
+# Bareos не участвует ни в какой репликации коллекции, пиннинг версии избыточен.
+backup_server_catalog_name: MyCatalog
+backup_server_catalog_db_name: bareos
+backup_server_catalog_db_user: bareos
+# Обязателен, fail-fast в check-and-install-requirements.yml, если пусто.
+backup_server_catalog_db_password: ""
+
+# --- Director ---
+backup_server_director_name: bareos-dir
+# Обязателен (пароль консоли/director<->любой компонент, использующий этот же Name), fail-fast если пусто.
+backup_server_director_password: ""
+backup_server_director_config_dir: /etc/bareos/bareos-dir.d
+# "-c" ожидает БАЗОВЫЙ каталог (/etc/bareos), а НЕ сам bareos-dir.d — бинарник сам достраивает
+# "<BASEDIR>/bareos-dir.conf" (файла нет) и фоллбэком "<BASEDIR>/bareos-dir.d" (есть). Найдено
+# реальным прогоном molecule дважды: "-c /etc/bareos/bareos-dir.conf" -> "Path does not exist"
+# (см. bareos-config-lib.sh get_config_path2()); затем "-c /etc/bareos/bareos-dir.d" ->
+# "Failed to find configuration files... Did look for .../bareos-dir.d/bareos-dir.conf and
+# .../bareos-dir.d/bareos-dir.d" — само значение -c уже интерпретируется как BASEDIR, повторно
+# приписывать component-суффикс не нужно. systemd ExecStart (без -c вовсе) неявно использует тот
+# же BASEDIR = /etc/bareos.
+backup_server_director_conf_path: /etc/bareos
+backup_server_director_max_concurrent_jobs: 10
+
+# --- Storage daemon ---
+backup_server_storage_name: File
+# Обязателен (director<->storage daemon), fail-fast если пусто.
+backup_server_storage_password: ""
+# MVP: director и storage daemon — один и тот же хост (localhost). Как только появятся реальные
+# удалённые клиенты (роль backup_agent, ROADMAP №48), им нужен маршрут к storage daemon — тогда
+# переопределите на реально достижимый адрес/FQDN (upstream явно предупреждает не использовать
+# localhost в проде — здесь это осознанное упрощение MVP, задокументировано в README).
+backup_server_storage_address: "{{ ansible_default_ipv4.address }}"
+# MVP: локальный диск. S3-хранилище — следующий шаг (ROADMAP №48), не реализовано в этой роли.
+backup_server_storage_archive_device: /var/lib/bareos/storage
+backup_server_storage_device_count: 1
+backup_server_storage_config_dir: /etc/bareos/bareos-sd.d
+# См. комментарий у backup_server_director_conf_path — тот же механизм резолва пути у bareos-sd
+# (BASEDIR, не сам bareos-sd.d).
+backup_server_storage_conf_path: /etc/bareos
+backup_server_storage_max_concurrent_jobs: 10
+
+# --- Local file daemon (self-backup, ROADMAP №48 — этой же ролью, не будущей backup_agent) ---
+backup_server_filedaemon_config_dir: /etc/bareos/bareos-fd.d
+# См. комментарий у backup_server_director_conf_path — тот же механизм резолва пути у bareos-fd
+# (BASEDIR, не сам bareos-fd.d).
+backup_server_filedaemon_conf_path: /etc/bareos
+
+# --- bconsole ---
+backup_server_bconsole_conf_path: /etc/bareos/bconsole.conf
+
+# --- Пулы — полностью декларативный список, дефолт воспроизводит стоковые Full/Differential/
+# Incremental апстрима (core/src/defaultconfigs/bareos-dir.d/pool/*.conf), но списком, а не
+# хардкодом в шаблоне. Схема одного элемента:
+#   name               # обязательное, имя Pool-ресурса
+#   pool_type           # Backup/Scratch/..., по умолчанию Backup
+#   volume_retention    # напр. "365 days"
+#   maximum_volume_bytes  # напр. "50G"
+#   maximum_volumes     # опционально, по умолчанию 100
+backup_server_pools:
+  - name: Full
+    pool_type: Backup
+    volume_retention: 365 days
+    maximum_volume_bytes: 50G
+    maximum_volumes: 100
+  - name: Differential
+    pool_type: Backup
+    volume_retention: 90 days
+    maximum_volume_bytes: 10G
+    maximum_volumes: 100
+  - name: Incremental
+    pool_type: Backup
+    volume_retention: 30 days
+    maximum_volume_bytes: 1G
+    maximum_volumes: 100
+
+# --- Self-backup (BackupCatalog) — единственный функциональный job в этой роли на данный момент:
+# бекапит дамп самого каталога + /etc/bareos, тем самым доказывая всю цепочку целиком (director →
+# storage daemon → catalog) без необходимости в ещё не реализованной роли backup_agent.
+backup_server_self_backup_enabled: true
+backup_server_self_backup_client_name: bareos-fd
+# Обязателен, если backup_server_self_backup_enabled: true — пароль director<->локальный file
+# daemon (тот же bareos-filedaemon, что ставится этой ролью на сам backup_server, см. install.yml).
+backup_server_self_backup_client_password: ""
+backup_server_self_backup_schedule_runs:
+  - "Full 1st sun at 02:00"
+  - "Incremental mon-sat at 03:00"
+backup_server_self_backup_pool: Incremental
+
+# --- Клиенты будущей роли backup_agent — пусто по умолчанию, не используется в этой роли, но
+# рендерится в bareos-dir.d/client|job, если заполнено (готовит место, не задействовано в MVP).
+# Схема одного элемента:
+#   name        # обязательное, имя Client-ресурса (= Name файлового демона на клиенте)
+#   address      # обязательное, адрес/hostname клиента
+#   password     # обязательное, пароль director<->file daemon клиента
+#   fileset      # имя FileSet-ресурса (см. backup_server_filesets)
+#   pool         # опционально, пул по умолчанию для job'а клиента (иначе backup_server_self_backup_pool)
+backup_server_clients: []
+
+# Кастомные FileSet-ресурсы для backup_server_clients (схема: {name, content} — content — готовое
+# содержимое Include/Exclude-блоков, рендерится как есть).
+backup_server_filesets: []

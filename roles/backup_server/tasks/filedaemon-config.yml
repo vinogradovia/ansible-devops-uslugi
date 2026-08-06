@@ -1,0 +1,70 @@
+---
+# Локальный bareos-filedaemon нужен только для self-backup (бекап дампа каталога + /etc/bareos
+# самого backup_server, см. defaults/main.yml backup_server_self_backup_*) — не имеет отношения к
+# будущей роли backup_agent (удалённые клиенты).
+
+# Пакет bareos-filedaemon тоже сам разворачивает дефолтные ресурсы в bareos-fd.d/ (тот же механизм,
+# что director-config.yml/storage-config.yml) — director/bareos-mon.conf не декларируется этой
+# ролью, удаляем для чистоты.
+- name: Удалить недекларируемые пакетные дефолты bareos-fd.d
+  ansible.builtin.file:
+    path: "{{ backup_server_filedaemon_config_dir }}/director/bareos-mon.conf"
+    state: absent
+  when: backup_server_self_backup_enabled
+  notify:
+    - Restart bareos-filedaemon
+
+- name: Ensure bareos-fd.d resource subdirectories exist
+  ansible.builtin.file:
+    path: "{{ backup_server_filedaemon_config_dir }}/{{ item }}"
+    state: directory
+    owner: root
+    group: bareos
+    mode: '0750'
+  loop:
+    - client
+    - director
+    - messages
+  when: backup_server_self_backup_enabled
+  notify:
+    - Restart bareos-filedaemon
+
+- name: Render bareos-fd.d/client resource
+  ansible.builtin.template:
+    src: bareos-fd.d/client/client.conf.j2
+    dest: "{{ backup_server_filedaemon_config_dir }}/client/myself.conf"
+    owner: root
+    group: bareos
+    mode: '0640'
+  when: backup_server_self_backup_enabled
+  notify:
+    - Restart bareos-filedaemon
+
+- name: Render bareos-fd.d/director resource
+  ansible.builtin.template:
+    src: bareos-fd.d/director/director.conf.j2
+    dest: "{{ backup_server_filedaemon_config_dir }}/director/{{ backup_server_director_name }}.conf"
+    owner: root
+    group: bareos
+    mode: '0640'
+  when: backup_server_self_backup_enabled
+  no_log: true
+  notify:
+    - Restart bareos-filedaemon
+
+- name: Render bareos-fd.d/messages resource
+  ansible.builtin.template:
+    src: bareos-fd.d/messages/messages.conf.j2
+    dest: "{{ backup_server_filedaemon_config_dir }}/messages/Standard.conf"
+    owner: root
+    group: bareos
+    mode: '0640'
+  when: backup_server_self_backup_enabled
+  notify:
+    - Restart bareos-filedaemon
+
+# Постфактум-валидация, тот же принцип, что director-config.yml/storage-config.yml.
+- name: Validate bareos-fd config (bareos-fd -t)
+  ansible.builtin.command: "bareos-fd -t -c {{ backup_server_filedaemon_conf_path }}"
+  changed_when: false
+  when: backup_server_self_backup_enabled

@@ -1,0 +1,27 @@
+---
+- name: Include check-and-install-requirements.yml
+  ansible.builtin.include_tasks: check-and-install-requirements.yml
+
+- name: Include install-repo.yml
+  ansible.builtin.include_tasks: install-repo.yml
+
+- name: Include install.yml
+  ansible.builtin.include_tasks: install.yml
+
+- name: Include catalog-bootstrap.yml
+  ansible.builtin.include_tasks: catalog-bootstrap.yml
+
+- name: Include director-config.yml
+  ansible.builtin.include_tasks: director-config.yml
+
+- name: Include storage-config.yml
+  ansible.builtin.include_tasks: storage-config.yml
+
+- name: Include filedaemon-config.yml
+  ansible.builtin.include_tasks: filedaemon-config.yml
+
+- name: Include bconsole.yml
+  ansible.builtin.include_tasks: bconsole.yml
+
+- name: Include services.yml
+  ansible.builtin.include_tasks: services.yml

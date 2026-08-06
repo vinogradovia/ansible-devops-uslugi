@@ -1,0 +1,9 @@
+{#
+Собственное имя storage daemon (не путать с backup_server_storage_name — это Name Storage-ресурса
+на СТОРОНЕ ДИРЕКТОРА, см. bareos-dir.d/storage/storage.conf.j2; здесь — самоидентификация самого
+демона, апстрим использует фиксированное "bareos-sd", см. core/src/defaultconfigs/bareos-sd.d/
+storage/bareos-sd.conf.in).
+#}
+Storage {
+  Name = bareos-sd
+}

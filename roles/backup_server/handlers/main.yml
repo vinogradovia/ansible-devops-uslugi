@@ -1,0 +1,15 @@
+---
+- name: Restart bareos-director
+  ansible.builtin.systemd:
+    name: bareos-director
+    state: restarted
+
+- name: Restart bareos-storage
+  ansible.builtin.systemd:
+    name: bareos-storage
+    state: restarted
+
+- name: Restart bareos-filedaemon
+  ansible.builtin.systemd:
+    name: bareos-filedaemon
+    state: restarted

@@ -1,0 +1,38 @@
+---
+# Подключение community-репозитория download.bareos.org (OBS-стиль, плоский, без dist/component —
+# подтверждено реальным листингом bareos.list: "deb https://download.bareos.org/current/xUbuntu_24.04 /").
+# Тот же паттерн, что roles/docker/tasks/install-repo.yml (keyring signed-by, не apt_key) —
+# отличие от docker в том, что путь дистрибутива у Bareos не совпадает с ansible_distribution
+# напрямую (xUbuntu_XX.YY/Debian_XX, а не ubuntu/debian), см. backup_server_bareos_repo_os_path.
+
+- name: "[repo] Установить пакеты, необходимые для подключения репозитория"
+  ansible.builtin.apt:
+    name:
+      - curl
+      - ca-certificates
+      - gnupg
+    state: present
+    update_cache: true
+
+- name: "[repo] Создать каталог для apt keyring'ов"
+  ansible.builtin.file:
+    path: "{{ backup_server_bareos_repo_keyring_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: "[repo] Скачать GPG-ключ download.bareos.org"
+  ansible.builtin.get_url:
+    url: "{{ backup_server_bareos_repo_url }}/Release.key"
+    dest: "{{ backup_server_bareos_repo_keyring_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: "[repo] Подключить репозиторий download.bareos.org (канал: {{ backup_server_bareos_repo_channel }})"
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by={{ backup_server_bareos_repo_keyring_path }}] {{ backup_server_bareos_repo_url }} /"
+    state: present
+    filename: bareos
+    update_cache: true

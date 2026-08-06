@@ -1,0 +1,6 @@
+Schedule {
+  Name = "SelfBackupCycle"
+{% for run in backup_server_self_backup_schedule_runs %}
+  Run = {{ run }}
+{% endfor %}
+}

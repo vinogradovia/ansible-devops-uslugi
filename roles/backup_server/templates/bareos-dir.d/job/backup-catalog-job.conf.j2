@@ -1,0 +1,16 @@
+Job {
+  Name = "BackupCatalog"
+  Description = "Backup the catalog database dump + /etc/bareos config (self-backup, ROADMAP №48)."
+  Type = Backup
+  Level = Incremental
+  Client = {{ backup_server_self_backup_client_name }}
+  FileSet = "Catalog"
+  Schedule = "SelfBackupCycle"
+  Storage = {{ backup_server_storage_name }}
+  Pool = {{ backup_server_self_backup_pool }}
+  Messages = Standard
+  Priority = 11
+  Write Bootstrap = "/var/lib/bareos/%c.bsr"
+  RunBeforeJob = "/usr/lib/bareos/scripts/make_catalog_backup {{ backup_server_catalog_name }}"
+  RunAfterJob = "/usr/lib/bareos/scripts/delete_catalog_backup {{ backup_server_catalog_name }}"
+}

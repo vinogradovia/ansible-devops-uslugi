@@ -1,0 +1,21 @@
+---
+- name: Enable and start bareos-storage
+  ansible.builtin.systemd:
+    name: bareos-storage
+    enabled: true
+    state: started
+
+- name: Enable and start bareos-filedaemon
+  ansible.builtin.systemd:
+    name: bareos-filedaemon
+    enabled: true
+    state: started
+  when: backup_server_self_backup_enabled
+
+# Director — последним: подключается и к storage daemon, и (для self-backup job) к file daemon,
+# оба уже должны быть подняты к этому моменту.
+- name: Enable and start bareos-director
+  ansible.builtin.systemd:
+    name: bareos-director
+    enabled: true
+    state: started

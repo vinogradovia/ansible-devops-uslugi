@@ -1,0 +1,14 @@
+Job {
+  Name = "backup-{{ item.name }}"
+  Type = Backup
+  Level = Incremental
+  Client = {{ item.name }}
+  FileSet = "{{ item.fileset }}"
+  Schedule = "{{ item.schedule | default('SelfBackupCycle') }}"
+  Storage = {{ backup_server_storage_name }}
+  Pool = {{ item.pool | default(backup_server_self_backup_pool) }}
+  Messages = Standard
+  Full Backup Pool = Full
+  Differential Backup Pool = Differential
+  Incremental Backup Pool = Incremental
+}

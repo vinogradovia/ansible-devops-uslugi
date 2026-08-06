@@ -1,0 +1,72 @@
+---
+# Без dbconfig-common (интерактивен по умолчанию у Debian-пакетов Bareos, не подходит для Ansible).
+# Роль/БД создаются нативными идемпотентными модулями community.postgresql — это ровно то же самое,
+# что делают штатные скрипты Bareos create_bareos_database/grant_bareos_privileges (см.
+# core/src/cats/*.in апстрима: SQL_ASCII/C/C/template0, владелец = роль БД), но без шелл-скриптов.
+#
+# Аутентификация — unix-сокет с peer-auth от имени OS-пользователя postgres (become_user), тот же
+# паттерн, что roles/postgresql_replication/tasks/replication-user.yml.
+
+- name: Create backup_server_catalog_db_user PostgreSQL role
+  become: true
+  become_user: postgres
+  community.postgresql.postgresql_user:
+    login_unix_socket: /var/run/postgresql
+    name: "{{ backup_server_catalog_db_user }}"
+    password: "{{ backup_server_catalog_db_password }}"
+    role_attr_flags: LOGIN
+    state: present
+
+- name: Create Bareos catalog database
+  become: true
+  become_user: postgres
+  community.postgresql.postgresql_db:
+    login_unix_socket: /var/run/postgresql
+    name: "{{ backup_server_catalog_db_name }}"
+    owner: "{{ backup_server_catalog_db_user }}"
+    encoding: SQL_ASCII
+    lc_collate: C
+    lc_ctype: C
+    template: template0
+    state: present
+
+# make_bareos_tables (пакет bareos-database-common) не идемпотентен — падает на уже существующей
+# схеме, поэтому гейтим ansible-стороной: проверяем наличие таблицы job, создаём схему, только если
+# её ещё нет. Тот же принцип постфактум-проверки, что уже применён для fail2ban-client -t (сам
+# инструмент не умеет сообщить "схема уже накачена", оборачиваем ansible-задачей).
+- name: Check whether Bareos catalog schema is already created
+  become: true
+  become_user: postgres
+  community.postgresql.postgresql_query:
+    login_unix_socket: /var/run/postgresql
+    db: "{{ backup_server_catalog_db_name }}"
+    query: "SELECT to_regclass('public.job') AS job_table"
+  register: backup_server_catalog_schema_check
+  changed_when: false
+
+- name: Create Bareos catalog schema (make_bareos_tables)
+  become: true
+  become_user: postgres
+  ansible.builtin.command: /usr/lib/bareos/scripts/make_bareos_tables
+  environment:
+    db_name: "{{ backup_server_catalog_db_name }}"
+    db_user: "{{ backup_server_catalog_db_user }}"
+    db_password: "{{ backup_server_catalog_db_password }}"
+  when: backup_server_catalog_schema_check.query_result[0].job_table is none
+  changed_when: true
+
+# make_bareos_tables выполняется от postgres (become_user) — таблицы создаются с owner=postgres,
+# owner БД (backup_server_catalog_db_user) НЕ получает на них прав автоматически. bareos-dir
+# реально подключается той ролью (см. Catalog-ресурс, dbuser) — без явного GRANT падает "permission
+# denied for table version" (найдено реальным прогоном molecule на bareos-dir -t). Гейтим тем же
+# условием, что создание схемы — GRANT нужен один раз, сразу после первого make_bareos_tables.
+- name: Grant Bareos catalog privileges (grant_bareos_privileges)
+  become: true
+  become_user: postgres
+  ansible.builtin.command: /usr/lib/bareos/scripts/grant_bareos_privileges
+  environment:
+    db_name: "{{ backup_server_catalog_db_name }}"
+    db_user: "{{ backup_server_catalog_db_user }}"
+    db_password: "{{ backup_server_catalog_db_password }}"
+  when: backup_server_catalog_schema_check.query_result[0].job_table is none
+  changed_when: true

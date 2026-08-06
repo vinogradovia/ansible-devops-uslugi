@@ -1,0 +1,85 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    # --- Все три сервиса реально запущены и в автозагрузке -------------------------------------
+    - name: Собрать service_facts
+      ansible.builtin.service_facts:
+
+    - name: bareos-director/bareos-storage/bareos-filedaemon должны быть running
+      ansible.builtin.assert:
+        that:
+          - "'bareos-director.service' in ansible_facts.services"
+          - ansible_facts.services['bareos-director.service'].state == 'running'
+          - "'bareos-storage.service' in ansible_facts.services"
+          - ansible_facts.services['bareos-storage.service'].state == 'running'
+          - "'bareos-filedaemon.service' in ansible_facts.services"
+          - ansible_facts.services['bareos-filedaemon.service'].state == 'running'
+        quiet: true
+
+    # --- Конфиги валидны с точки зрения самих демонов (уже проверено ролью, здесь — независимая
+    # перепроверка verify, тот же принцип, что extensions/molecule/fail2ban/verify.yml) -----------
+    # become_user: bareos — "-t" открывает Catalog (peer-auth к PostgreSQL сверяет ОС-пользователя),
+    # см. комментарий в roles/backup_server/tasks/director-config.yml.
+    - name: bareos-dir -t
+      become_user: bareos
+      ansible.builtin.command: bareos-dir -t -c /etc/bareos
+      changed_when: false
+
+    - name: bareos-sd -t
+      ansible.builtin.command: bareos-sd -t -c /etc/bareos
+      changed_when: false
+
+    - name: bareos-fd -t
+      ansible.builtin.command: bareos-fd -t -c /etc/bareos
+      changed_when: false
+
+    # --- Функциональная проверка: реально запустить self-backup job через bconsole и убедиться,
+    # что storage daemon реально записал том на диск (не просто "конфиг валиден") -----------------
+    # "wait" блокируется до завершения job'а, но сам по себе не печатает отчёт о терминации —
+    # нужна отдельная команда "messages" после него, чтобы реально увидеть "Termination: ..."
+    # (найдено реальным прогоном molecule: без неё stdout обрывался на "You have messages.").
+    - name: Запустить job BackupCatalog через bconsole и дождаться завершения
+      ansible.builtin.shell: |
+        set -o pipefail
+        printf 'run job=BackupCatalog level=Full yes\nwait\nmessages\nquit\n' | bconsole -c /etc/bareos/bconsole.conf
+      args:
+        executable: /bin/bash
+      register: molecule_bconsole_run
+      changed_when: true
+
+    - name: Вывод bconsole должен подтвердить успешное завершение job'а
+      ansible.builtin.assert:
+        that:
+          - "'Backup OK' in molecule_bconsole_run.stdout or 'Termination:            Backup OK' in molecule_bconsole_run.stdout"
+        quiet: true
+        fail_msg: "bconsole run job=BackupCatalog не завершился успешно, вывод: {{ molecule_bconsole_run.stdout }}"
+
+    - name: Найти файлы томов в storage-каталоге
+      ansible.builtin.find:
+        paths: /var/lib/bareos/storage
+        file_type: file
+      register: molecule_storage_volumes
+
+    - name: Storage daemon должен реально записать хотя бы один непустой том
+      ansible.builtin.assert:
+        that:
+          - molecule_storage_volumes.matched > 0
+          - molecule_storage_volumes.files | map(attribute='size') | max > 0
+        quiet: true
+
+    - name: Дамп каталога должен реально существовать (make_catalog_backup)
+      ansible.builtin.stat:
+        path: /var/lib/bareos/bareos.sql
+      register: molecule_catalog_dump_stat
+
+    # Файл удаляется RunAfterJob (delete_catalog_backup) после успешного бекапа — сам факт, что
+    # job завершился "Backup OK" (проверено выше), доказывает, что дамп существовал в момент
+    # бекапа; здесь просто фиксируем ожидаемое состояние postfactum (файла уже не должно быть).
+    - name: Дамп каталога должен быть удалён после job'а (delete_catalog_backup, RunAfterJob)
+      ansible.builtin.assert:
+        that:
+          - not molecule_catalog_dump_stat.stat.exists
+        quiet: true

@@ -1,0 +1,8 @@
+---
+# Переменные для converge/verify этого сценария — тот же паттерн, что и у остальных
+# molecule-сценариев коллекции (group_vars/, не vars: playbook'ов).
+
+backup_server_director_password: "molecule-test-director-password"
+backup_server_storage_password: "molecule-test-storage-password"
+backup_server_catalog_db_password: "molecule-test-catalog-password"
+backup_server_self_backup_client_password: "molecule-test-fd-password"

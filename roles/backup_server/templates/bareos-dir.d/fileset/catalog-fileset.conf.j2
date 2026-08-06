@@ -1,0 +1,11 @@
+FileSet {
+  Name = "Catalog"
+  Description = "Backup the catalog dump and Bareos configuration files."
+  Include {
+    Options {
+      Signature = XXH128
+    }
+    File = "/var/lib/bareos/{{ backup_server_catalog_db_name }}.sql"
+    File = "/etc/bareos"
+  }
+}

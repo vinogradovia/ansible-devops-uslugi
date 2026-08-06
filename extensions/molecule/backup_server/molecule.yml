@@ -1,0 +1,33 @@
+---
+# driver: vagrant/libvirt — единое требование для всех molecule-сценариев коллекции (CLAUDE.md,
+# «Molecule-тесты»). memory 1536 — на этом одном хосте одновременно работают postgresql, bareos-dir,
+# bareos-sd и bareos-fd (self-backup), больше, чем у systemd-only ролей вроде infra_dns.
+driver:
+  name: vagrant
+  provider:
+    name: libvirt
+
+platforms:
+  - name: backup-server
+    box: cloud-image/ubuntu-24.04
+    memory: 1536
+    cpus: 1
+
+scenario:
+  test_sequence:
+    - dependency
+    - destroy
+    - syntax
+    - create
+    - prepare
+    - converge
+    - idempotence
+    - verify
+    - destroy
+
+shared_state: false
+
+ansible:
+  executor:
+    args:
+      ansible_playbook: []

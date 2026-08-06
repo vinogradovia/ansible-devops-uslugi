@@ -1,0 +1,10 @@
+---
+# Одиночный файл (не .d-каталог, подтверждено core/src/console/bconsole.conf.in апстрима).
+- name: Render bconsole.conf
+  ansible.builtin.template:
+    src: bconsole.conf.j2
+    dest: "{{ backup_server_bconsole_conf_path }}"
+    owner: root
+    group: bareos
+    mode: '0640'
+  no_log: true

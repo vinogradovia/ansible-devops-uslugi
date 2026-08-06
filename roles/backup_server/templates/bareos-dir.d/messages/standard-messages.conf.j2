@@ -1,0 +1,12 @@
+{#
+Упрощено относительно апстрима (core/src/defaultconfigs/bareos-dir.d/messages/Standard.conf.in):
+без operator/mail (bsmtp), см. daemon-messages.conf.j2. Имя файла (Standard.conf) намеренно
+совпадает с пакетным дефолтом — та же причина, что в daemon-messages.conf.j2.
+#}
+Messages {
+  Name = Standard
+  Description = "Message delivery for job messages -- console, лог-файл и catalog."
+  console = all, !skipped, !saved, !audit
+  append = "/var/log/bareos/bareos.log" = all, !skipped, !saved, !audit
+  catalog = all, !skipped, !saved, !audit
+}

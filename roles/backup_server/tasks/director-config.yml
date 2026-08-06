@@ -1,0 +1,221 @@
+---
+# Пакет bareos-director сам разворачивает полный дефолтный набор ресурсов в bareos-dir.d/ при
+# первой установке (postinst: bareos-config deploy_config --init "bareos-dir", копирует ВЕСЬ
+# дефолтный шаблонный каталог целиком, а не только то, что переопределяет эта роль) — найдено
+# реальным прогоном molecule. Файлы, которые эта роль тоже рендерит под тем же именем
+# (director/bareos-dir.conf, catalog/MyCatalog.conf, storage/File.conf, client/bareos-fd.conf,
+# messages/{Daemon,Standard}.conf, pool/{Full,Differential,Incremental}.conf, fileset/Catalog.conf,
+# job/BackupCatalog.conf) корректно перезаписываются template'ом. Остальное — реальные, но не
+# декларированные этой ролью ресурсы (тестовый generic-клиент, лишние schedule/job/fileset/profile)
+# — явно удаляем, иначе нарушается принцип "конфиг = source of truth" (тот же принцип, что
+# jail.local в роли fail2ban перерендеривается целиком, а не инкрементально).
+- name: Удалить недекларируемые пакетные дефолты bareos-dir.d
+  ansible.builtin.file:
+    path: "{{ backup_server_director_config_dir }}/{{ item }}"
+    state: absent
+  loop:
+    - console/bareos-mon.conf
+    - fileset/LinuxAll.conf
+    - fileset/SelfTest.conf
+    - "fileset/Windows All Drives.conf"
+    - job/backup-bareos-fd.conf
+    - job/RestoreFiles.conf
+    - jobdefs/DefaultJob.conf
+    - pool/Scratch.conf
+    - profile/operator.conf
+    - profile/webui-admin.conf
+    - profile/webui-readonly.conf
+    - schedule/WeeklyCycle.conf
+    - schedule/WeeklyCycleAfterBackup.conf
+  notify:
+    - Restart bareos-director
+
+- name: Ensure bareos-dir.d resource subdirectories exist
+  ansible.builtin.file:
+    path: "{{ backup_server_director_config_dir }}/{{ item }}"
+    state: directory
+    owner: root
+    group: bareos
+    mode: '0750'
+  loop:
+    - director
+    - catalog
+    - storage
+    - pool
+    - fileset
+    - client
+    - schedule
+    - job
+    - messages
+  notify:
+    - Restart bareos-director
+
+- name: Render bareos-dir.d/director resource
+  ansible.builtin.template:
+    src: bareos-dir.d/director/director.conf.j2
+    # Имя файла (не только ресурса!) должно совпадать с тем, что разворачивает сам пакет
+    # (director/bareos-dir.conf) — иначе оба файла сосуществуют и Bareos падает с "Attempt to
+    # define second Director resource named ..." (найдено реальным прогоном molecule). Тот же
+    # принцип уже применён для catalog/storage/client дальше в этом файле.
+    dest: "{{ backup_server_director_config_dir }}/director/{{ backup_server_director_name }}.conf"
+    owner: root
+    group: bareos
+    mode: '0640'
+  notify:
+    - Restart bareos-director
+
+- name: Render bareos-dir.d/messages/Daemon resource
+  ansible.builtin.template:
+    src: bareos-dir.d/messages/daemon-messages.conf.j2
+    dest: "{{ backup_server_director_config_dir }}/messages/Daemon.conf"
+    owner: root
+    group: bareos
+    mode: '0640'
+  notify:
+    - Restart bareos-director
+
+- name: Render bareos-dir.d/messages/Standard resource
+  ansible.builtin.template:
+    src: bareos-dir.d/messages/standard-messages.conf.j2
+    dest: "{{ backup_server_director_config_dir }}/messages/Standard.conf"
+    owner: root
+    group: bareos
+    mode: '0640'
+  notify:
+    - Restart bareos-director
+
+- name: Render bareos-dir.d/catalog resource
+  ansible.builtin.template:
+    src: bareos-dir.d/catalog/catalog.conf.j2
+    dest: "{{ backup_server_director_config_dir }}/catalog/{{ backup_server_catalog_name }}.conf"
+    owner: root
+    group: bareos
+    mode: '0640'
+  no_log: true
+  notify:
+    - Restart bareos-director
+
+- name: Render bareos-dir.d/storage resource
+  ansible.builtin.template:
+    src: bareos-dir.d/storage/storage.conf.j2
+    dest: "{{ backup_server_director_config_dir }}/storage/{{ backup_server_storage_name }}.conf"
+    owner: root
+    group: bareos
+    mode: '0640'
+  no_log: true
+  notify:
+    - Restart bareos-director
+
+- name: Render bareos-dir.d/pool resources
+  ansible.builtin.template:
+    src: bareos-dir.d/pool/pool.conf.j2
+    dest: "{{ backup_server_director_config_dir }}/pool/{{ item.name }}.conf"
+    owner: root
+    group: bareos
+    mode: '0640'
+  loop: "{{ backup_server_pools }}"
+  loop_control:
+    label: "{{ item.name }}"
+  notify:
+    - Restart bareos-director
+
+- name: Render bareos-dir.d/fileset Catalog resource
+  ansible.builtin.template:
+    src: bareos-dir.d/fileset/catalog-fileset.conf.j2
+    dest: "{{ backup_server_director_config_dir }}/fileset/Catalog.conf"
+    owner: root
+    group: bareos
+    mode: '0640'
+  when: backup_server_self_backup_enabled
+  notify:
+    - Restart bareos-director
+
+- name: Render bareos-dir.d/fileset custom resources
+  ansible.builtin.template:
+    src: bareos-dir.d/fileset/custom-fileset.conf.j2
+    dest: "{{ backup_server_director_config_dir }}/fileset/{{ item.name }}.conf"
+    owner: root
+    group: bareos
+    mode: '0640'
+  loop: "{{ backup_server_filesets }}"
+  loop_control:
+    label: "{{ item.name }}"
+  notify:
+    - Restart bareos-director
+
+- name: Render bareos-dir.d/client self-backup resource
+  ansible.builtin.template:
+    src: bareos-dir.d/client/self-client.conf.j2
+    dest: "{{ backup_server_director_config_dir }}/client/{{ backup_server_self_backup_client_name }}.conf"
+    owner: root
+    group: bareos
+    mode: '0640'
+  when: backup_server_self_backup_enabled
+  no_log: true
+  notify:
+    - Restart bareos-director
+
+- name: Render bareos-dir.d/client resources
+  ansible.builtin.template:
+    src: bareos-dir.d/client/client.conf.j2
+    dest: "{{ backup_server_director_config_dir }}/client/{{ item.name }}.conf"
+    owner: root
+    group: bareos
+    mode: '0640'
+  loop: "{{ backup_server_clients }}"
+  loop_control:
+    label: "{{ item.name }}"
+  no_log: true
+  notify:
+    - Restart bareos-director
+
+- name: Render bareos-dir.d/schedule self-backup resource
+  ansible.builtin.template:
+    src: bareos-dir.d/schedule/self-backup-schedule.conf.j2
+    dest: "{{ backup_server_director_config_dir }}/schedule/SelfBackupCycle.conf"
+    owner: root
+    group: bareos
+    mode: '0640'
+  when: backup_server_self_backup_enabled
+  notify:
+    - Restart bareos-director
+
+- name: Render bareos-dir.d/job BackupCatalog resource
+  ansible.builtin.template:
+    src: bareos-dir.d/job/backup-catalog-job.conf.j2
+    dest: "{{ backup_server_director_config_dir }}/job/BackupCatalog.conf"
+    owner: root
+    group: bareos
+    mode: '0640'
+  when: backup_server_self_backup_enabled
+  notify:
+    - Restart bareos-director
+
+- name: Render bareos-dir.d/job client resources
+  ansible.builtin.template:
+    src: bareos-dir.d/job/client-job.conf.j2
+    dest: "{{ backup_server_director_config_dir }}/job/backup-{{ item.name }}.conf"
+    owner: root
+    group: bareos
+    mode: '0640'
+  loop: "{{ backup_server_clients }}"
+  loop_control:
+    label: "{{ item.name }}"
+  notify:
+    - Restart bareos-director
+
+# Ресурсы Bareos — множество файлов в bareos-dir.d/, "-t -c" ожидает целый конфиг-каталог, а не
+# один файл-кандидат (тот же класс проблемы, что уже решён постфактум-валидацией в fail2ban/
+# jail.local) — validate: у отдельного template здесь не сработал бы. Валидируем финальным
+# командным таском после того как все ресурсы уже на диске.
+#
+# become_user: bareos обязателен — "-t" реально открывает Catalog (коннект к PostgreSQL), а peer-
+# auth сверяет ОС-пользователя, от которого выполняется bareos-dir, с запрошенной ролью PostgreSQL
+# ("bareos"); без become_user команда выполнялась бы от root (общий become: true плейбука) и падала
+# "Peer authentication failed for user bareos" — найдено реальным прогоном molecule (systemd-сервис
+# не задет той же проблемой: юнит сам стартует с User=bareos, см. debian/bareos-director.service.in).
+- name: Validate bareos-dir config (bareos-dir -t)
+  become: true
+  become_user: bareos
+  ansible.builtin.command: "bareos-dir -t -c {{ backup_server_director_conf_path }}"
+  changed_when: false
