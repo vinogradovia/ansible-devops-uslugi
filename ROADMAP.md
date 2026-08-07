@@ -589,19 +589,30 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
     VM, не заменяет эту задачу).
 
     **Архитектурное решение — [Bareos](https://www.bareos.com)**, по паттерну `_server`/`_agent`,
-    уже принятому в коллекции для `monitoring_server`/`monitoring_agent`:
-    - **`backup_server`** — Bareos director + catalog (своя PostgreSQL-БД заданий,
-      `community.postgresql` уже зависимость коллекции) + storage daemon. Хранилище бекапов на
-      MVP — локальный диск (`File`-device); S3-совместимое хранилище (переиспользовать MinIO,
-      который уже часть стека `monitoring_server`) — следующим шагом, не в первой версии роли.
-    - **`backup_agent`** — Bareos file daemon на каждом клиентском хосте + декларативный список
-      задач по типу источника (`postgres`/`mysql`/`files`), тем же принципом, что
-      `fail2ban_jails`/`fail2ban_custom_filters` в роли `fail2ban` — не жёстко привязан к
-      конкретным ролям коллекции, но с готовыми bundled-профилями под уже существующие роли:
-      `pgsql-fd`-плагин для `postgresql_replication`, `percona-xtrabackup`-плагин для
-      `mysql_replication` (оба дают консистентный бекап БД без ручных `pg_dump`/`mysqldump`
-      обвязок), обычные file-based джобы для файловых данных (`monitoring_server`
-      VictoriaMetrics/Loki/MinIO volumes, конфиги `nginx_multidomain`/`infra_dns`).
+    уже принятому в коллекции для `monitoring_server`/`monitoring_agent`.
+
+    ~~**`backup_server`**~~ — **сделано** (`docs/adr/0009-backup-server-role.md`): Bareos director +
+    catalog (PostgreSQL-БД заданий, bootstrap без `dbconfig-common` — `community.postgresql` +
+    штатные `make_bareos_tables`/`grant_bareos_privileges`) + storage daemon. Хранилище — MVP,
+    локальный диск (`File`-device); S3 — следующий шаг, не реализовано. Self-backup (job
+    `BackupCatalog`) — единственная встроенная функциональная проверка всей цепочки. Molecule
+    полностью зелёный, реальный запуск job'а через `bconsole`.
+
+    ~~**`backup_agent`, Фаза 1**~~ — **сделано** (`docs/adr/0010-backup-agent-role.md`): Bareos
+    file daemon на клиентском хосте. Архитектурная поправка, найденная до кодирования:
+    `bareos-fd.d` не имеет ресурса `FileSet` вообще (только `client`/`director`/`messages`) — что
+    бекапить, решается целиком на стороне `backup_server` (`backup_server_clients`/
+    `backup_server_filesets`, уже было готово, здесь впервые задействовано), `backup_agent` только
+    ставит сам file daemon + опциональные python-плагины. Интеграция — вручную через совпадающие
+    переменные, без кросс-ролевой связности. Molecule (2 ВМ, реальный удалённый job, не
+    self-backup) поймал 2 регрессии в уже смердженном `backup_server` (dangling `Schedule`/
+    `JobDefs` при `self_backup_enabled: false` + непустом `backup_server_clients`) — обе
+    исправлены.
+
+    **Не реализовано** (следующие шаги, вне Фазы 1): декларативные bundled-профили `postgres`/
+    `mysql` типов в `backup_agent` изначально задумывались как список источников внутри самой
+    роли — по факту реализации решение изменилось (см. ниже, «Интеграция с
+    `postgresql_replication`/`mysql_replication`»).
 
     **Расширение `backup_server` под DR-экспорт на внешний носитель** (второе требование,
     сформулировано отдельно от MVP-хранилища): пул `dr`, привязанный к Storage-ресурсу с device =
@@ -622,12 +633,37 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
     минимальный каталог, читая метки томов прямо с носителя, без зависимости от исходной БД
     каталога вообще.
 
-    Остаются открытыми до/в процессе реализации: точная схема переменных декларативного списка
-    источников `backup_agent`, retention-политика (GFS-схема или простое количество копий),
-    обработка отсутствия/неправильно смонтированного внешнего носителя на момент Copy Job.
+    **Интеграция с `postgresql_replication`/`mysql_replication` (найдено при планировании Фазы 2,
+    решение пользователя)**: у обеих ролей уже есть собственные независимые механизмы физического
+    бэкапа (`postgresql_replication_backup_enabled` → pgBackRest → S3;
+    `mysql_replication_backup_tool: xtrabackup|mariabackup` → rclone → S3, каждый со своим
+    systemd-таймером/ретеншном, ADR-0004 §8/ADR-0005) — децентрализованная схема, обратная цели
+    единого control-plane. **Решено не заменять и не дублировать их отдельной ролью**, а добавить
+    Bareos как **третий вариант** `_backup_tool` внутри самих этих ролей:
+    - **Фаза 2** — `mysql_replication_backup_tool: bareos` (третье значение существующей
+      переменной, переиспользует уже существующую установку `percona-xtrabackup-80`/
+      `mariadb-backup` из `tasks/backup.yml:6-43`, без rclone/S3/systemd-timer-части). Не
+      реализовано.
+    - **Фаза 3** — `postgresql_replication_backup_tool: pgbackrest|bareos` (новая переменная,
+      дефолт `pgbackrest`). Взаимоисключающий выбор — `bareos`-плагин сам архивирует WAL в
+      `wal_archive_dir` через `archive_command`, занятый сейчас pgBackRest. Не реализовано, самая
+      большая неопределённость плана (WAL archiving с нуля, non-exclusive backup mode плагина).
+    - Обе фазы — условная `meta`-зависимость на `backup_agent` (`when: ..._backup_tool ==
+      'bareos'`), тем же паттерном, что `docker` (ADR-0002 §2), а не композиция на уровне
+      плейбука, как `monitoring_agent`/`infra_dns` (ADR-0004 §11) — обоснование см.
+      `docs/adr/0010-backup-agent-role.md` §1.
 
-    Демо-кейс по аналогии с `demo/nginx-multidomain`/`demo/npm` — после того как роли реализованы,
-    а не одновременно с реализацией.
+    Остаются открытыми: retention-политика Bareos-пулов (GFS-схема или простое количество копий,
+    сейчас — фиксированные `Volume Retention` в `backup_server_pools`), обработка отсутствия/
+    неправильно смонтированного внешнего носителя на момент Copy Job (DR-экспорт).
+
+    ~~Демо-кейс~~ — **сделано**: `demo/backup` (`backup-server` + два независимых клиента
+    `client-a`/`client-b`, каждый со своими данными, `type: files` — единственный реализованный
+    путь на момент постройки демо) — показывает исходное требование пользователя буквально
+    («несколько клиентских хостов, единый control-plane нужен»), не self-backup одной ВМ, как
+    molecule-сценарий `backup_server`. Проверено живым прогоном (не только `terraform apply`):
+    `bconsole run job=backup-client-a-fd`/`backup-client-b-fd`/`BackupCatalog` — все три
+    `Termination: Backup OK`, тома реально на диске (`Full-0001`, `Incremental-0002`).
 
 ---
 

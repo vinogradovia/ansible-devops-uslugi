@@ -1,0 +1,35 @@
+---
+# ADR-0006 §9: пароли открытым текстом — допустимо только в демо-стенде (изолированная локальная
+# сеть, без Vault). НЕ переносить этот паттерн в production inventory.
+
+backup_server_director_password: demo-backup-director-password
+backup_server_storage_password: demo-backup-storage-password
+backup_server_catalog_db_password: demo-backup-catalog-password
+backup_server_self_backup_client_password: demo-backup-selffd-password
+
+# Пароли должны совпадать с backup_agent_client_password в group_vars/client_a.yml/client_b.yml —
+# интеграция backup_server <-> backup_agent вручную, без кросс-ролевого автообнаружения (см.
+# roles/backup_agent/README.md).
+backup_server_clients:
+  - name: client-a-fd
+    address: 10.66.11.20
+    password: demo-backup-client-a-password
+    fileset: client-a-files
+  - name: client-b-fd
+    address: 10.66.11.21
+    password: demo-backup-client-b-password
+    fileset: client-b-files
+
+backup_server_filesets:
+  - name: client-a-files
+    content: |
+      Include {
+        Options { Signature = XXH128 }
+        File = /var/www/app-a
+      }
+  - name: client-b-files
+    content: |
+      Include {
+        Options { Signature = XXH128 }
+        File = /var/lib/app-b-data
+      }

@@ -1,0 +1,86 @@
+---
+# ADR-0006 §6: запуск вручную —
+#   ansible-playbook -i inventory.yml site.yml
+#
+# Демонстрирует ROADMAP Backlog №48 целиком, а не по частям, как molecule-сценарии: один
+# backup-server (docs/adr/0009-backup-server-role.md) как единый control-plane для ДВУХ
+# независимых клиентских хостов (docs/adr/0010-backup-agent-role.md) с разными реальными данными
+# — исходное требование пользователя ("несколько клиентских хостов, единый control-plane нужен"),
+# из-за которого выбирался Bareos вместо Proxmox Backup Server/restic/borg. Плюс self-backup
+# самого backup-server (роль включает по умолчанию) — три реально бекапящихся объекта на одном
+# стенде.
+#
+# Интеграция backup_server <-> backup_agent — вручную через совпадающие переменные
+# (group_vars/backup_servers.yml: backup_server_clients[].name/password ==
+# group_vars/client_{a,b}.yml: backup_agent_client_name/password), без кросс-ролевого
+# автообнаружения (см. roles/backup_agent/README.md).
+
+- name: backup-server
+  hosts: backup_servers
+  become: true
+  pre_tasks:
+    # Без ожидания cloud-init мог ещё держать /var/lib/apt/lists/lock своим собственным
+    # package_update — apt-задачи роли ниже падают "No package matching ... is available"
+    # (тот же паттерн, что extensions/molecule/*/prepare.yml и остальные demo/*/ansible/site.yml).
+    - name: Дождаться завершения cloud-init
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+      failed_when: false
+
+  roles:
+    - backup_server
+
+- name: backup-agent clients
+  hosts: backup_agent_clients
+  become: true
+  pre_tasks:
+    - name: Дождаться завершения cloud-init
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+      failed_when: false
+
+    # Реальные тестовые данные под FileSet'ы backup_server_filesets (group_vars/backup_servers.yml)
+    # — разный путь на каждом клиенте, чтобы наглядно показать, что бекапятся именно ДВА разных
+    # хоста с разными данными, а не один и тот же self-backup.
+    - name: Создать каталог демо-данных client-a
+      ansible.builtin.file:
+        path: /var/www/app-a
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      when: inventory_hostname == 'client-a'
+
+    - name: Создать демо-файл client-a
+      ansible.builtin.copy:
+        dest: /var/www/app-a/index.html
+        content: |
+          <!doctype html>
+          <html><body><h1>client-a demo app (backup_agent, ROADMAP №48)</h1></body></html>
+        owner: root
+        group: root
+        mode: '0644'
+      when: inventory_hostname == 'client-a'
+
+    - name: Создать каталог демо-данных client-b
+      ansible.builtin.file:
+        path: /var/lib/app-b-data
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      when: inventory_hostname == 'client-b'
+
+    - name: Создать демо-файл client-b
+      ansible.builtin.copy:
+        dest: /var/lib/app-b-data/dataset.csv
+        content: |
+          id,value
+          1,client-b demo dataset (backup_agent, ROADMAP №48)
+        owner: root
+        group: root
+        mode: '0644'
+      when: inventory_hostname == 'client-b'
+
+  roles:
+    - backup_agent
