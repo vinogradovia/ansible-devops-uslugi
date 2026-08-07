@@ -41,12 +41,25 @@ backup_server_webui_reverse_proxy_server_name: backup-webui.backup.demo
 # Отключено осознанно (запрос пользователя) — у bareos-webui-new есть собственный логин (Console,
 # см. выше), доп. слой basic-auth избыточен для этого демо-стенда (изолированная локальная сеть).
 backup_server_webui_reverse_proxy_basic_auth_enabled: false
+# WebSocket-апгрейд к bareos-webui-proxy ломается через HTTP/2 (реально найдено на этом стенде,
+# docs/adr/0009-backup-server-role.md §11) — ссылается на TLSOptions-ресурс, определённый ниже
+# через reverse_proxy_traefik_extra_dynamic_files (roles/reverse_proxy_traefik/README.md,
+# "Dynamic-конфиги потребителей").
+backup_server_webui_reverse_proxy_tls_options: backup-webui-http1only
 
 # --- reverse_proxy_traefik (ADR-0008) — владеет docker-сетью "proxy" в этом кейсе -----------------
 reverse_proxy_traefik_internal_domain: backup.demo
 reverse_proxy_traefik_dashboard_users:
   - name: monitor
     password: demo-traefik-dashboard-CHANGE-ME
+reverse_proxy_traefik_extra_dynamic_files:
+  - name: backup-webui-tls-options
+    content: |
+      tls:
+        options:
+          backup-webui-http1only:
+            alpnProtocols:
+              - "http/1.1"
 
 # --- infra_panel (ADR-0008) — ссылка на веб-UI backup_server --------------------------------------
 infra_panel_domain: infra-panel.backup.demo

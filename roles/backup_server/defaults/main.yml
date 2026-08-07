@@ -140,6 +140,17 @@ backup_server_webui_docker_proxy_network_name: proxy
 
 backup_server_webui_reverse_proxy_server_name: backup-webui.example.com
 
+# Имя ресурса Traefik TLSOptions (без суффикса "@file"), определённого ГДЕ-ТО ВНЕ этой роли —
+# TLSOptions.alpnProtocols нельзя задать через docker-labels потребителя вообще (ограничение
+# самого Traefik), только через file/CRD-провайдер. WebSocket-апгрейд к bareos-webui-proxy ломается
+# при HTTP/2 (найдено реальным прогоном demo/backup, docs/adr/0009-backup-server-role.md §11) —
+# нужен TLSOptions с alpnProtocols: [http/1.1]. Пусто по умолчанию (не ссылается ни на что, роутер
+# использует TLS-дефолты Traefik) — задайте, если используете reverse_proxy_traefik и определили
+# такой ресурс через reverse_proxy_traefik_extra_dynamic_files (см. её README, "Dynamic-конфиги
+# потребителей"). Роль не тянет reverse_proxy_traefik зависимостью и ничего не знает о ней —
+# композиция на уровне плейбука-оператора, тот же принцип, что docs/adr/0008-infra-panel-role.md §3.
+backup_server_webui_reverse_proxy_tls_options: ""
+
 # Второй, дополнительный слой аутентификации поверх собственного логина Bareos WebUI (Console —
 # см. backup_server_webui_console_password выше) — тот же паттерн defense-in-depth, что
 # roles/infra_panel/reverse_proxy_traefik-дашборд (ADR-0001 §5). По умолчанию включён (безопасный

@@ -258,6 +258,37 @@ HTTP(S)-прокси на машине оператора не резолвил 
 валидных креденшлов, поэтому `false` — осознанный выбор для доверенной сети, а не небезопасный
 дефолт (который по умолчанию всё равно остаётся `true`).
 
+### 11. WebSocket-апгрейд к `bareos-webui-proxy` ломается через HTTP/2 — TLSOptions вне роли
+
+**Найдено** после отключения basic-auth (§10) и живой проверки в браузере: реальная ошибка
+приложения `Cannot connect to proxy at wss://.../ws`. Подтверждено напрямую: `curl --http2` на
+`/bareos-webui-new/ws` с корректными WebSocket-заголовками — `426 Upgrade Required`; тот же
+запрос с `--http1.1` — `401 Unauthorized` (реальный ответ приложения, апгрейд прошёл). Причина —
+`entrypoints.websecure` Traefik включает HTTP/2 по умолчанию (`alpnProtocols` по умолчанию
+`["http/1.1", "h2"]`), а `Connection: Upgrade` в связке Traefik → Apache/`mod_proxy_wstunnel`
+корректно работает только по HTTP/1.1.
+
+**Ограничение Traefik, не архитектуры этой роли**: `TLSOptions.alpnProtocols` в принципе нельзя
+задать через docker-labels потребителя — Traefik требует, чтобы `TLSOptions` были определены
+через file- или CRD-провайдер (подтверждено официальной документацией и issue-трекером Traefik).
+Каталог file-провайдера (`--providers.file.directory`) принадлежит роли `reverse_proxy_traefik`,
+не `backup_server` — писать туда напрямую значило бы нарушить независимость ролей (тот же принцип,
+что `docs/adr/0008-infra-panel-role.md` §3/§6, где по той же причине отклонён `usersFile`).
+
+**Решение**: `reverse_proxy_traefik` расширена новым генерик-механизмом
+`reverse_proxy_traefik_extra_dynamic_files` (список `{name, content}`, рендерится в её собственный
+`dynamic/`-каталог) — для любых потребителей, которым нужен ресурс, невыразимый через
+docker-labels. `backup_server` получил параллельную переменную
+`backup_server_webui_reverse_proxy_tls_options` (пусто по умолчанию — не меняет поведение) —
+имя ресурса, определённого где-то ещё, подключается как `<имя>@file` в `tls.options` роутера.
+Обе роли по-прежнему не знают друг о друге — связь только через совпадающее имя ресурса,
+заданное оператором на уровне плейбука/inventory (`demo/backup`), тот же принцип композиции, что
+уже применялся для интеграции `backup_server`↔`backup_agent`.
+
+**Подтверждено повторным живым прогоном**: `curl --http2` на `/bareos-webui-new/ws` после фикса —
+`401 Unauthorized` (реальный ответ приложения), не `426` — Traefik форсирует HTTP/1.1 для этого
+роутера через `TLSOptions`, даже когда клиент явно предлагает h2.
+
 ## Финальный статус
 
 `molecule test -s backup_server` — полностью зелёный: `converge` → `idempotence` (`changed=0`,

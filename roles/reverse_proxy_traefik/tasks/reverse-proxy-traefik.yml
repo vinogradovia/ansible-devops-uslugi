@@ -28,6 +28,17 @@
     group: root
     mode: '0644'
 
+- name: Render extra dynamic-конфиги потребителей (reverse_proxy_traefik_extra_dynamic_files)
+  ansible.builtin.template:
+    src: extra-dynamic-file.yml.j2
+    dest: "{{ reverse_proxy_traefik_config_dir }}/dynamic/{{ item.name }}.yml"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ reverse_proxy_traefik_extra_dynamic_files }}"
+  loop_control:
+    label: "{{ item.name }}"
+
 - name: Add a user to a password file dashboard-users
   community.general.htpasswd:
     path: "{{ reverse_proxy_traefik_config_dir }}/users/dashboard-auth"

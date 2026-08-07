@@ -16,3 +16,15 @@ reverse_proxy_traefik_default_password: "PleAse_Change_ME!"
 reverse_proxy_traefik_dashboard_users:
   - {name: 'monitor', password: "{{ reverse_proxy_traefik_default_password }}"}
   - {name: 'olduser', password: 'null', state: 'absent'}
+
+# Произвольные dynamic-конфиги file-провайдера Traefik (--providers.file.directory, тот же
+# каталог, что traefik-dashboard.yml.j2) — для случаев, которые в принципе нельзя выразить через
+# docker-labels потребителя (например, TLSOptions.alpnProtocols — Traefik требует, чтобы
+# TLSOptions были определены НЕ через docker-провайдер, только через file/CRD). Схема элемента:
+# {name, content} — content рендерится как есть в {{ reverse_proxy_traefik_config_dir }}/dynamic/
+# <name>.yml, роль-потребитель ссылается на ресурс через "<имя-ресурса>@file" в своих labels (тот
+# же принцип, что dashboard-auth@file для basicAuth middleware самого дашборда, см.
+# templates/traefik-dashboard.yml.j2). Traefik file-провайдер сам перечитывает каталог при
+# изменении файлов — рестарт контейнера не нужен. Пусто по умолчанию — не меняет поведение для
+# существующих потребителей роли.
+reverse_proxy_traefik_extra_dynamic_files: []

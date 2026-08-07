@@ -40,6 +40,21 @@ Traefik и Docker-провайдер работают, прежде чем по�
 подключаются добавлением таких же `traefik.*` label'ов в их собственные compose-файлы/стеки в той
 же docker-сети `proxy`.
 
+## Dynamic-конфиги потребителей (`reverse_proxy_traefik_extra_dynamic_files`)
+
+Список `{name, content}` — `content` рендерится как есть в
+`{{ reverse_proxy_traefik_config_dir }}/dynamic/{{ name }}.yml` (file-провайдер Traefik,
+перечитывается сам, без рестарта). Для того, что в принципе нельзя выразить через
+docker-labels потребителя — например, `TLSOptions.alpnProtocols` (Traefik требует, чтобы
+TLSOptions были определены не через docker-провайдер, только через file/CRD; понадобилось
+роли `backup_server` — WebSocket-апгрейд к `bareos-webui-proxy` ломался при HTTP/2,
+`docs/adr/0009-backup-server-role.md` §11). Ресурс, определённый так, роль-потребитель
+подключает через `<имя-ресурса>@file` в своих собственных labels (тот же принцип, что
+`dashboard-auth@file` для basicAuth-middleware самого дашборда, см. `templates/
+traefik-dashboard.yml.j2`). Композиция на уровне плейбука-оператора — `reverse_proxy_traefik`
+не тянет `backup_server`/другие потребители зависимостью и наоборот (см. `docs/adr/
+0008-infra-panel-role.md` §3).
+
 ## Известные ограничения
 
 - TLS-сертификаты не автоматизированы этой ролью (нет ACME-провайдера в `command:` Traefik) —
