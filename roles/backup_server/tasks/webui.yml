@@ -1,0 +1,121 @@
+---
+# bareos-webui-new (Vue) + bareos-webui-proxy — собственный Docker-образ, официального не
+# существует, апстрим требует apache2|httpd (docs/adr/0009-backup-server-role.md §8).
+
+- name: Install python3-passlib (нужен community.general.htpasswd для basic-auth)
+  ansible.builtin.apt:
+    pkg:
+      - python3-passlib
+    state: present
+  when: backup_server_webui_reverse_proxy_basic_auth_enabled
+
+# ADR-0007 §10.3 (monitoring_server)/roles/infra_panel — та же проблема: без этой проверки
+# community.docker.docker_compose_v2 упадёт менее понятной ошибкой, если сеть proxy ещё не
+# создана (например, reverse_proxy_traefik ещё не применён к хосту).
+- name: Check external proxy docker network exists
+  when: backup_server_webui_docker_proxy_network_external
+  ansible.builtin.command: docker network inspect {{ backup_server_webui_docker_proxy_network_name }}
+  register: backup_server_webui_docker_proxy_network_check
+  changed_when: false
+  failed_when: false
+
+- name: Fail if external proxy docker network does not exist
+  ansible.builtin.fail:
+    msg: >-
+      backup_server_webui_docker_proxy_network_external: true, но docker-сеть
+      "{{ backup_server_webui_docker_proxy_network_name }}" не существует — webui подключается к
+      ней безусловно (compose-backup-server-webui.yml.j2, external: true означает "уже создана
+      где-то ещё", например ролью reverse_proxy_traefik). Примените reverse_proxy_traefik заранее
+      или поставьте backup_server_webui_docker_proxy_network_external: false.
+  when: >-
+    backup_server_webui_docker_proxy_network_external and
+    backup_server_webui_docker_proxy_network_check.rc != 0
+
+- name: Create webui build dir
+  ansible.builtin.file:
+    path: "{{ backup_server_webui_build_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Render webui Dockerfile
+  ansible.builtin.template:
+    src: webui/Dockerfile.j2
+    dest: "{{ backup_server_webui_build_dir }}/Dockerfile"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Copy webui entrypoint.sh
+  ansible.builtin.copy:
+    src: webui/entrypoint.sh
+    dest: "{{ backup_server_webui_build_dir }}/entrypoint.sh"
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Render bareos-webui-proxy.ini
+  ansible.builtin.template:
+    src: webui/bareos-webui-proxy.ini.j2
+    dest: "{{ backup_server_webui_build_dir }}/bareos-webui-proxy.ini"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Create webui users dir
+  ansible.builtin.file:
+    path: "{{ backup_server_webui_build_dir }}/users"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when: backup_server_webui_reverse_proxy_basic_auth_enabled
+
+- name: Add users to backup-webui basic-auth password file
+  community.general.htpasswd:
+    path: "{{ backup_server_webui_build_dir }}/users/backup-webui-auth"
+    name: "{{ item.name }}"
+    password: "{{ item.password }}"
+    owner: root
+    group: root
+    mode: '0644'
+    state: "{{ item.state | default('present') }}"
+  loop: "{{ backup_server_webui_reverse_proxy_users_auth }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: backup_server_webui_reverse_proxy_basic_auth_enabled
+
+# Traefik подхватывает basicauth только из своего провайдера (docker-labels или file-provider,
+# которым владеет reverse_proxy_traefik) — compose backup-server-webui ей не пишет напрямую.
+# Пароли инлайнятся в label (см. compose-backup-server-webui.yml.j2), тот же паттерн, что
+# roles/infra_panel/tasks/infra-panel.docker.yml. Отключаемо (backup_server_webui_reverse_proxy_
+# basic_auth_enabled: false) — у bareos-webui-new есть собственный логин (Console), см.
+# defaults/main.yml.
+- name: Read rendered backup-webui basic-auth password file back
+  ansible.builtin.slurp:
+    src: "{{ backup_server_webui_build_dir }}/users/backup-webui-auth"
+  register: backup_server_webui_htpasswd_file
+  when: backup_server_webui_reverse_proxy_basic_auth_enabled
+
+- name: Render backup-server-webui compose.yml
+  ansible.builtin.template:
+    src: webui/compose-backup-server-webui.yml.j2
+    dest: "{{ backup_server_webui_build_dir }}/compose.yml"
+    owner: root
+    group: root
+    mode: '0644'
+
+# build: always — дефолт "policy" собирает образ, только если его ещё нет вообще, поэтому правки
+# Dockerfile/entrypoint.sh молча не подхватывались бы повторным converge (образ бы просто
+# продолжал существовать со старым содержимым) — Docker сам кэширует неизменившиеся слои, так что
+# always не означает пересборку с нуля каждый раз.
+- name: Create and start backup-server-webui services
+  community.docker.docker_compose_v2:
+    project_src: "{{ backup_server_webui_build_dir }}"
+    build: always
+  register: backup_server_webui_start_result
+
+- name: Show backup_server_webui_start_result
+  ansible.builtin.debug:
+    var: backup_server_webui_start_result.stderr_lines

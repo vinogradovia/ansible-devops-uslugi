@@ -1,0 +1,50 @@
+---
+services:
+  backup-server-webui:
+    build:
+      context: {{ backup_server_webui_build_dir }}
+      dockerfile: Dockerfile
+    image: {{ backup_server_webui_image_name }}:local
+    container_name: backup-server-webui
+    restart: unless-stopped
+    # host.docker.internal -> хост (Docker Engine >=20.10, кросс-платформенный алиас) — Director
+    # нативный systemd-сервис на хосте, не в этом контейнере (docs/adr/0009-backup-server-role.md §8).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Путь монтирования — реальный дефолт bareos-webui-proxy ("bareos-webui-proxy --help":
+    # /etc/bareos-webui-proxy/bareos-webui-proxy.ini), не /etc/bareos/... (это дерево Director'а,
+    # к webui-proxy отношения не имеет) — найдено реальным прогоном demo/backup, см.
+    # docs/adr/0009-backup-server-role.md §9.
+    volumes:
+      - {{ backup_server_webui_build_dir }}/bareos-webui-proxy.ini:/etc/bareos-webui-proxy/bareos-webui-proxy.ini:ro
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      # HTTP -> HTTPS редирект
+      - "traefik.http.routers.backup-webui-http.entrypoints=web"
+      - "traefik.http.routers.backup-webui-http.rule=Host(`{{ backup_server_webui_reverse_proxy_server_name }}`)"
+      - "traefik.http.routers.backup-webui-http.middlewares=backup-webui-to-https"
+      - "traefik.http.middlewares.backup-webui-to-https.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.backup-webui-to-https.redirectscheme.permanent=true"
+      # Основной роут HTTPS — доп. слой basic-auth опционален (backup_server_webui_reverse_proxy_
+      # basic_auth_enabled), у bareos-webui-new и без него есть собственный логин (Console).
+      - "traefik.http.routers.backup-webui.entrypoints=websecure"
+      - "traefik.http.routers.backup-webui.rule=Host(`{{ backup_server_webui_reverse_proxy_server_name }}`)"
+      - "traefik.http.routers.backup-webui.tls=true"
+{% if backup_server_webui_reverse_proxy_basic_auth_enabled %}
+      - "traefik.http.routers.backup-webui.middlewares=backup-webui-auth"
+      # basic-auth инлайном в label (не usersFile: backup-server-webui — отдельный docker-compose
+      # проект, его файлы не примонтированы в контейнер Traefik, которым владеет reverse_proxy_traefik)
+      - "traefik.http.middlewares.backup-webui-auth.basicauth.users={{ (backup_server_webui_htpasswd_file.content | b64decode).splitlines() | join(',') | replace('$', '$$') }}"
+{% endif %}
+      # Сервис (куда направлять трафик)
+      - "traefik.http.services.backup-webui.loadbalancer.server.port=80"
+
+networks:
+  proxy:
+{% if backup_server_webui_docker_proxy_network_external %}
+    external: true  # Если сеть уже создана (например, ролью reverse_proxy_traefik)
+{% else %}
+    name: {{ backup_server_webui_docker_proxy_network_name }}  # Явное имя сети
+{% endif %}

@@ -65,6 +65,8 @@
     - schedule
     - job
     - messages
+    - console
+    - profile
   notify:
     - Restart bareos-director
 
@@ -223,6 +225,31 @@
   loop: "{{ backup_server_clients }}"
   loop_control:
     label: "{{ item.name }}"
+  notify:
+    - Restart bareos-director
+
+# bareos-webui-new не поставляет дефолтный Console/Profile (docs/adr/0009-backup-server-role.md
+# §8) — без них логин в webui нечем аутентифицировать на стороне director.
+- name: Render bareos-dir.d/console webui resource
+  ansible.builtin.template:
+    src: bareos-dir.d/console/webui-admin-console.conf.j2
+    dest: "{{ backup_server_director_config_dir }}/console/{{ backup_server_webui_console_name }}.conf"
+    owner: root
+    group: bareos
+    mode: '0640'
+  when: backup_server_webui_enabled
+  no_log: true
+  notify:
+    - Restart bareos-director
+
+- name: Render bareos-dir.d/profile webui resource
+  ansible.builtin.template:
+    src: bareos-dir.d/profile/webui-admin-profile.conf.j2
+    dest: "{{ backup_server_director_config_dir }}/profile/{{ backup_server_webui_console_name }}.conf"
+    owner: root
+    group: bareos
+    mode: '0640'
+  when: backup_server_webui_enabled
   notify:
     - Restart bareos-director
 

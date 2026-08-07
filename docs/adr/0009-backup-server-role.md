@@ -181,6 +181,83 @@ stdout. `wait` блокируется до завершения всех джо�
 отдельная команда `messages` тем же сеансом. **Исправлено**: скрипт `bconsole` в
 `extensions/molecule/backup_server/verify.yml` — `run ... yes` → `wait` → `messages` → `quit`.
 
+### 9. Web UI — `bareos-webui-new` (Vue) в собственном Docker-образе
+
+**Контекст**: запрос пользователя — ссылка на веб-UI `backup_server` в `infra_panel`
+демо-стенда. У роли веб-интерфейса не было вообще (§1).
+
+**Найдено исследованием апстрима** (по реальным `debian/control`/`.install.in`/исходникам
+`webui-vue/`, не по документации): официального Docker-образа `bareos-webui` не существует
+(только сторонние на Docker Hub с версиями, не совпадающими с `25.1.0~pre` из ветки `current`) —
+тот же класс риска, что уже отклонён в §2/ADR-0002 §3. Оба варианта пакета (`bareos-webui` —
+старый PHP/Zend, `bareos-webui-new` — новый Vue) жёстко требуют `apache2|httpd` — Debian не даёт
+nginx как альтернативу virtual-пакету `httpd`.
+
+**Решение пользователя**: `bareos-webui-new` (Vue, меньше зависимостей — без PHP-стека) +
+`bareos-webui-proxy` (нативный C++ демон, WebSocket/API-прокси к Director по CRAM-MD5, тот же
+протокол, что консоль/`bconsole`, подтверждено `core/src/webui-proxy/bareos-webui-proxy.ini.in`) —
+в **собственном** Dockerfile, а не стороннем образе. Оба процесса — в одном контейнере
+(`apache2` проксирует `/bareos-webui-new/{ws,api}` на `localhost:9104` внутри контейнера,
+подтверждено `webui-vue/install/apache/bareos-webui-new.conf.in`); второй хоп
+(`bareos-webui-proxy` → Director, нативный systemd-сервис на хосте) — через `host.docker.internal`
+(`extra_hosts: host-gateway`).
+
+`bareos-webui-new` не поставляет дефолтный Console/Profile для логина (в отличие от старого
+PHP-пакета, у которого были хотя бы `.example`-заготовки) — сконструированы по документированному
+синтаксису Profile-ресурса (`CommandACL`/`Job ACL`/... = `*all*`), не скопированы с реального
+файла апстрима.
+
+**Docker — новая условная зависимость** (`meta/main.yml`, `when: backup_server_webui_enabled`),
+тем же паттерном, что `docker` в `monitoring_server`/`monitoring_agent` (ADR-0002 §2) — впервые
+для `backup_server`, который до этого был чисто systemd-ролью.
+
+**Публикация — `reverse_proxy_traefik`, basic-auth**: тот же паттерн, что `infra_panel`
+(ADR-0008 §4/§6) — inline-label, не `usersFile` (compose `backup_server_webui` не владеет
+контейнером Traefik). Fail-fast на дефолтный пароль, тот же принцип, что ADR-0001 §5.
+
+**Тестирование — только `demo/backup`, не molecule**: добавление docker+apache+Traefik в
+существующий self-backup molecule-сценарий утяжелило бы его ради архитектурно уже проверенного
+(`infra_panel`) паттерна — осознанный пробел, зафиксирован в README роли.
+
+**Найдено реальным прогоном `demo/backup`** (два бага, оба из заранее обозначенных рисков — но
+конкретная форма ошибки не была очевидна заранее):
+
+- `bareos-webui-proxy -c <path>` — неверный флаг: реальный CLI (`bareos-webui-proxy --help`)
+  принимает только `--config`, `-c` не распознаётся вообще (`The following arguments were not
+  expected`), процесс падал сразу при старте контейнера — `docker ps`/`docker logs` показывали
+  только `apache2`, второго процесса не было.
+- Дефолтный (и используемый) путь конфига — `/etc/bareos-webui-proxy/bareos-webui-proxy.ini`, не
+  придуманный `/etc/bareos/bareos-webui-proxy.ini` (то дерево принадлежит Director'у, не
+  webui-proxy). Оба found одним прогоном `docker logs`, исправлены в `files/webui/entrypoint.sh`
+  и `templates/webui/compose-backup-server-webui.yml.j2`.
+
+Заодно исправлено то, что изначально было задокументировано как «известное ограничение»:
+`community.docker.docker_compose_v2` теперь вызывается с `build: always` (не дефолтный `policy`)
+— без этого правки Dockerfile/entrypoint.sh молча не подхватывались бы повторным converge.
+
+После фикса — `docker logs backup-server-webui` подтверждает: `bareos-webui-proxy` загрузил
+конфиг, слушает `ws://0.0.0.0:9104`, `configured directors: 1`; `curl` через Traefik на
+`/bareos-webui-new/api/` отдаёт реальный HTTP-ответ (404 — валидный для пустого API-пути, не
+обрыв соединения, как было раньше). `infra_panel` — ссылка на webui реально в `config.yml`.
+**Полный логин через настоящий браузер подтверждён** (Chrome, отдельный заход): форма логина
+Bareos WebUI (Vue) реально грузится, `webui-admin`/`backup_server_webui_console_password`
+успешно аутентифицируется у Director через `bareos-webui-proxy` (WebSocket), дашборд показывает
+`Connected · backup-webui.backup.demo`, реальные данные (`Клиенты: 3` — self + `client-a-fd` +
+`client-b-fd`, `Хранение: 1`). Единственная сложность верификации была внешней — локальный
+HTTP(S)-прокси на машине оператора не резолвил `*.backup.demo`, пришлось добавить исключение;
+самого продукта это не касается.
+
+### 10. Basic-auth на Traefik — опциональный слой, не обязательный
+
+**Решение** (по итогам живой проверки §9 и явного запроса пользователя убрать его для конкретного
+демо): `backup_server_webui_reverse_proxy_basic_auth_enabled` (по умолчанию `true`) делает
+доп. слой аутентификации на Traefik отключаемым. Отличие от `infra_panel`/дашборда Traefik
+(ADR-0008 §4, где basic-auth **обязателен без опции**): там за анонимным доступом — реальные
+данные без собственной аутентификации приложения. У `bareos-webui-new` собственный логин
+(Console, §9) реально аутентифицирует у Director — форма логина сама по себе не отдаёт ничего без
+валидных креденшлов, поэтому `false` — осознанный выбор для доверенной сети, а не небезопасный
+дефолт (который по умолчанию всё равно остаётся `true`).
+
 ## Финальный статус
 
 `molecule test -s backup_server` — полностью зелёный: `converge` → `idempotence` (`changed=0`,
@@ -192,7 +269,8 @@ stdout. `wait` блокируется до завершения всех джо�
 
 ## Открытые вопросы / вне скоупа
 
-- `backup_agent`, DR-экспорт, S3-хранилище, `bareos-webui` — см. §1.
+- DR-экспорт, S3-хранилище — см. §1. `backup_agent` — реализован, см.
+  `docs/adr/0010-backup-agent-role.md`. Web UI — реализован, см. §9.
 - Peer-auth каталога (§3.3) полагается на совпадение системного пользователя `bareos` (от которого
   работает `bareos-dir`) и роли PostgreSQL с тем же именем — если на практике это не сработает
   (нестандартный `pg_hba.conf`), потребуется явный `DB Address`/`host`-правило вместо peer.

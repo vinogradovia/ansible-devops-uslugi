@@ -7,4 +7,6 @@ galaxy_info:
   galaxy_tags:
     - backup
     - bareos
-dependencies: []
+dependencies:
+  - role: docker
+    when: backup_server_webui_enabled

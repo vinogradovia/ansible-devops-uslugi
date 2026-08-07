@@ -1,0 +1,21 @@
+{#
+Полный доступ по всем категориям ACL — bareos-webui-new не поставляет дефолтный Console/Profile
+(в отличие от старого PHP-пакета, у которого были хотя бы .example-заготовки, апстрим
+подтверждён: webui-vue/install/ и debian/bareos-webui-new.install.in их не содержат вообще) —
+сконструировано по документированному синтаксису Profile-ресурса, не скопировано с реального
+файла апстрима (см. docs/adr/0009-backup-server-role.md §8, открытый риск — неточные имена ACL-
+категорий поймает bareos-dir -t).
+#}
+Profile {
+  Name = {{ backup_server_webui_console_name }}
+  CommandACL = *all*
+  Job ACL = *all*
+  Schedule ACL = *all*
+  Catalog ACL = *all*
+  Pool ACL = *all*
+  Storage ACL = *all*
+  Client ACL = *all*
+  FileSet ACL = *all*
+  Where ACL = *all*
+  Plugin Options ACL = *all*
+}

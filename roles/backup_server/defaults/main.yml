@@ -118,3 +118,36 @@ backup_server_clients: []
 # Кастомные FileSet-ресурсы для backup_server_clients (схема: {name, content} — content — готовое
 # содержимое Include/Exclude-блоков, рендерится как есть).
 backup_server_filesets: []
+
+# --- Web UI (bareos-webui-new, Vue) — опционально, выключено по умолчанию. Официального Docker-
+# образа не существует (только сторонние с несовпадающими версиями) — роль собирает СВОЙ образ из
+# Dockerfile (tasks/webui.yml), апстрим жёстко требует apache2|httpd (Debian не даёт nginx как
+# альтернативу virtual-пакету httpd) — поэтому apache2 живёт внутри контейнера, не на хосте.
+# Новая условная зависимость на роль docker (см. meta/main.yml), тот же паттерн, что
+# monitoring_server/monitoring_agent (ADR-0002 §2).
+backup_server_webui_enabled: false
+
+# Console+Profile на стороне director для логина в webui (сама роль bareos-webui-new не
+# поставляет дефолтных credentials — вводятся в форме логина Vue-приложения). Обязателен, если
+# backup_server_webui_enabled: true.
+backup_server_webui_console_name: webui-admin
+backup_server_webui_console_password: ""
+
+backup_server_webui_build_dir: /opt/backup-server-webui
+backup_server_webui_image_name: backup-server-webui
+backup_server_webui_docker_proxy_network_external: true
+backup_server_webui_docker_proxy_network_name: proxy
+
+backup_server_webui_reverse_proxy_server_name: backup-webui.example.com
+
+# Второй, дополнительный слой аутентификации поверх собственного логина Bareos WebUI (Console —
+# см. backup_server_webui_console_password выше) — тот же паттерн defense-in-depth, что
+# roles/infra_panel/reverse_proxy_traefik-дашборд (ADR-0001 §5). По умолчанию включён (безопасный
+# дефолт для тех, кто просто подключает роль), но опционален — в отличие от infra_panel/дашборда
+# Traefik, у bareos-webui-new и без него ЕСТЬ собственная реальная аутентификация (форма логина
+# сама по себе не отдаёт данных без валидных Console-креденшлов), поэтому отключение — осознанный,
+# а не небезопасный выбор для тех, кому не нужен второй слой (например, доверенная сеть).
+backup_server_webui_reverse_proxy_basic_auth_enabled: true
+backup_server_webui_reverse_proxy_default_password: "PleAse_Change_ME!"
+backup_server_webui_reverse_proxy_users_auth:
+  - {name: 'admin', password: "{{ backup_server_webui_reverse_proxy_default_password }}"}

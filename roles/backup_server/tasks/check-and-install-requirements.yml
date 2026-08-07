@@ -50,3 +50,35 @@
     quiet: true
   no_log: true
   when: backup_server_self_backup_enabled
+
+- name: Fail if backup_server_webui_console_password is not set
+  ansible.builtin.assert:
+    that:
+      - backup_server_webui_console_password is defined
+      - backup_server_webui_console_password | length > 0
+    fail_msg: >-
+      backup_server_webui_console_password обязателен при backup_server_webui_enabled: true —
+      пароль Console-ресурса, которым логинится оператор в web UI, задайте настоящее значение в
+      inventory/group_vars (vault).
+    quiet: true
+  no_log: true
+  when: backup_server_webui_enabled
+
+# Актуально, только если включён доп. слой basic-auth (backup_server_webui_reverse_proxy_
+# basic_auth_enabled) — тот же паттерн, что roles/infra_panel/tasks/check-and-install-
+# requirements.docker.yml. Если слой отключён, у webui всё равно остаётся собственный логин
+# (Console) — см. backup_server_webui_console_password выше, отдельный fail-fast.
+- name: Fail if using backup_server_webui_reverse_proxy_default_password
+  ansible.builtin.fail:
+    msg: >-
+      Error, change backup_server_webui_reverse_proxy_default_password (или пароль конкретного
+      пользователя в backup_server_webui_reverse_proxy_users_auth) — webui управляет бекапами,
+      анонимный/дефолтный доступ недопустим.
+  when:
+    - backup_server_webui_enabled
+    - backup_server_webui_reverse_proxy_basic_auth_enabled
+    - (item.state | default('present')) != 'absent'
+    - item.password == backup_server_webui_reverse_proxy_default_password
+  loop: "{{ backup_server_webui_reverse_proxy_users_auth }}"
+  loop_control:
+    label: "{{ item.name }}"

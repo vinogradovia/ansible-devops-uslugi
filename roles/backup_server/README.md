@@ -5,10 +5,11 @@
 Backup Server vs restic/borg) и полный план — см. пункт №48 в ROADMAP.md.
 
 **Статус**: MVP. Реализован единый хост (director + storage daemon + catalog + локальный file
-daemon для self-backup), хранилище — локальный диск. Вне scope этой роли (следующие шаги ROADMAP
-№48): роль `backup_agent` (file daemon на удалённых клиентских хостах, декларативные источники
-`postgres`/`mysql`/`files`), DR-экспорт на внешний носитель (пул `dr` + Copy Job), S3-хранилище,
-`bareos-webui`.
+daemon для self-backup), хранилище — локальный диск, опциональный web UI (`bareos-webui-new`, см.
+ниже). Клиентские хосты — роль `backup_agent` (`docs/adr/0010-backup-agent-role.md`), уже
+интегрируется через `backup_server_clients`/`backup_server_filesets` (см. ниже). Вне scope этой
+роли (следующие шаги ROADMAP №48): интеграция `backup_tool: bareos` в `postgresql_replication`/
+`mysql_replication` (Фазы 2/3), DR-экспорт на внешний носитель (пул `dr` + Copy Job), S3-хранилище.
 
 ## Как устроено
 
@@ -63,14 +64,52 @@ daemon для self-backup), хранилище — локальный диск. 
 - `backup_server_catalog_db_password` — пароль роли PostgreSQL каталога.
 - `backup_server_self_backup_client_password` — пароль director<->локальный file daemon (только
   при `backup_server_self_backup_enabled: true`, включено по умолчанию).
+- `backup_server_webui_console_password` — пароль Console-ресурса для логина в web UI (только при
+  `backup_server_webui_enabled: true`, выключено по умолчанию). `backup_server_webui_reverse_proxy_
+  users_auth`/`_default_password` — тот же fail-fast на дефолтный basic-auth пароль, что
+  `roles/infra_panel`.
 
-## Место под будущую роль `backup_agent`
+## Интеграция с `backup_agent`
 
-`backup_server_clients` (пусто по умолчанию) и `backup_server_filesets` — декларативные списки,
-уже рендерящиеся в `bareos-dir.d/client|job|fileset`, если заполнены (схема — комментарий в
-`defaults/main.yml`), но не используются в MVP. Когда появится `backup_agent` (file daemon на
-удалённых хостах), она должна будет только заполнить эти списки — расширять `backup_server` не
-потребуется.
+`backup_server_clients` и `backup_server_filesets` — декларативные списки, рендерящиеся в
+`bareos-dir.d/client|job|fileset` (схема — комментарий в `defaults/main.yml`). Клиентские хосты
+ставят `roles/backup_agent` (file daemon), интеграция — вручную через совпадающие имя/пароль в
+обеих ролях (без кросс-ролевого автообнаружения, см. `roles/backup_agent/README.md`).
+
+## Web UI (опционально, `backup_server_webui_enabled: false` по умолчанию)
+
+`bareos-webui-new` (Vue) — официального Docker-образа не существует (только сторонние с
+несовпадающими версиями), апстримный apt-пакет жёстко требует `apache2|httpd` (Debian не даёт
+nginx как альтернативу virtual-пакету `httpd`). Роль собирает **собственный** Docker-образ
+(`tasks/webui.yml`, `templates/webui/Dockerfile.j2`): `debian:bookworm-slim` + тот же
+apt-репозиторий Bareos, что на хосте, + `apache2`/`bareos-webui-new`/`bareos-webui-proxy` внутри
+контейнера. Два процесса в одном контейнере (`entrypoint.sh`): `bareos-webui-proxy` (WebSocket/API
+прокси к Director, порт 9104, CRAM-MD5) + `apache2` (статика Vue, проксирует `/bareos-webui-new/
+{ws,api}` на `localhost:9104`). Второй хоп — `bareos-webui-proxy` → Director — через
+`host.docker.internal` (`extra_hosts: host-gateway`): Director нативный systemd-сервис на хосте,
+не в контейнере.
+
+`bareos-webui-new` не поставляет дефолтный Console/Profile для логина — роль рендерит свои
+(`backup_server_webui_console_name`, дефолт `webui-admin`, полный ACL-доступ), пароль вводится в
+форме логина Vue-приложения. Публикация — `reverse_proxy_traefik` (обязателен на хосте), сеть
+`proxy`. Доп. слой — basic-auth на Traefik (`backup_server_webui_reverse_proxy_basic_auth_enabled`,
+по умолчанию `true`, fail-fast на дефолтный пароль, тот же паттерн, что `roles/infra_panel`) —
+опциональный, в отличие от `infra_panel`/дашборда Traefik: у bareos-webui-new **есть** собственная
+реальная аутентификация (форма логина Bareos не отдаёт данные без валидных Console-креденшлов),
+поэтому `false` — осознанный выбор для доверенной сети, а не небезопасный дефолт.
+
+`community.docker.docker_compose_v2` вызывается с `build: always` (не дефолтный `policy`,
+который собирает образ, только если его ещё нет вообще) — иначе правки Dockerfile/entrypoint.sh
+молча не подхватывались бы повторным converge. Docker сам кэширует неизменившиеся слои, так что
+`always` не означает пересборку с нуля на каждом прогоне.
+
+**Не покрыто molecule** — сознательный пробел: добавление docker+apache+Traefik в существующий
+self-backup-сценарий `extensions/molecule/backup_server/` ощутимо утяжелило бы его ради фичи,
+архитектурно идентичной уже проверенному паттерну `infra_panel`/`reverse_proxy_traefik`.
+Проверено live-прогоном `demo/backup` (см. `docs/adr/0009-backup-server-role.md` §9) — реальным
+прогоном найдены и исправлены два бага: неверный CLI-флаг `bareos-webui-proxy` (`-c` вместо
+`--config`) и неверный путь конфига (`/etc/bareos/...` вместо реального дефолта инструмента
+`/etc/bareos-webui-proxy/bareos-webui-proxy.ini`).
 
 ## Пример
 

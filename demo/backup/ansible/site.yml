@@ -14,8 +14,13 @@
 # (group_vars/backup_servers.yml: backup_server_clients[].name/password ==
 # group_vars/client_{a,b}.yml: backup_agent_client_name/password), без кросс-ролевого
 # автообнаружения (см. roles/backup_agent/README.md).
+#
+# reverse_proxy_traefik ДО backup_server (владеет docker-сетью "proxy", backup_server_webui
+# подключается к ней как external: true, docs/adr/0009-backup-server-role.md §9) — тот же
+# порядок, что demo/mysql-ha-platform (ADR-0008). infra_panel — последней (ссылка на webui через
+# infra_panel_extra_services, group_vars/backup_servers.yml).
 
-- name: backup-server
+- name: Backup-server
   hosts: backup_servers
   become: true
   pre_tasks:
@@ -28,9 +33,11 @@
       failed_when: false
 
   roles:
+    - reverse_proxy_traefik
     - backup_server
+    - infra_panel
 
-- name: backup-agent clients
+- name: Backup-agent clients
   hosts: backup_agent_clients
   become: true
   pre_tasks:

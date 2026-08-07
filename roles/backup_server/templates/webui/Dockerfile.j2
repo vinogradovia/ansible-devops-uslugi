@@ -1,0 +1,26 @@
+# Собственный образ bareos-webui-new (Vue) + bareos-webui-proxy — официального образа не
+# существует (только сторонние на Docker Hub с несовпадающими версиями), апстрим жёстко требует
+# apache2|httpd (Debian не даёт nginx как альтернативу virtual-пакету httpd), см.
+# docs/adr/0009-backup-server-role.md §8. apt-репозиторий Bareos — тот же URL, что использует
+# сам backup_server на хосте (backup_server_bareos_repo_url).
+FROM debian:bookworm-slim
+
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      curl ca-certificates gnupg && \
+    mkdir -p /etc/apt/keyrings && \
+    curl -fsSL {{ backup_server_bareos_repo_url }}/Release.key -o /etc/apt/keyrings/bareos.asc && \
+    echo "deb [signed-by=/etc/apt/keyrings/bareos.asc] {{ backup_server_bareos_repo_url }} /" \
+      > /etc/apt/sources.list.d/bareos.list && \
+    apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      apache2 bareos-webui-new bareos-webui-proxy && \
+    a2enmod proxy proxy_http proxy_wstunnel rewrite headers && \
+    a2enconf bareos-webui-new && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+EXPOSE 80
+ENTRYPOINT ["/entrypoint.sh"]

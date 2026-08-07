@@ -25,3 +25,7 @@
 
 - name: Include services.yml
   ansible.builtin.include_tasks: services.yml
+
+- name: Include webui.yml
+  ansible.builtin.include_tasks: webui.yml
+  when: backup_server_webui_enabled

@@ -1,0 +1,12 @@
+; Конфиг bareos-webui-proxy — подтверждён реальным core/src/webui-proxy/bareos-webui-proxy.ini.in
+; апстрима. [listen] — где прокси принимает WebSocket/HTTP от Vue-фронта (тот же контейнер,
+; apache проксирует на localhost:9104 — см. entrypoint.sh/Dockerfile.j2). Секция ниже — Director,
+; на который проксируются запросы; host.docker.internal — Director не в этом контейнере, а
+; нативный systemd-сервис на хосте (docs/adr/0009-backup-server-role.md §8).
+[listen]
+address = 0.0.0.0
+port = 9104
+
+[{{ backup_server_director_name }}]
+address = host.docker.internal
+port = 9101
