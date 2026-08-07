@@ -1,0 +1,35 @@
+---
+- name: Prepare
+  hosts: all
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Дождаться завершения cloud-init
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+      failed_when: false
+
+    - name: Обновить apt-кэш
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    # Тестовые данные под FileSet "molecule-test-files" (group_vars/backup_servers.yml) — должны
+    # существовать на клиентской ВМ ДО того, как backup_server реально запустит job в verify.yml.
+    - name: Создать тестовый каталог для бекапа
+      ansible.builtin.file:
+        path: /var/lib/molecule-test-data
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      when: "'backup_agent_clients' in group_names"
+
+    - name: Создать тестовый файл для бекапа
+      ansible.builtin.copy:
+        dest: /var/lib/molecule-test-data/hello.txt
+        content: "backup_agent molecule test\n"
+        owner: root
+        group: root
+        mode: '0644'
+      when: "'backup_agent_clients' in group_names"

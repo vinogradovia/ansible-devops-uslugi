@@ -1,0 +1,13 @@
+---
+# Fail-fast без скрытых дефолтов (тот же паттерн, что backup_server/reverse_proxy_npm/...).
+- name: Fail if backup_agent_client_password is not set
+  ansible.builtin.assert:
+    that:
+      - backup_agent_client_password is defined
+      - backup_agent_client_password | length > 0
+    fail_msg: >-
+      backup_agent_client_password обязателен — пароль director<->file daemon этого хоста, должен
+      совпадать с полем password соответствующего элемента backup_server_clients на стороне
+      backup_server. Задайте настоящее значение в inventory/group_vars (vault).
+    quiet: true
+  no_log: true

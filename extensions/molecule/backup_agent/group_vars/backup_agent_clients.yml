@@ -1,0 +1,3 @@
+---
+backup_agent_client_name: backup-agent-client-fd
+backup_agent_client_password: molecule-test-agent-password

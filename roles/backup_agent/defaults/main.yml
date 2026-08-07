@@ -1,0 +1,41 @@
+---
+# defaults file for backup_agent
+
+# --- Пакеты/репозиторий --- тот же репозиторий, что backup_server (см. roles/backup_server/
+# defaults/main.yml, комментарий у backup_server_bareos_repo_url — путь подтверждён напрямую по
+# реальному листингу download.bareos.org/current/xUbuntu_24.04/bareos.list).
+backup_agent_bareos_repo_channel: current
+backup_agent_bareos_repo_os_path: >-
+  {{ 'xUbuntu_' + ansible_distribution_version if ansible_distribution == 'Ubuntu'
+     else 'Debian_' + ansible_distribution_major_version }}
+backup_agent_bareos_repo_url: "https://download.bareos.org/{{ backup_agent_bareos_repo_channel }}/{{ backup_agent_bareos_repo_os_path }}"
+backup_agent_bareos_repo_keyring_path: /etc/apt/keyrings/bareos.asc
+#
+# ROADMAP.md Backlog №48 — клиентский агент backup_server (Bareos file daemon). Роль ставит и
+# настраивает только сам file daemon — что именно бекапить (FileSet/Plugin-директивы) решается
+# ЦЕЛИКОМ на стороне backup_server (bareos-fd.d НЕ имеет ресурса FileSet вообще — только
+# client/director/messages, подтверждено деревом core/src/defaultconfigs/bareos-fd.d/ апстрима;
+# FileSet — исключительно director-side ресурс). См. roles/backup_agent/README.md.
+
+# Должен совпадать с backup_server_director_name на стороне backup_server — иначе peer/handshake
+# не пройдёт (Director-ресурс в bareos-fd.d ссылается на это имя).
+backup_agent_director_name: bareos-dir
+
+# Имя Client-ресурса ЭТОГО хоста — должно совпадать с полем name соответствующего элемента
+# backup_server_clients на стороне backup_server.
+backup_agent_client_name: "{{ inventory_hostname }}-fd"
+# Обязателен, fail-fast если пусто — должен совпадать с полем password того же элемента
+# backup_server_clients.
+backup_agent_client_password: ""
+
+# Какие Bareos file-daemon плагины ставить — зависит от того, что оператор планирует бекапить с
+# этого хоста через backup_server_filesets (Plugin = "python3:module_name=bareos-fd-postgresql:...").
+# По умолчанию оба выключены — только bareos-filedaemon-python3-plugin (нужен всегда, даже для
+# type: files, лишним не будет) и сам bareos-filedaemon.
+backup_agent_install_postgresql_plugin: false
+backup_agent_install_percona_xtrabackup_plugin: false
+
+backup_agent_filedaemon_config_dir: /etc/bareos/bareos-fd.d
+# "-c" ожидает БАЗОВЫЙ каталог, не сам bareos-fd.d (тот же механизм резолва, что backup_server —
+# см. roles/backup_server/defaults/main.yml, комментарий у backup_server_director_conf_path).
+backup_agent_filedaemon_conf_path: /etc/bareos

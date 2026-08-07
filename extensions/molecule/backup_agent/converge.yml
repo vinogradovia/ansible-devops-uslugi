@@ -1,0 +1,20 @@
+---
+- name: Converge (backup_server)
+  hosts: backup_servers
+  become: true
+  collections:
+    - devops.uslugi
+  tasks:
+    - name: Прогнать роль backup_server (переменные — см. group_vars/backup_servers.yml)
+      ansible.builtin.import_role:
+        name: backup_server
+
+- name: Converge (backup_agent)
+  hosts: backup_agent_clients
+  become: true
+  collections:
+    - devops.uslugi
+  tasks:
+    - name: Прогнать роль backup_agent (переменные — см. group_vars/backup_agent_clients.yml)
+      ansible.builtin.import_role:
+        name: backup_agent

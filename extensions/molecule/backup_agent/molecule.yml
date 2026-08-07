@@ -1,0 +1,58 @@
+---
+# Molecule-сценарий для backup_agent — проверяет связку backup_server+backup_agent целиком: не
+# self-backup на одном хосте (как в extensions/molecule/backup_server/), а реальный director на
+# одной ВМ, бекапящий file daemon на ДРУГОЙ ВМ через сеть. driver: vagrant/libvirt (единое
+# требование, см. CLAUDE.md, «Molecule-тесты»), две платформы в одном сценарии — тот же паттерн,
+# что extensions/molecule/monitoring_agent/mysql_replication (per-group group_vars/<group>.yml).
+#
+# Приватная сеть 192.168.57.0/24 (статические адреса — group_vars может захардкодить адрес
+# backup-server для backup_server_clients/backup_agent, не выясняя динамический IP через facts;
+# тот же приём, что extensions/molecule/mysql_replication).
+driver:
+  name: vagrant
+  provider:
+    name: libvirt
+
+platforms:
+  - name: backup-server
+    box: cloud-image/ubuntu-24.04
+    memory: 1536
+    cpus: 1
+    interfaces:
+      - auto_config: true
+        network_name: private_network
+        type: static
+        ip: 192.168.57.10
+    groups:
+      - backup_servers
+
+  - name: backup-agent-client
+    box: cloud-image/ubuntu-24.04
+    memory: 768
+    cpus: 1
+    interfaces:
+      - auto_config: true
+        network_name: private_network
+        type: static
+        ip: 192.168.57.11
+    groups:
+      - backup_agent_clients
+
+scenario:
+  test_sequence:
+    - dependency
+    - destroy
+    - syntax
+    - create
+    - prepare
+    - converge
+    - idempotence
+    - verify
+    - destroy
+
+shared_state: false
+
+ansible:
+  executor:
+    args:
+      ansible_playbook: []

@@ -1,0 +1,23 @@
+---
+- name: Установить bareos-filedaemon + python3-plugin runtime
+  ansible.builtin.apt:
+    name:
+      - bareos-filedaemon
+      - bareos-filedaemon-python3-plugin
+    state: present
+    update_cache: true
+
+# Пакеты подтверждены реальным листингом Packages репозитория download.bareos.org (тот же, что
+# roles/backup_server) — устанавливаются опционально, по тому, что оператор реально планирует
+# бекапить этим агентом через backup_server_filesets (Plugin = ... на стороне backup_server).
+- name: Установить плагин bareos-fd-postgresql
+  ansible.builtin.apt:
+    name: bareos-filedaemon-postgresql-python-plugin
+    state: present
+  when: backup_agent_install_postgresql_plugin
+
+- name: Установить плагин bareos-fd-percona-xtrabackup
+  ansible.builtin.apt:
+    name: bareos-filedaemon-percona-xtrabackup-python-plugin
+    state: present
+  when: backup_agent_install_percona_xtrabackup_plugin

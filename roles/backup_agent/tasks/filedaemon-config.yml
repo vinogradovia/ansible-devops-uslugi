@@ -1,0 +1,70 @@
+---
+# Пакет bareos-filedaemon сам разворачивает дефолтные ресурсы в bareos-fd.d/ при первой установке
+# (postinst: bareos-config deploy_config --init "bareos-fd") — тот же механизм, что найден и
+# закрыт в roles/backup_server (см. docs/adr/0009-backup-server-role.md §7). Файлы, которые эта
+# роль тоже рендерит под тем же именем (client/myself.conf, director/<backup_agent_director_name>.conf,
+# messages/Standard.conf), корректно перезаписываются template'ом. director/bareos-mon.conf
+# (Director-ресурс для tray-monitor) эта роль не декларирует и не использует — удаляем.
+- name: Удалить недекларируемые пакетные дефолты bareos-fd.d
+  ansible.builtin.file:
+    path: "{{ backup_agent_filedaemon_config_dir }}/director/bareos-mon.conf"
+    state: absent
+  notify:
+    - Restart bareos-filedaemon
+
+- name: Ensure bareos-fd.d resource subdirectories exist
+  ansible.builtin.file:
+    path: "{{ backup_agent_filedaemon_config_dir }}/{{ item }}"
+    state: directory
+    owner: root
+    group: bareos
+    mode: '0750'
+  loop:
+    - client
+    - director
+    - messages
+  notify:
+    - Restart bareos-filedaemon
+
+- name: Render bareos-fd.d/client resource
+  ansible.builtin.template:
+    src: bareos-fd.d/client/client.conf.j2
+    dest: "{{ backup_agent_filedaemon_config_dir }}/client/myself.conf"
+    owner: root
+    group: bareos
+    mode: '0640'
+  notify:
+    - Restart bareos-filedaemon
+
+- name: Render bareos-fd.d/director resource
+  ansible.builtin.template:
+    src: bareos-fd.d/director/director.conf.j2
+    dest: "{{ backup_agent_filedaemon_config_dir }}/director/{{ backup_agent_director_name }}.conf"
+    owner: root
+    group: bareos
+    mode: '0640'
+  no_log: true
+  notify:
+    - Restart bareos-filedaemon
+
+- name: Render bareos-fd.d/messages resource
+  ansible.builtin.template:
+    src: bareos-fd.d/messages/messages.conf.j2
+    dest: "{{ backup_agent_filedaemon_config_dir }}/messages/Standard.conf"
+    owner: root
+    group: bareos
+    mode: '0640'
+  notify:
+    - Restart bareos-filedaemon
+
+# Постфактум-валидация — тот же принцип, что backup_server (multi-file resource dir, "-t" ожидает
+# BASEDIR, не сам bareos-fd.d).
+- name: Validate bareos-fd config (bareos-fd -t)
+  ansible.builtin.command: "bareos-fd -t -c {{ backup_agent_filedaemon_conf_path }}"
+  changed_when: false
+
+- name: Enable and start bareos-filedaemon
+  ansible.builtin.systemd:
+    name: bareos-filedaemon
+    enabled: true
+    state: started

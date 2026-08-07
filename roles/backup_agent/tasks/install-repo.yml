@@ -1,0 +1,37 @@
+---
+# Тот же репозиторий и тот же паттерн подключения, что roles/backup_server/tasks/install-repo.yml
+# (keyring signed-by, не apt_key) — дублируется, а не выносится в общую роль/зависимость: два
+# потребителя не оправдывают выделение отдельного инфраструктурного примитива ради одного apt-репо
+# (в отличие от roles/docker, который куда тяжелее одной apt_repository-задачи).
+
+- name: "[repo] Установить пакеты, необходимые для подключения репозитория"
+  ansible.builtin.apt:
+    name:
+      - curl
+      - ca-certificates
+      - gnupg
+    state: present
+    update_cache: true
+
+- name: "[repo] Создать каталог для apt keyring'ов"
+  ansible.builtin.file:
+    path: "{{ backup_agent_bareos_repo_keyring_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: "[repo] Скачать GPG-ключ download.bareos.org"
+  ansible.builtin.get_url:
+    url: "{{ backup_agent_bareos_repo_url }}/Release.key"
+    dest: "{{ backup_agent_bareos_repo_keyring_path }}"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: "[repo] Подключить репозиторий download.bareos.org (канал: {{ backup_agent_bareos_repo_channel }})"
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by={{ backup_agent_bareos_repo_keyring_path }}] {{ backup_agent_bareos_repo_url }} /"
+    state: present
+    filename: bareos
+    update_cache: true

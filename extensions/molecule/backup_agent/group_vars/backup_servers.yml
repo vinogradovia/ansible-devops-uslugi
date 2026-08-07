@@ -1,0 +1,26 @@
+---
+# Переменные для converge/verify этого сценария — тот же паттерн, что и у остальных
+# molecule-сценариев коллекции (group_vars/, не vars: playbook'ов).
+
+backup_server_director_password: molecule-test-director-password
+backup_server_storage_password: molecule-test-storage-password
+backup_server_catalog_db_password: molecule-test-catalog-password
+
+# Этот сценарий проверяет путь через РЕАЛЬНОГО удалённого клиента (backup_agent на второй ВМ), а
+# не self-backup — self-backup уже отдельно проверен в extensions/molecule/backup_server/,
+# отключаем здесь, чтобы verify.yml был сфокусирован на одном job'е.
+backup_server_self_backup_enabled: false
+
+backup_server_clients:
+  - name: backup-agent-client-fd
+    address: 192.168.57.11
+    password: molecule-test-agent-password
+    fileset: molecule-test-files
+
+backup_server_filesets:
+  - name: molecule-test-files
+    content: |
+      Include {
+        Options { Signature = XXH128 }
+        File = /var/lib/molecule-test-data
+      }

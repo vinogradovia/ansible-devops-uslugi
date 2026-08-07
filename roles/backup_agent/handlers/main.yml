@@ -1,0 +1,5 @@
+---
+- name: Restart bareos-filedaemon
+  ansible.builtin.systemd:
+    name: bareos-filedaemon
+    state: restarted

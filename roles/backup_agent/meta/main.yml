@@ -1,0 +1,10 @@
+---
+galaxy_info:
+  author: Ivan Vinogradov <vinogradovia@gmail.com>
+  description: Bareos file daemon — клиентский агент для backup_server (ROADMAP Backlog №48)
+  license: WTFPL
+  min_ansible_version: "2.2"
+  galaxy_tags:
+    - backup
+    - bareos
+dependencies: []

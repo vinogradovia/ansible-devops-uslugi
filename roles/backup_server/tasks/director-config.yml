@@ -30,6 +30,24 @@
   notify:
     - Restart bareos-director
 
+# Когда backup_server_self_backup_enabled: false, задачи ниже, рендерящие
+# client/bareos-fd.conf, fileset/Catalog.conf, job/BackupCatalog.conf НЕ выполняются (свои
+# when-условия) — но пакетные дефолты под теми же именами остаются на диске и ссылаются на
+# jobdefs/DefaultJob.conf, уже удалённый выше как "недекларируемый" → dangling reference,
+# "bareos-dir -t" падает "Could not find config resource DefaultJob" (найдено реальным прогоном
+# extensions/molecule/backup_agent/, где self-backup выключен, а backup_server_clients непустой).
+- name: Удалить пакетные дефолты self-backup ресурсов, если self-backup выключен
+  ansible.builtin.file:
+    path: "{{ backup_server_director_config_dir }}/{{ item }}"
+    state: absent
+  loop:
+    - "client/{{ backup_server_self_backup_client_name }}.conf"
+    - fileset/Catalog.conf
+    - job/BackupCatalog.conf
+  when: not backup_server_self_backup_enabled
+  notify:
+    - Restart bareos-director
+
 - name: Ensure bareos-dir.d resource subdirectories exist
   ansible.builtin.file:
     path: "{{ backup_server_director_config_dir }}/{{ item }}"
@@ -169,6 +187,11 @@
   notify:
     - Restart bareos-director
 
+# Не гейтится backup_server_self_backup_enabled — "SelfBackupCycle" также дефолтное расписание
+# джобов из backup_server_clients (bareos-dir.d/job/client-job.conf.j2: item.schedule | default
+# ('SelfBackupCycle')), без self-backup клиентские джобы падали бы на "-t" ссылкой на
+# несуществующий Schedule-ресурс (найдено при подготовке extensions/molecule/backup_agent/,
+# где backup_server_self_backup_enabled: false, а backup_server_clients непустой).
 - name: Render bareos-dir.d/schedule self-backup resource
   ansible.builtin.template:
     src: bareos-dir.d/schedule/self-backup-schedule.conf.j2
@@ -176,7 +199,6 @@
     owner: root
     group: bareos
     mode: '0640'
-  when: backup_server_self_backup_enabled
   notify:
     - Restart bareos-director
 
