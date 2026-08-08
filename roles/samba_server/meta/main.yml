@@ -1,0 +1,12 @@
+---
+# SPDX-License-Identifier: MIT-0
+galaxy_info:
+  author: Ivan Vinogradov <vinogradovia@gmail.com>
+  description: simple Samba file server role for shared file storage (user-based shares)
+  license: WTFPL
+  min_ansible_version: "2.2"
+  galaxy_tags:
+    - samba
+    - smb
+    - fileserver
+dependencies: []

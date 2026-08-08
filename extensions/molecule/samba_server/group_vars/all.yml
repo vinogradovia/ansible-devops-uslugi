@@ -1,0 +1,41 @@
+---
+# Переменные роли samba_server для converge/verify этого сценария. Лежат в group_vars/, а не в
+# vars: playbook'ов — тот же паттерн, что extensions/molecule/infra_dns/group_vars/all.yml (нужны
+# и prepare.yml, и verify.yml, не только converge.yml).
+
+samba_server_workgroup: MOLECULE
+
+# Пароли в открытом виде — тестовый одноразовый стенд, не production (тот же подход, что
+# extensions/molecule/reverse_proxy_npm/group_vars/all.yml). В README роли явно указано, что в
+# реальном использовании пароли должны приходить из ansible-vault.
+# Обе состоят в группе sambashare — она же владеет каталогом shared ниже, чтобы write_list
+# реально давал запись на уровне ОС, а не только на уровне smb.conf (см. defaults/main.yml роли).
+samba_server_users:
+  - name: alice
+    password: "Molecule_Test_Alice!23"
+    groups: [sambashare]
+  - name: bob
+    password: "Molecule_Test_Bob!23"
+    groups: [sambashare]
+
+samba_server_shares:
+  # Приватная шара: valid_users ограничивает доступ alice/bob (гость не должен даже
+  # подключиться), write_list даёт запись только alice — bob должен получить read-only.
+  # group: sambashare + setgid (2775) — реальный ОС-доступ на запись для alice/bob.
+  - name: shared
+    path: /srv/samba/shared
+    comment: "Molecule shared (private)"
+    valid_users: [alice, bob]
+    write_list: [alice]
+    read_only: true
+    group: sambashare
+    directory_mode: "2775"
+
+  # Публичная шара: guest_ok без valid_users — доступна анонимно, но read_only: true запрещает
+  # гостю запись (проверяется в verify.yml, что PUT гостем реально падает, а не только что флаг
+  # выставлен в smb.conf).
+  - name: public
+    path: /srv/samba/public
+    comment: "Molecule public (guest read-only)"
+    guest_ok: true
+    read_only: true

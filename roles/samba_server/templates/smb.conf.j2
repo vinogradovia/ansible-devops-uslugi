@@ -1,0 +1,34 @@
+### {{ ansible_managed }}
+
+[global]
+   workgroup = {{ samba_server_workgroup }}
+   server string = {{ samba_server_server_string }}
+   netbios name = {{ samba_server_netbios_name }}
+   security = {{ samba_server_security }}
+{% if samba_server_security == 'user' %}
+   map to guest = {{ samba_server_map_to_guest }}
+{% endif %}
+{% if samba_server_interfaces %}
+   interfaces = {{ samba_server_interfaces | join(' ') }}
+   bind interfaces only = {{ samba_server_bind_interfaces_only | lower }}
+{% endif %}
+   log file = {{ samba_server_log_file }}
+   max log size = {{ samba_server_max_log_size }}
+
+{% for share in samba_server_shares %}
+[{{ share.name }}]
+   path = {{ share.path }}
+   comment = {{ share.comment | default('') }}
+   browsable = {{ share.browsable | default(true) | lower }}
+   read only = {{ share.read_only | default(true) | lower }}
+   guest ok = {{ share.guest_ok | default(false) | lower }}
+{% if share.valid_users | default([]) %}
+   valid users = {{ share.valid_users | join(' ') }}
+{% endif %}
+{% if share.write_list | default([]) %}
+   write list = {{ share.write_list | join(' ') }}
+{% endif %}
+   create mask = {{ share.create_mask | default('0664') }}
+   directory mask = {{ share.directory_mask | default('0775') }}
+
+{% endfor %}

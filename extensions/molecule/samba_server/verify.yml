@@ -1,0 +1,166 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    # --- Сервисы ----------------------------------------------------------------------------
+    - name: Собрать факты о службах smbd/nmbd
+      ansible.builtin.service_facts:
+
+    - name: Службы smbd и nmbd должны быть running и enabled
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.services['smbd.service'].state == 'running'
+          - ansible_facts.services['smbd.service'].status == 'enabled'
+          - ansible_facts.services['nmbd.service'].state == 'running'
+          - ansible_facts.services['nmbd.service'].status == 'enabled'
+        quiet: true
+
+    # --- testparm на реально задеплоенном /etc/samba/smb.conf -------------------------------
+    - name: Testparm должен пройти на реальном /etc/samba/smb.conf
+      ansible.builtin.command: testparm -s /etc/samba/smb.conf
+      changed_when: false
+
+    # --- Права на каталоги шар ---------------------------------------------------------------
+    - name: Собрать stat каталогов шар
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+      register: molecule_samba_server_share_stat
+      loop: "{{ samba_server_shares }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Каталог public должен принадлежать root:root с mode 0775 (дефолт роли)
+      ansible.builtin.assert:
+        that:
+          - molecule_samba_server_share_stat.results[1].stat.pw_name == 'root'
+          - molecule_samba_server_share_stat.results[1].stat.gr_name == 'root'
+          - molecule_samba_server_share_stat.results[1].stat.mode == '0775'
+        quiet: true
+
+    - name: Каталог shared должен принадлежать root:sambashare с setgid mode 2775 (group_vars сценария)
+      ansible.builtin.assert:
+        that:
+          - molecule_samba_server_share_stat.results[0].stat.pw_name == 'root'
+          - molecule_samba_server_share_stat.results[0].stat.gr_name == 'sambashare'
+          - molecule_samba_server_share_stat.results[0].stat.mode == '2775'
+        quiet: true
+
+    # --- Функциональная проверка: реальный SMB-доступ через smbclient -----------------------
+    - name: Установить smbclient (нужен для функциональной проверки)
+      ansible.builtin.apt:
+        name: smbclient
+        state: present
+
+    - name: Список шар должен быть виден анонимно (browsable)
+      ansible.builtin.command:
+        argv: [smbclient, "-L", "//127.0.0.1/", "-N"]
+      register: molecule_samba_server_list
+      changed_when: false
+
+    - name: В списке шар должны быть shared и public
+      ansible.builtin.assert:
+        that:
+          - "'shared' in molecule_samba_server_list.stdout"
+          - "'public' in molecule_samba_server_list.stdout"
+        quiet: true
+
+    - name: Подготовить локальный файл для загрузки в шары
+      ansible.builtin.copy:
+        dest: /tmp/molecule-samba-src.txt
+        content: "molecule samba_server test payload\n"
+        mode: "0644"
+
+    - name: Гость НЕ должен подключиться к приватной шаре shared (valid_users)
+      ansible.builtin.command:
+        argv: [smbclient, "//127.0.0.1/shared", "-N", "-c", "ls"]
+      register: molecule_samba_server_guest_private
+      changed_when: false
+      failed_when: false
+
+    - name: Alice должна иметь доступ на запись в shared (write_list)
+      ansible.builtin.command:
+        argv:
+          - smbclient
+          - "//127.0.0.1/shared"
+          - "-U"
+          - "alice%{{ samba_server_users[0].password }}"
+          - "-c"
+          - "put /tmp/molecule-samba-src.txt uploaded-by-alice.txt"
+      register: molecule_samba_server_alice_put
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: Bob должен уметь читать файл alice из shared, но не писать (read-only)
+      ansible.builtin.command:
+        argv:
+          - smbclient
+          - "//127.0.0.1/shared"
+          - "-U"
+          - "bob%{{ samba_server_users[1].password }}"
+          - "-c"
+          - "get uploaded-by-alice.txt /tmp/molecule-samba-bob-get.txt; put /tmp/molecule-samba-src.txt uploaded-by-bob.txt"
+      register: molecule_samba_server_bob_rw
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: Проверить права доступа на приватной шаре shared
+      ansible.builtin.assert:
+        that:
+          - molecule_samba_server_guest_private.rc != 0
+          - molecule_samba_server_alice_put.rc == 0
+          - "'NT_STATUS_ACCESS_DENIED' in molecule_samba_server_bob_rw.stdout"
+        quiet: true
+
+    - name: Файл, загруженный alice, должен быть читаем bob'ом с исходным содержимым
+      ansible.builtin.slurp:
+        path: /tmp/molecule-samba-bob-get.txt
+      register: molecule_samba_server_bob_get_content
+
+    - name: Содержимое скачанного файла должно совпадать с исходным
+      ansible.builtin.assert:
+        that:
+          - (molecule_samba_server_bob_get_content.content | b64decode) == "molecule samba_server test payload\n"
+        quiet: true
+
+    - name: Предзаполнить публичную шару файлом напрямую на диске (вне SMB)
+      ansible.builtin.copy:
+        dest: /srv/samba/public/molecule-public.txt
+        content: "molecule samba_server public payload\n"
+        owner: root
+        group: root
+        mode: "0664"
+
+    - name: Гость должен уметь скачать файл из публичной шары
+      ansible.builtin.command:
+        argv:
+          - smbclient
+          - "//127.0.0.1/public"
+          - "-N"
+          - "-c"
+          - "get molecule-public.txt /tmp/molecule-samba-public-get.txt"
+      register: molecule_samba_server_guest_public_get
+      changed_when: false
+      failed_when: false
+
+    - name: Гость НЕ должен уметь писать в публичную шару (read_only)
+      ansible.builtin.command:
+        argv:
+          - smbclient
+          - "//127.0.0.1/public"
+          - "-N"
+          - "-c"
+          - "put /tmp/molecule-samba-src.txt guest-upload.txt"
+      register: molecule_samba_server_guest_public_put
+      changed_when: false
+      failed_when: false
+
+    - name: Проверить права доступа на публичной шаре public
+      ansible.builtin.assert:
+        that:
+          - molecule_samba_server_guest_public_get.rc == 0
+          - molecule_samba_server_guest_public_put.rc != 0
+        quiet: true

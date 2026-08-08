@@ -1,0 +1,150 @@
+---
+- name: Configure Samba file server
+  when: samba_server_enabled
+  block:
+    - name: Validate samba_server_shares
+      ansible.builtin.assert:
+        that:
+          - item.name is defined
+          - item.path is defined
+        fail_msg: "Каждый элемент samba_server_shares должен содержать name и path"
+        quiet: true
+      loop: "{{ samba_server_shares }}"
+      loop_control:
+        label: "{{ item.name | default('?') }}"
+      tags:
+        - validate
+
+    - name: Validate samba_server_users
+      ansible.builtin.assert:
+        that:
+          - item.name is defined
+          - item.password is defined
+        fail_msg: "Каждый элемент samba_server_users должен содержать name и password (см. defaults/main.yml)"
+        quiet: true
+      loop: "{{ samba_server_users }}"
+      loop_control:
+        label: "{{ item.name | default('?') }}"
+      tags:
+        - validate
+
+    - name: Install Samba packages
+      ansible.builtin.apt:
+        name: "{{ samba_server_packages }}"
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+      tags:
+        - install
+
+    # Дополнительные группы (samba_server_users[].groups) должны существовать до создания
+    # пользователей — ansible.builtin.user не создаёт группы сам, только назначает существующие.
+    # Нужны, чтобы дать пользователю реальный Unix-доступ на запись в каталог шары (owner/group
+    # каталога, см. "Create share directories" ниже) — write_list в smb.conf разрешает запись
+    # только на уровне SMB-протокола, файловые права ОС проверяются отдельно и независимо.
+    - name: Ensure supplementary groups for Samba users exist
+      ansible.builtin.group:
+        name: "{{ item }}"
+        state: present
+      loop: "{{ samba_server_users | map(attribute='groups', default=[]) | list | flatten | unique }}"
+      tags:
+        - users
+
+    - name: Create local Samba users
+      ansible.builtin.user:
+        name: "{{ item.name }}"
+        uid: "{{ item.uid | default(omit) }}"
+        groups: "{{ item.groups | default([]) }}"
+        append: true
+        system: true
+        create_home: false
+        shell: /usr/sbin/nologin
+      loop: "{{ samba_server_users }}"
+      loop_control:
+        label: "{{ item.name }}"
+      tags:
+        - users
+
+    - name: Проверить, какие Samba-пользователи уже заведены в базе smbpasswd
+      ansible.builtin.command: pdbedit -L -u {{ item.name }}
+      loop: "{{ samba_server_users }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: samba_server_pdbedit_check
+      changed_when: false
+      failed_when: false
+      tags:
+        - users
+
+    - name: Задать Samba-пароли новым пользователям
+      ansible.builtin.command:
+        cmd: "smbpasswd -a -s {{ item.item.name }}"
+        stdin: "{{ item.item.password }}\n{{ item.item.password }}\n"
+      loop: "{{ samba_server_pdbedit_check.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+      when: item.rc != 0
+      no_log: true
+      changed_when: true
+      tags:
+        - users
+
+    - name: Create share directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: "{{ item.owner | default('root') }}"
+        group: "{{ item.group | default('root') }}"
+        mode: "{{ item.directory_mode | default('0775') }}"
+      loop: "{{ samba_server_shares }}"
+      loop_control:
+        label: "{{ item.name }}"
+      tags:
+        - shares
+
+    - name: Deploy smb.conf
+      ansible.builtin.template:
+        src: smb.conf.j2
+        dest: /etc/samba/smb.conf
+        owner: root
+        group: root
+        mode: "0644"
+        validate: "testparm -s %s"
+      notify:
+        - Restart smbd
+        - Restart nmbd
+      tags:
+        - config
+
+    - name: Ensure smbd/nmbd are enabled and started
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: started
+        enabled: true
+      loop:
+        - smbd
+        - nmbd
+      tags:
+        - install
+
+- name: Uninstall Samba
+  when: not samba_server_enabled
+  block:
+    - name: Stop and disable smbd/nmbd
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+      loop:
+        - smbd
+        - nmbd
+      failed_when: false
+      tags:
+        - install
+
+    - name: Remove Samba packages
+      ansible.builtin.apt:
+        name: "{{ samba_server_packages }}"
+        state: absent
+      tags:
+        - install

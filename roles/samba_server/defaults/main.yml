@@ -1,0 +1,70 @@
+---
+samba_server_enabled: true
+
+samba_server_packages:
+  - samba
+  - samba-common-bin
+
+samba_server_workgroup: WORKGROUP
+samba_server_server_string: "%h server (Samba, Ansible)"
+samba_server_netbios_name: "{{ ansible_hostname }}"
+
+# user — единственный поддерживаемый роллью режим аутентификации: локальные Unix/Samba-
+# пользователи (samba_server_users) + smbpasswd. Гостевой доступ на отдельные шары включается
+# через guest_ok: true у конкретной шары (map to guest = Bad User ниже позволяет такой шаре
+# работать анонимно, не превращая сервер в полностью открытый).
+samba_server_security: user
+samba_server_map_to_guest: "Bad User"
+
+samba_server_interfaces: []
+samba_server_bind_interfaces_only: false
+
+samba_server_log_file: /var/log/samba/log.%m
+samba_server_max_log_size: 1000
+
+# Локальные Unix-пользователи для доступа к шарам (системные аккаунты, без домашнего каталога
+# и shell). password ОБЯЗАТЕЛЕН и должен приходить из ansible-vault, а не лежать в открытом виде
+# в inventory/vars — роль передаёт его в smbpasswd через stdin (no_log: true), в командную строку
+# и в smb.conf он не попадает.
+#
+# samba_server_users:
+#   - name: alice
+#     password: "{{ vault_samba_alice_password }}"
+#     uid: 2001                # optional
+#     groups: [sambashare]     # optional, доп. Unix-группы (создаются ролью, если их ещё нет) —
+#                               # нужны, чтобы дать пользователю реальный доступ на запись в
+#                               # каталог шары (см. samba_server_shares.group ниже): write_list в
+#                               # smb.conf разрешает запись только на уровне SMB, права ОС на
+#                               # каталог проверяются независимо и должны быть выставлены отдельно.
+#
+samba_server_users: []
+
+# Список шар. path создаётся ролью (owner/group/mode — см. поля ниже), если ещё не существует.
+#
+# ВАЖНО: write_list/valid_users разрешают запись/доступ только на уровне SMB-протокола. Реальная
+# запись на диск дополнительно проверяется правами ОС на каталог (owner/group/directory_mode
+# ниже) — Samba выполняет файловые операции от имени подключившегося Unix-пользователя (если не
+# заданы нестандартные "force user"/"force group", которых эта роль не настраивает). Чтобы
+# write_list реально работал, группа-владелец каталога должна включать этих пользователей — см.
+# samba_server_users[].groups выше. Пример ниже: alice и bob состоят в группе sambashare (заведена
+# через samba_server_users[].groups), каталог shared принадлежит этой же группе с правом записи.
+#
+# samba_server_shares:
+#   - name: shared
+#     path: /srv/samba/shared
+#     comment: "Общее хранилище"
+#     valid_users: [alice, bob]     # optional, кто может подключаться к шаре
+#     write_list: [alice]           # optional, кому разрешена запись при read_only: true
+#     read_only: true               # optional, default true
+#     guest_ok: false               # optional, default false — анонимный доступ без пароля
+#     browsable: true               # optional, default true — видимость в сетевом окружении
+#     owner: root                   # optional, владелец каталога шары, default root
+#     group: sambashare             # optional, группа каталога шары, default root — должна
+#                                    # совпадать с одной из samba_server_users[].groups, чтобы
+#                                    # write_list реально давал запись на уровне ОС
+#     directory_mode: "2775"        # optional, права на сам каталог шары; setgid (2xxx) — чтобы
+#                                    # новые файлы наследовали группу каталога, а не группу автора
+#     create_mask: "0664"           # optional, smb.conf "create mask" для новых файлов
+#     directory_mask: "0775"        # optional, smb.conf "directory mask" для новых подкаталогов
+#
+samba_server_shares: []
