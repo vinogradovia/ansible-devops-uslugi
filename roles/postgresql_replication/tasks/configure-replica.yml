@@ -60,6 +60,37 @@
   environment:
     PGPASSWORD: "{{ postgresql_replication_repmgr_password }}"
 
+# ROADMAP.md P2 №46 — тот же fail-fast, что и в replication-user.yml (primary): register
+# пропускается, если node check --role уже успешен, но фактический node_id в repmgr.nodes
+# никогда не сверялся с postgresql_replication_node_id. См. комментарий там же для полного
+# описания сценария и воспроизведённого инцидента.
+- name: Query registered node_id for this node_name from repmgr metadata
+  when: postgresql_replication_replica_node_check.rc == 0
+  become: true
+  become_user: postgres
+  community.postgresql.postgresql_query:
+    login_unix_socket: /var/run/postgresql
+    login_db: "{{ postgresql_replication_repmgr_db }}"
+    query: SELECT node_id FROM repmgr.nodes WHERE node_name = %(node_name)s
+    named_args:
+      node_name: "{{ postgresql_replication_node_name }}"
+  register: postgresql_replication_replica_registered_node
+
+- name: Fail if repmgr.nodes node_id has drifted from postgresql_replication_node_id
+  when: postgresql_replication_replica_node_check.rc == 0
+  ansible.builtin.assert:
+    that:
+      - postgresql_replication_replica_registered_node.query_result | length > 0
+      - postgresql_replication_replica_registered_node.query_result[0].node_id | int == postgresql_replication_node_id | int
+    fail_msg: >-
+      Узел {{ postgresql_replication_node_name }} уже зарегистрирован в repmgr, но node_id в
+      repmgr.nodes ({{ postgresql_replication_replica_registered_node.query_result[0].node_id
+      | default('запись не найдена') }}) не совпадает с postgresql_replication_node_id
+      ({{ postgresql_replication_node_id }}) — конфигурация разошлась с кластером (ROADMAP.md
+      P2 №46). Приведите group_vars в соответствие с repmgr.nodes или перерегистрируйте узел
+      вручную (repmgr primary/standby unregister + register) — автоматически это не чинится.
+    quiet: true
+
 - name: Register standby with repmgr
   when: postgresql_replication_replica_node_check.rc != 0
   become: true

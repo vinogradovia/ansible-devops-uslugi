@@ -19,6 +19,31 @@
   register: mysql_replication_replica_status
   changed_when: false
 
+# ROADMAP.md P2 №46 — тот же класс бага, что и repmgr в postgresql_replication (см.
+# roles/postgresql_replication/tasks/configure-replica.yml): "Point replica at primary" ниже
+# пропускается, если Is_Replica уже true, но реальный источник (SHOW REPLICA STATUS)
+# никогда не сверялся с mysql_replication_primary_host/_port. Если group_vars поправили задним
+# числом (например, сменился primary после failover, а на этой реплике changeprimary ещё не
+# прогонялся), реплика молча продолжает тянуть данные со старого/неверного хоста — конфигурация
+# расходится с реальной топологией. Fail-fast, не автоматический repoint — тот же принцип, что и
+# в repmgr-фиксе.
+- name: Fail if replica is already pointed at a different primary than configured
+  when: mysql_replication_replica_status.Is_Replica | default(false)
+  ansible.builtin.assert:
+    that:
+      - mysql_replication_replica_status.Source_Host == mysql_replication_primary_host
+      - mysql_replication_replica_status.Source_Port | int == mysql_replication_primary_port | int
+    fail_msg: >-
+      Реплика уже настроена (Is_Replica=true), но реально реплицируется от
+      {{ mysql_replication_replica_status.Source_Host }}:{{ mysql_replication_replica_status.Source_Port }},
+      а не от настроенного mysql_replication_primary_host:mysql_replication_primary_port
+      ({{ mysql_replication_primary_host }}:{{ mysql_replication_primary_port }}) —
+      конфигурация разошлась с реальной топологией репликации (тот же класс дрейфа, что
+      ROADMAP.md P2 №46 для repmgr в postgresql_replication). Автоматически это не чинится —
+      либо приведите group_vars в соответствие с реальным источником, либо осознанно
+      перенастройте реплику (CHANGE REPLICATION SOURCE TO ...) вручную.
+    quiet: true
+
 - name: Point replica at primary (GTID auto-position)
   when: mysql_replication_replica_status.Is_Replica is not defined or not mysql_replication_replica_status.Is_Replica
   ansible.mysql.mysql_replication:

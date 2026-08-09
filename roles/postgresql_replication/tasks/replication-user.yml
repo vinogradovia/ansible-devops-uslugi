@@ -52,6 +52,40 @@
   changed_when: false
   failed_when: false
 
+# ROADMAP.md P2 №46 — register пропускается, если node check --role уже успешен, но фактически
+# зарегистрированный node_id в repmgr.nodes никогда не сверялся с postgresql_replication_node_id.
+# repmgr.conf при этом перетемплейтится безусловно на каждом прогоне (задача выше) — если
+# group_vars поправили задним числом уже после первичной регистрации, локальный конфиг молча
+# расходится с тем, что реально числится в кластере. Воспроизведено на реальном инциденте
+# (docs/runbooks/postgresql-failover.md, раздел 3, шаг 3) — repmgr node rejoin/standby register
+# падал "unable to retrieve node record for the local node" в разгар аварии, а не сразу.
+- name: Query registered node_id for this node_name from repmgr metadata
+  when: postgresql_replication_primary_node_check.rc == 0
+  become: true
+  become_user: postgres
+  community.postgresql.postgresql_query:
+    login_unix_socket: /var/run/postgresql
+    login_db: "{{ postgresql_replication_repmgr_db }}"
+    query: SELECT node_id FROM repmgr.nodes WHERE node_name = %(node_name)s
+    named_args:
+      node_name: "{{ postgresql_replication_node_name }}"
+  register: postgresql_replication_primary_registered_node
+
+- name: Fail if repmgr.nodes node_id has drifted from postgresql_replication_node_id
+  when: postgresql_replication_primary_node_check.rc == 0
+  ansible.builtin.assert:
+    that:
+      - postgresql_replication_primary_registered_node.query_result | length > 0
+      - postgresql_replication_primary_registered_node.query_result[0].node_id | int == postgresql_replication_node_id | int
+    fail_msg: >-
+      Узел {{ postgresql_replication_node_name }} уже зарегистрирован в repmgr, но node_id в
+      repmgr.nodes ({{ postgresql_replication_primary_registered_node.query_result[0].node_id
+      | default('запись не найдена') }}) не совпадает с postgresql_replication_node_id
+      ({{ postgresql_replication_node_id }}) — конфигурация разошлась с кластером (ROADMAP.md
+      P2 №46). Приведите group_vars в соответствие с repmgr.nodes или перерегистрируйте узел
+      вручную (repmgr primary/standby unregister + register) — автоматически это не чинится.
+    quiet: true
+
 - name: Register primary with repmgr
   when: postgresql_replication_primary_node_check.rc != 0
   become: true

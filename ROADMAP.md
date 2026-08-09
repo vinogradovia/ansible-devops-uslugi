@@ -232,24 +232,26 @@
     `check-and-install-requirements.docker.yml` — `docker network inspect` через
     `ansible.builtin.command` (не `community.docker.docker_network_info` — тому нужен python-пакет
     `docker` на целевом хосте, которого роль `docker` не ставит), падает понятной ошибкой заранее.
-46. **`postgresql_replication`/`mysql_replication`: идемпотентная регистрация в `repmgr` не
-    сверяет `node_id`.** `tasks/replication-user.yml`/`configure-replica.yml` пропускают `repmgr
-    primary register`/`standby register`, если `node check --role` уже успешен (узел уже
-    зарегистрирован) — но не проверяют, что зарегистрированный в кластере `node_id`/`node_name`
-    совпадает с текущим `postgresql_replication_node_id`/`repmgr.conf`. При этом `repmgr.conf`
-    перетемплейтится безусловно на каждом прогоне (`template`-задача без гейта) — если
-    `group_vars` хоста поменяли задним числом (например, поправили `node_id` уже после первичной
-    регистрации), локальный конфиг молча разъезжается с тем, что реально числится в
-    `repmgr.nodes`. Обнаруживается не сразу, а обычно в разгар аварии/failback, когда `repmgr node
-    rejoin`/`standby register` падает с `ERROR: unable to retrieve node record for the local
-    node` — воспроизведено на реальном инциденте (failback по
-    `docs/runbooks/postgresql-failover.md`, раздел 3, шаг 3: у хоста в `repmgr.conf` был
-    `node_id=1`, а в кластере он значился под `node_id=2`, ровно как и в `group_vars`, откуда
-    `repmgr.conf` рендерится). Чинить: `assert`/явная проверка перед пропуском
-    register-задачи — сравнить `node_id` из `postgresql_replication_node_id` с тем, что вернёт
-    `repmgr node check --role` (или прямой запрос к `repmgr.nodes`), fail-fast при расхождении
-    вместо молчаливого дрейфа. Тот же паттерн регистрации (`node check` → skip-if-ok) используется
-    и в `mysql_replication` — стоит проверить и там.
+46. ~~**`postgresql_replication`/`mysql_replication`: идемпотентная регистрация в `repmgr` не
+    сверяет `node_id`.**~~ — **исправлено** в обеих ролях:
+    - `postgresql_replication` (`tasks/replication-user.yml` — primary,
+      `tasks/configure-replica.yml` — standby): когда `node check --role` уже успешен (register
+      пропускается), добавлен `community.postgresql.postgresql_query` к `repmgr.nodes` по
+      `node_name` + `assert`, что вернувшийся `node_id` совпадает с
+      `postgresql_replication_node_id` — fail-fast с понятным сообщением при расхождении вместо
+      молчаливого дрейфа, автоматически не чинится (сознательное решение — repmgr
+      register/unregister при расхождении требует решения оператора, не угадывания роли).
+    - `mysql_replication` (`tasks/configure-replica.yml`): тот же класс дрейфа для
+      `SHOW REPLICA STATUS` — если `Is_Replica` уже true, `changeprimary` пропускался без проверки,
+      что реальный `Source_Host`/`Source_Port` совпадает с настроенными
+      `mysql_replication_primary_host`/`_port`. Добавлен `assert` сразу после `getreplica` с тем же
+      fail-fast, а не автоматическим repoint (симметрично с repmgr-фиксом).
+
+    Проверено полными прогонами `molecule test` для обеих ролей (`postgresql_replication` —
+    включая идемпотентность и весь failover/failback-сценарий `verify.yml`; `mysql_replication` —
+    идемпотентность + verify): на idempotence-прогоне (узлы уже зарегистрированы/реплицируют)
+    новые проверки реально выполняются (не `skipped`) и проходят без ложных срабатываний,
+    `changed=0` на всех хостах — фикс не ломает штатный путь, ловит только реальный дрейф.
 
 ---
 
