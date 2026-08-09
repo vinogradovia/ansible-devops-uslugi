@@ -1,0 +1,55 @@
+---
+# Демонстрация roles/samba_server (README.md, раздел "Права на запись: SMB-уровень и уровень ОС")
+# на реалистичном офисном сценарии: два отдела с собственными приватными шарами (запись только
+# для своих через доп. Unix-группу) + одна публичная шара только для чтения, доступная гостю без
+# пароля. Пароли — открытым текстом (не Ansible Vault). Осознанное упрощение ТОЛЬКО для этого
+# демо-стенда (ADR-0006 §9): стенд не подключён к внешней сети, реальных данных не хранит. На
+# production-хосте samba_server_users[].password обязан приходить из ansible-vault (см.
+# roles/samba_server/README.md).
+
+samba_server_workgroup: OFFICE
+samba_server_server_string: "Office file server (Samba demo)"
+
+# groups у каждого пользователя — обязательно (не optional-украшение): без общей Unix-группы
+# write_list ниже не сработает — SMB разрешит запись, а ядро откажет (см. README.md роли,
+# найдено реальным прогоном molecule при разработке роли).
+samba_server_users:
+  - name: alice
+    password: "demo-samba-alice-CHANGE-ME"
+    groups: [finance]
+  - name: bob
+    password: "demo-samba-bob-CHANGE-ME"
+    groups: [finance]
+  - name: carol
+    password: "demo-samba-carol-CHANGE-ME"
+    groups: [hr]
+
+samba_server_shares:
+  # Приватная шара отдела: доступна только alice/bob, запись — обоим (оба состоят в группе
+  # finance, которой принадлежит каталог, setgid — 2775 — чтобы новые файлы наследовали группу
+  # каталога, а не группу автора-создателя).
+  - name: finance
+    path: /srv/samba/finance
+    comment: "Финансовый отдел"
+    valid_users: [alice, bob]
+    read_only: false
+    group: finance
+    directory_mode: "2775"
+
+  # Та же схема для отдела кадров — отдельная группа/каталог, carol не видит и не имеет доступа
+  # к finance (valid_users на уровне SMB), а alice/bob — к hr.
+  - name: hr
+    path: /srv/samba/hr
+    comment: "Отдел кадров"
+    valid_users: [carol]
+    read_only: false
+    group: hr
+    directory_mode: "2775"
+
+  # Публичная шара: guest_ok — доступна анонимно (без пароля, samba_server_map_to_guest), только
+  # на чтение.
+  - name: public
+    path: /srv/samba/public
+    comment: "Общие объявления (только чтение)"
+    guest_ok: true
+    read_only: true

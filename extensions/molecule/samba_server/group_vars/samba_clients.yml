@@ -1,0 +1,5 @@
+---
+# Захардкоженный IP хоста samba-server (тот же приём, что mysql_replication_primary_host в
+# extensions/molecule/mysql_replication/group_vars/*.yml) — статический адрес задан в
+# molecule.yml (interfaces: type: static), так что клиенту не нужно выяснять его через facts.
+samba_server_target_ip: 192.168.56.20

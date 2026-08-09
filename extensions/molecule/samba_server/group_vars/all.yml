@@ -5,6 +5,11 @@
 
 samba_server_workgroup: MOLECULE
 
+# Проверяется verify.yml с отдельного клиентского хоста через avahi-browse — сервер должен быть
+# виден в mDNS/DNS-SD-автообнаружении сети (то, что использует "Browse Network" в XFCE
+# Thunar/GNOME Files), а не только по прямому адресу smb://<ip>/.
+samba_server_avahi_enabled: true
+
 # Пароли в открытом виде — тестовый одноразовый стенд, не production (тот же подход, что
 # extensions/molecule/reverse_proxy_npm/group_vars/all.yml). В README роли явно указано, что в
 # реальном использовании пароли должны приходить из ansible-vault.

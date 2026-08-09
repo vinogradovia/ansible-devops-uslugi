@@ -1,6 +1,6 @@
 ---
-- name: Verify
-  hosts: all
+- name: Verify (samba-server — сервисы, конфиг, права на диске)
+  hosts: samba_servers
   become: true
   gather_facts: false
   tasks:
@@ -16,6 +16,17 @@
           - ansible_facts.services['nmbd.service'].state == 'running'
           - ansible_facts.services['nmbd.service'].status == 'enabled'
         quiet: true
+
+    - name: Служба avahi-daemon должна быть running и enabled (samba_server_avahi_enabled)
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.services['avahi-daemon.service'].state == 'running'
+          - ansible_facts.services['avahi-daemon.service'].status == 'enabled'
+        quiet: true
+
+    - name: Avahi service-файл должен объявлять _smb._tcp
+      ansible.builtin.command: grep -q "_smb._tcp" /etc/avahi/services/samba.service
+      changed_when: false
 
     # --- testparm на реально задеплоенном /etc/samba/smb.conf -------------------------------
     - name: Testparm должен пройти на реальном /etc/samba/smb.conf
@@ -47,15 +58,74 @@
           - molecule_samba_server_share_stat.results[0].stat.mode == '2775'
         quiet: true
 
-    # --- Функциональная проверка: реальный SMB-доступ через smbclient -----------------------
-    - name: Установить smbclient (нужен для функциональной проверки)
-      ansible.builtin.apt:
-        name: smbclient
-        state: present
+    # --- Фикстура для публичной шары: файл предзаполнен НАПРЯМУЮ на диске (вне SMB), чтобы
+    # клиентская проверка ниже подтверждала чтение контента, записанного не через сам SMB-путь.
+    - name: Предзаполнить публичную шару файлом напрямую на диске (вне SMB)
+      ansible.builtin.copy:
+        dest: /srv/samba/public/molecule-public.txt
+        content: "molecule samba_server public payload\n"
+        owner: root
+        group: root
+        mode: "0664"
 
-    - name: Список шар должен быть виден анонимно (browsable)
+- name: Verify (samba-client — реальный сетевой SMB-доступ + видимость в mDNS/DNS-SD)
+  hosts: samba_clients
+  become: true
+  gather_facts: false
+  vars:
+    # На сервере (group_vars/all.yml) — те же значения, здесь просто удобные локальные имена.
+    molecule_samba_server_shared_share: "//{{ samba_server_target_ip }}/shared"
+    molecule_samba_server_public_share: "//{{ samba_server_target_ip }}/public"
+  tasks:
+    - name: Установить smbclient и avahi-utils (нужны для функциональной проверки с клиента)
+      ansible.builtin.apt:
+        name:
+          - smbclient
+          - avahi-utils
+          - avahi-daemon
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: avahi-daemon на клиенте должен быть запущен (нужен для avahi-browse)
+      ansible.builtin.systemd:
+        name: avahi-daemon
+        state: started
+        enabled: true
+
+    # --- Видимость в mDNS/DNS-SD (то, что использует "Browse Network" в XFCE Thunar) --------
+    # -t — вывести текущий кэш и завершиться (не ждать бесконечно новых анонсов), -r — сразу
+    # резолвить в адрес/порт, --parsable — стабильный формат для grep. avahi-browse даже с
+    # --parsable подставляет человекочитаемое имя типа сервиса ("Microsoft Windows Network" для
+    # _smb._tcp, см. /usr/share/avahi/service-types) — сама строка "_smb._tcp" в выводе не
+    # встречается, поэтому ищем наше имя анонса (avahi-smb.service.j2) и резолвленный ip;порт.
+    # Анонс распространяется по multicast не мгновенно — retries/delay на случай, если
+    # avahi-daemon сервера ещё не успел объявить сервис к моменту первого опроса.
+    - name: Сервер должен быть виден в avahi-browse (резолвленная запись ip;445)
       ansible.builtin.command:
-        argv: [smbclient, "-L", "//127.0.0.1/", "-N"]
+        argv: [avahi-browse, "-t", "-r", "--parsable", "_smb._tcp"]
+      register: molecule_samba_server_avahi_browse
+      changed_when: false
+      until: (samba_server_target_ip ~ ';445;') in molecule_samba_server_avahi_browse.stdout
+      retries: 6
+      delay: 5
+
+    - name: В выводе avahi-browse должно быть наше имя анонса (avahi-smb.service.j2)
+      ansible.builtin.assert:
+        # --parsable экранирует пробелы как \032, но \032 внутри Jinja/Python-строкового литерала
+        # сам интерпретируется как escape-последовательность (октальный код), а не как буквальные
+        # символы "\032" — поэтому сверяем отдельные слова имени анонса ("Samba File Server") без
+        # бэкслеша, а не искомую подстроку целиком.
+        that:
+          - "'Samba' in molecule_samba_server_avahi_browse.stdout"
+          - "'File' in molecule_samba_server_avahi_browse.stdout"
+          - "'Server' in molecule_samba_server_avahi_browse.stdout"
+        quiet: true
+
+    # --- Функциональная проверка: реальный SMB-доступ через сеть (не loopback) --------------
+    - name: Список шар должен быть виден анонимно (browsable) по сети
+      ansible.builtin.command:
+        argv: [smbclient, "-L", "//{{ samba_server_target_ip }}/", "-N"]
       register: molecule_samba_server_list
       changed_when: false
 
@@ -74,7 +144,7 @@
 
     - name: Гость НЕ должен подключиться к приватной шаре shared (valid_users)
       ansible.builtin.command:
-        argv: [smbclient, "//127.0.0.1/shared", "-N", "-c", "ls"]
+        argv: [smbclient, "{{ molecule_samba_server_shared_share }}", "-N", "-c", "ls"]
       register: molecule_samba_server_guest_private
       changed_when: false
       failed_when: false
@@ -83,7 +153,7 @@
       ansible.builtin.command:
         argv:
           - smbclient
-          - "//127.0.0.1/shared"
+          - "{{ molecule_samba_server_shared_share }}"
           - "-U"
           - "alice%{{ samba_server_users[0].password }}"
           - "-c"
@@ -97,7 +167,7 @@
       ansible.builtin.command:
         argv:
           - smbclient
-          - "//127.0.0.1/shared"
+          - "{{ molecule_samba_server_shared_share }}"
           - "-U"
           - "bob%{{ samba_server_users[1].password }}"
           - "-c"
@@ -126,19 +196,11 @@
           - (molecule_samba_server_bob_get_content.content | b64decode) == "molecule samba_server test payload\n"
         quiet: true
 
-    - name: Предзаполнить публичную шару файлом напрямую на диске (вне SMB)
-      ansible.builtin.copy:
-        dest: /srv/samba/public/molecule-public.txt
-        content: "molecule samba_server public payload\n"
-        owner: root
-        group: root
-        mode: "0664"
-
     - name: Гость должен уметь скачать файл из публичной шары
       ansible.builtin.command:
         argv:
           - smbclient
-          - "//127.0.0.1/public"
+          - "{{ molecule_samba_server_public_share }}"
           - "-N"
           - "-c"
           - "get molecule-public.txt /tmp/molecule-samba-public-get.txt"
@@ -150,7 +212,7 @@
       ansible.builtin.command:
         argv:
           - smbclient
-          - "//127.0.0.1/public"
+          - "{{ molecule_samba_server_public_share }}"
           - "-N"
           - "-c"
           - "put /tmp/molecule-samba-src.txt guest-upload.txt"

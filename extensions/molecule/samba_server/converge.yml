@@ -1,6 +1,6 @@
 ---
 - name: Converge
-  hosts: all
+  hosts: samba_servers
   become: true
   collections:
     - devops.uslugi

@@ -22,6 +22,14 @@ samba_server_bind_interfaces_only: false
 samba_server_log_file: /var/log/samba/log.%m
 samba_server_max_log_size: 1000
 
+# Опциональный mDNS/DNS-SD-анонс сервера через Avahi (_smb._tcp). Без него сервер не появляется в
+# автообнаружении сети современных десктопных файловых менеджеров (XFCE Thunar "Browse Network",
+# GNOME Files и т.п.) — сама Samba не реализует WSD/LLMNR, на которые рассчитаны такие клиенты
+# (то же самое видно у классического smbtree — он тоже не работает с современным smbd без
+# NetBIOS-разрешения имён). Отключено по умолчанию — доп. multicast-демон (avahi-daemon) нужен не
+# всем, прямое подключение по smb://<ip>/ в файловом менеджере работает и без него.
+samba_server_avahi_enabled: false
+
 # Локальные Unix-пользователи для доступа к шарам (системные аккаунты, без домашнего каталога
 # и shell). password ОБЯЗАТЕЛЕН и должен приходить из ansible-vault, а не лежать в открытом виде
 # в inventory/vars — роль передаёт его в smbpasswd через stdin (no_log: true), в командную строку

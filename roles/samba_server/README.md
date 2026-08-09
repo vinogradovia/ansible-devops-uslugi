@@ -74,6 +74,20 @@ Samba VFS-модули (recycle bin, shadow copies и т.п.), квоты, ACL �
           read_only: true
 ```
 
+## Видимость в сетевом окружении (Browse Network)
+
+Современные десктопные файловые менеджеры (XFCE Thunar, GNOME Files и т.п.) в разделе «Сеть»/
+«Browse Network» ищут SMB-серверы через WSD/LLMNR или mDNS/DNS-SD, а не через легаси NetBIOS-
+browsing — сама Samba (`smbd`/`nmbd`) эти протоколы не реализует (проверяется, например, тем, что
+классический `smbtree` тоже отказывается работать с современным сервером). Без дополнительного
+анонса сервер не появится в автообнаружении сети — только по прямому адресу `smb://<ip>/` в
+адресной строке.
+
+`samba_server_avahi_enabled: true` включает mDNS/DNS-SD-анонс через Avahi (`avahi-daemon` +
+`_smb._tcp` service-файл `/etc/avahi/services/samba.service`) — после этого сервер виден в
+автообнаружении сети клиентов с включённым Avahi/mDNS (большинство Linux-десктопов из коробки).
+Отключено по умолчанию — доп. multicast-демон нужен не всем.
+
 ## Что роль не делает
 
 - Не настраивает firewall (ufw/iptables) — порты 445/139 (и 137/138 UDP для NetBIOS/nmbd)

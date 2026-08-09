@@ -1,0 +1,54 @@
+---
+# ADR-0006 §6: запуск вручную —
+#   ansible-playbook -i inventory.yml site.yml
+#
+# Демонстрирует roles/samba_server на реалистичном офисном сценарии (group_vars/samba_hosts.yml):
+# два отдела (finance/hr) с приватными шарами на запись только для своих сотрудников + одна
+# публичная шара на чтение, доступная гостю без пароля. Показывает на практике связку
+# valid_users/write_list (SMB-уровень) + Unix-группа/directory_mode (уровень ОС), описанную в
+# README.md роли.
+
+- name: samba-server
+  hosts: samba_hosts
+  become: true
+  pre_tasks:
+    # Без ожидания cloud-init мог ещё держать /var/lib/apt/lists/lock своим собственным
+    # package_update — apt-задача роли (Install Samba packages) падает "No package matching ...
+    # is available" (гонка, тот же паттерн, что и в extensions/molecule/*/prepare.yml и других
+    # demo/*/ansible/site.yml).
+    - name: Дождаться завершения cloud-init
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+      failed_when: false
+
+  roles:
+    - samba_server
+
+  # Демо-контент в шарах — роль отвечает только за конфигурацию Samba и создание пустых
+  # каталогов шар (её README.md, "Что роль не делает"), содержимое — ad hoc, тот же принцип
+  # композиции, что и в demo/nginx-multidomain/ansible/site.yml.
+  tasks:
+    - name: Положить демо-файл в публичную шару
+      ansible.builtin.copy:
+        dest: /srv/samba/public/announcement.txt
+        content: |
+          Добро пожаловать! Это публичная шара только для чтения (guest_ok, samba_server demo).
+        mode: "0644"
+
+    - name: Положить демо-файл в шару finance
+      ansible.builtin.copy:
+        dest: /srv/samba/finance/README.txt
+        content: |
+          Приватная шара отдела finance — доступна alice и bob, запись разрешена обоим.
+        owner: root
+        group: finance
+        mode: "0664"
+
+    - name: Положить демо-файл в шару hr
+      ansible.builtin.copy:
+        dest: /srv/samba/hr/README.txt
+        content: |
+          Приватная шара отдела hr — доступна только carol.
+        owner: root
+        group: hr
+        mode: "0664"

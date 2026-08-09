@@ -127,6 +127,31 @@
       tags:
         - install
 
+    - name: Announce server via Avahi (mDNS/DNS-SD network browsing)
+      when: samba_server_avahi_enabled
+      tags:
+        - avahi
+      block:
+        - name: Install avahi-daemon
+          ansible.builtin.apt:
+            name: avahi-daemon
+            state: present
+
+        - name: Deploy Avahi SMB service announcement
+          ansible.builtin.template:
+            src: avahi-smb.service.j2
+            dest: /etc/avahi/services/samba.service
+            owner: root
+            group: root
+            mode: "0644"
+          notify: Restart avahi-daemon
+
+        - name: Ensure avahi-daemon is enabled and started
+          ansible.builtin.systemd:
+            name: avahi-daemon
+            state: started
+            enabled: true
+
 - name: Uninstall Samba
   when: not samba_server_enabled
   block:

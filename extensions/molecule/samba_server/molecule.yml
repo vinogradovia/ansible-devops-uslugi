@@ -1,7 +1,19 @@
 ---
 # Molecule-сценарий для samba_server. driver: vagrant/libvirt (единое требование для всех
-# molecule-сценариев коллекции, см. CLAUDE.md, «Molecule-тесты») — полноценная одноразовая ВМ,
-# полностью уничтожается на destroy.
+# molecule-сценариев коллекции, см. CLAUDE.md, «Molecule-тесты») — полноценные одноразовые ВМ,
+# полностью уничтожаются на destroy.
+#
+# Две платформы (тот же паттерн, что extensions/molecule/mysql_replication и monitoring_agent —
+# несколько хостов, per-group group_vars/<group>.yml): samba-server (роль применяется converge.yml)
+# и samba-client (роль НЕ применяется — только smbclient/avahi-utils как внешний провижининг,
+# см. verify.yml). Раньше был единственный хост, и все smbclient-проверки шли на 127.0.0.1
+# (loopback) — не покрывали реальную сетевую доступность шар (firewall/интерфейс, на котором
+# слушает smbd). С отдельным клиентом verify.yml гоняет тот же smbclient уже по-настоящему через
+# сеть, плюс avahi-browse — проверяет, что сервер виден в mDNS/DNS-SD-автообнаружении (то, что
+# использует "Browse Network" в XFCE Thunar/GNOME Files), а не только по прямому адресу.
+#
+# Статические IP (interfaces: type: static) — тот же приём, что mysql_replication (group_vars
+# должен захардкодить адрес сервера для клиента, не выясняя его через facts на каждом прогоне).
 driver:
   name: vagrant
   provider:
@@ -12,6 +24,25 @@ platforms:
     box: cloud-image/ubuntu-24.04
     memory: 1024
     cpus: 1
+    interfaces:
+      - auto_config: true
+        network_name: private_network
+        type: static
+        ip: 192.168.56.20
+    groups:
+      - samba_servers
+
+  - name: samba-client
+    box: cloud-image/ubuntu-24.04
+    memory: 512
+    cpus: 1
+    interfaces:
+      - auto_config: true
+        network_name: private_network
+        type: static
+        ip: 192.168.56.21
+    groups:
+      - samba_clients
 
 scenario:
   test_sequence:
