@@ -13,7 +13,7 @@ driver:
   name: vagrant
   provider:
     name: libvirt
-  default_box: generic/debian12
+  default_box: cloud-image/ubuntu-24.04
 
 platforms:
   # Приватная сеть 192.168.56.0/24 — статические адреса нужны, чтобы group_vars/*.yml мог
@@ -22,14 +22,15 @@ platforms:
   # box параметризован через MOLECULE_BOX (тот же приём, что и MOLECULE_DOCKER_COMMAND в
   # nginx_multidomain/reverse_proxy_npm) — одна и та же тройка платформ прогоняется
   # ПОСЛЕДОВАТЕЛЬНО под разными дистрибутивами: сначала обычный `molecule test`
-  # (Debian 12 по умолчанию), затем отдельным запуском `MOLECULE_BOX=cloud-image/ubuntu-24.04
-  # molecule test -s mysql_replication` — каждый прогон полностью самостоятелен
-  # (create...destroy), в моменте существует только один набор из трёх ВМ, а не шесть сразу.
+  # (Ubuntu 24.04 по умолчанию — тот же box, что и у остальных сценариев коллекции), затем
+  # отдельным запуском `MOLECULE_BOX=generic/debian12 molecule test -s mysql_replication` —
+  # каждый прогон полностью самостоятелен (create...destroy), в моменте существует только один
+  # набор из трёх ВМ, а не шесть сразу.
   # Ubuntu 26.04 (Resolute Racoon) не поддерживается: repo.mysql.com ещё не публикует под него
   # пакеты (нет каталога `resolute` в https://repo.mysql.com/apt/ubuntu/dists/) — внешнее
   # ограничение, не баг роли.
   - name: mysql-primary
-    box: "${MOLECULE_BOX:-generic/debian12}"
+    box: "${MOLECULE_BOX:-cloud-image/ubuntu-24.04}"
     memory: 1024
     cpus: 1
     interfaces:
@@ -41,7 +42,7 @@ platforms:
       - mysql_primary
 
   - name: mysql-read-replica
-    box: "${MOLECULE_BOX:-generic/debian12}"
+    box: "${MOLECULE_BOX:-cloud-image/ubuntu-24.04}"
     memory: 1024
     cpus: 1
     interfaces:
@@ -53,7 +54,7 @@ platforms:
       - mysql_read_replica
 
   - name: mysql-dr-replica
-    box: "${MOLECULE_BOX:-generic/debian12}"
+    box: "${MOLECULE_BOX:-cloud-image/ubuntu-24.04}"
     memory: 1024
     cpus: 1
     interfaces:

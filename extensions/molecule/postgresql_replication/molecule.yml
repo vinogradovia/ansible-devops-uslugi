@@ -13,11 +13,11 @@ driver:
   name: vagrant
   provider:
     name: libvirt
-  default_box: generic/debian12
+  default_box: cloud-image/ubuntu-24.04
 
 platforms:
   - name: postgresql-primary
-    box: "${MOLECULE_BOX:-generic/debian12}"
+    box: "${MOLECULE_BOX:-cloud-image/ubuntu-24.04}"
     memory: 1024
     cpus: 1
     interfaces:
@@ -29,7 +29,7 @@ platforms:
       - postgresql_primary
 
   - name: postgresql-read-replica
-    box: "${MOLECULE_BOX:-generic/debian12}"
+    box: "${MOLECULE_BOX:-cloud-image/ubuntu-24.04}"
     memory: 1024
     cpus: 1
     interfaces:
@@ -41,7 +41,7 @@ platforms:
       - postgresql_read_replica
 
   - name: postgresql-dr-replica
-    box: "${MOLECULE_BOX:-generic/debian12}"
+    box: "${MOLECULE_BOX:-cloud-image/ubuntu-24.04}"
     memory: 1024
     cpus: 1
     interfaces:

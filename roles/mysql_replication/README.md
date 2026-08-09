@@ -181,8 +181,8 @@ molecule test -s mysql_replication
 самостоятельно проходит полный цикл `create...destroy`:
 
 ```bash
-molecule test -s mysql_replication                                    # Debian 12 (по умолчанию)
-MOLECULE_BOX=cloud-image/ubuntu-24.04 molecule test -s mysql_replication  # Ubuntu 24.04 noble
+molecule test -s mysql_replication                              # Ubuntu 24.04 noble (по умолчанию)
+MOLECULE_BOX=generic/debian12 molecule test -s mysql_replication  # Debian 12
 ```
 
 Box — совместимый с libvirt-провайдером (например `generic/debian12`/`cloud-image/ubuntu-24.04`

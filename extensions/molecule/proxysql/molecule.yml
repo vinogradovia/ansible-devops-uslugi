@@ -16,13 +16,13 @@ driver:
   name: vagrant
   provider:
     name: libvirt
-  default_box: generic/debian12
+  default_box: cloud-image/ubuntu-24.04
 
 platforms:
   # Приватная сеть 192.168.57.0/24 — отдельная от 192.168.56.0/24 в mysql_replication, хотя
   # сценарии и не запускаются одновременно.
   - name: mysql-writer
-    box: "${MOLECULE_BOX:-generic/debian12}"
+    box: "${MOLECULE_BOX:-cloud-image/ubuntu-24.04}"
     memory: 1024
     cpus: 1
     interfaces:
@@ -34,7 +34,7 @@ platforms:
       - mysql_primary
 
   - name: mysql-reader
-    box: "${MOLECULE_BOX:-generic/debian12}"
+    box: "${MOLECULE_BOX:-cloud-image/ubuntu-24.04}"
     memory: 1024
     cpus: 1
     interfaces:
@@ -46,7 +46,7 @@ platforms:
       - mysql_read_replica
 
   - name: proxysql-host
-    box: "${MOLECULE_BOX:-generic/debian12}"
+    box: "${MOLECULE_BOX:-cloud-image/ubuntu-24.04}"
     memory: 512
     cpus: 1
     interfaces:
