@@ -35,12 +35,14 @@ variable "network_domain" {
   default     = "mysql-ha-platform.demo"
 }
 
-# ADR-0006 §7: официальный Debian 12 (bookworm) generic cloud image, один раз скачивается и
-# переиспользуется как backing-том для всех VM (copy-on-write).
+# ADR-0006 §7 (см. "Обновление"): Ubuntu 24.04 (noble) server cloud image — стандарт для всех
+# demo/*-стендов (тот же дистрибутив, что box cloud-image/ubuntu-24.04 во всех
+# extensions/molecule/*-сценариях). Один раз скачивается и переиспользуется как backing-том для
+# всех VM (copy-on-write).
 variable "base_image_url" {
-  description = "URL образа Debian 12 generic cloud (qcow2, cloud-init)"
+  description = "URL образа Ubuntu 24.04 (noble) server cloud (qcow2, cloud-init)"
   type        = string
-  default     = "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2"
+  default     = "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
 }
 
 # По умолчанию — уже существующий в репозитории публичный ключ (tests/.ssh-pub-keys/), см.

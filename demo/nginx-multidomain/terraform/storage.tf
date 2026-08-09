@@ -10,7 +10,7 @@ resource "libvirt_pool" "demo" {
 # ADR-0006 §7: базовый образ скачивается один раз и переиспользуется как backing-том для всех VM
 # (libvirt_volume.disk[*].backing_store в vms.tf — copy-on-write, не полная копия на каждую VM).
 resource "libvirt_volume" "base" {
-  name = "debian-12-generic-amd64-base.qcow2"
+  name = "ubuntu-24.04-server-cloudimg-amd64-base.qcow2"
   pool = libvirt_pool.demo.name
 
   target = {

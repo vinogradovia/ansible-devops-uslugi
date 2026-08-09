@@ -112,10 +112,20 @@ Ansible-часть переиспользует паттерн `tests/ansible.cf
 
 ### 7. Базовый образ и sizing VM — под среднее рабочее место
 
-**Решение:** базовый образ — официальный Debian 12 (bookworm) generic cloud image
-(`qcow2`, cloud-init), совпадает со scope коллекции (Debian/Ubuntu, ADR-0002 §4). Один раз
-скачивается и переиспользуется как backing-том для всех VM (`libvirt_volume` с `base_volume_id`
-в Terraform — copy-on-write, не полная копия на каждую VM).
+> **Обновление:** базовый образ для всех `demo/*`-стендов сменён с Debian 12 (bookworm) на
+> Ubuntu 24.04 (noble) server cloud image — впервые применено в `demo/samba-server`
+> (единственный на тот момент осознанный отход от решения ниже), затем распространено на
+> остальные стенды. Причина: все `extensions/molecule/*`-сценарии коллекции стандартизированы на
+> box `cloud-image/ubuntu-24.04` (см. `CLAUDE.md`, «Molecule-тесты») — один и тот же дистрибутив
+> в molecule и в demo убирает целый класс «работает в тесте, но не в демо» расхождений
+> (различия в версиях пакетов/systemd-юнитов между Debian и Ubuntu). Решение и обоснование ниже
+> (Debian 12, scope ADR-0002 §4) исторические — оставлены для контекста, актуальный
+> `base_image_url` — `https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img`.
+
+**Решение (историческое, см. «Обновление» выше):** базовый образ — официальный Debian 12
+(bookworm) generic cloud image (`qcow2`, cloud-init), совпадает со scope коллекции
+(Debian/Ubuntu, ADR-0002 §4). Один раз скачивается и переиспользуется как backing-том для всех VM
+(`libvirt_volume` с `base_volume_id` в Terraform — copy-on-write, не полная копия на каждую VM).
 
 Ресурсы рассчитаны на «среднее рабочее место» (8–16 ядер, 16–32 ГБ RAM), а не «хватает с
 запасом» — VM намеренно compact:

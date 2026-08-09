@@ -12,7 +12,7 @@ resource "libvirt_pool" "demo" {
 # create.content.url — провайдер сам скачивает и заливает образ в pool (аналог libvirt_volume
 # source в версиях провайдера < 0.8, но теперь это nested-атрибут, не отдельный аргумент).
 resource "libvirt_volume" "base" {
-  name = "debian-12-generic-amd64-base.qcow2"
+  name = "ubuntu-24.04-server-cloudimg-amd64-base.qcow2"
   pool = libvirt_pool.demo.name
 
   target = {

@@ -34,10 +34,9 @@ variable "network_domain" {
   default     = "samba.demo"
 }
 
-# Отличие от ADR-0006 §7 (Debian 12 bookworm — базовый образ всех остальных demo/*-стендов):
-# единственное осознанное исключение для этого кейса — Ubuntu 24.04 (noble) cloud image, тот же
-# дистрибутив, что и box `cloud-image/ubuntu-24.04` в extensions/molecule/samba_server/ (роль уже
-# проверена molecule именно на нём). Скачивается один раз и переиспользуется как backing-том для
+# ADR-0006 §7 (см. "Обновление"): Ubuntu 24.04 (noble) cloud image — стандарт для всех
+# demo/*-стендов, тот же дистрибутив, что и box `cloud-image/ubuntu-24.04` во всех
+# extensions/molecule/*-сценариях. Скачивается один раз и переиспользуется как backing-том для
 # всех VM (copy-on-write).
 variable "base_image_url" {
   description = "URL образа Ubuntu 24.04 (noble) server cloud (qcow2, cloud-init)"

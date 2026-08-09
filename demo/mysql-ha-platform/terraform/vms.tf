@@ -184,7 +184,7 @@ resource "libvirt_domain" "vm" {
         }
         # Без явного backing_store здесь libvirt не знает про base-образ в цепочке этого
         # конкретного диска домена и не применяет к нему dynamic_ownership при старте VM —
-        # QEMU получает "Permission denied" на debian-12-generic-amd64-base.qcow2, хотя сам
+        # QEMU получает "Permission denied" на ubuntu-24.04-server-cloudimg-amd64-base.qcow2, хотя сам
         # backing_store у тома (storage.tf/libvirt_volume.disk) уже объявлен на уровне пула.
         backing_store = {
           format = {
