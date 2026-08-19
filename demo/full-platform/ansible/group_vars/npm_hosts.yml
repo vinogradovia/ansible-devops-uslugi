@@ -1,0 +1,17 @@
+---
+# Пароли — открытым текстом (не Ansible Vault). Осознанное упрощение ТОЛЬКО для этого демо-стенда
+# (ADR-0006 §9). В отличие от demo/npm, здесь БЕЗ fail2ban/fail2ban_ui — эта пара уже показана на
+# nginx_multidomain-хосте (решение из чата, не дублируем демонстрацию).
+
+reverse_proxy_npm_admin_email: "admin@npm.full-platform.demo"
+reverse_proxy_npm_admin_password: "demo-npm-admin-CHANGE-ME"
+
+# whoami-npm.full-platform.demo — fixture-бэкенд (traefik/whoami), поднимается ad hoc в site.yml
+# и подключается к docker-сети роли ПОСЛЕ неё (сеть создаёт сама роль). ssl_forced: false —
+# Let's Encrypt в изолированной сети без публичного DNS не пройдёт HTTP-01.
+reverse_proxy_npm_proxy_hosts:
+  - domain_name: "whoami-npm.full-platform.demo"
+    host: "reverse-proxy-npm-fixture-backend"
+    host_port: 80
+    ssl_forced: false
+    state: present

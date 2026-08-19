@@ -1,0 +1,12 @@
+---
+# ADR-0005 §6: единая точка подключения — db-write-pg/db-read-pg (group_vars/infra_dns.yml) ведут
+# сюда. odyssey_backend_user/_password/_write_database_name/_read_database_name — см.
+# group_vars/all.yml (нужны и на postgresql, ad hoc-задачи создания демо-БД/грантов).
+#
+# Однонодовый стенд (решение из чата — нет отдельной read-реплики) — в отличие от
+# demo/postgresql-ha-platform, где read-источник вычисляется тернарником по составу инвентаря
+# (roles/odyssey/README.md, "Пример"), здесь read-маршрут указывает на ТОТ ЖЕ единственный
+# postgresql-хост: и db-write-pg, и db-read-pg ведут на один backend, разница — только в имени БД
+# (demo_app / postgres), см. site.yml, "Grant CONNECT on postgres db".
+odyssey_write_backend_host: "{{ hostvars[groups['postgresql_primary'][0]].ansible_host }}"
+odyssey_read_backend_host: "{{ hostvars[groups['postgresql_primary'][0]].ansible_host }}"

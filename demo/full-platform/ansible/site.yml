@@ -1,0 +1,320 @@
+---
+# ADR-0006 §6: запуск вручную —
+#   ansible-playbook -i inventory.yml site.yml
+#
+# Стенд «всё сразу» — минимальная (для СУБД однонодовая, без реплик) конфигурация КАЖДОЙ
+# независимой роли коллекции, кроме freeipa (не закоммичена, без ADR) и без генератора нагрузки
+# (репликационный лаг показывать нечего — фокус на широте охвата, а не на нагрузочном поведении;
+# полноценные HA + нагрузка — demo/mysql-ha-platform, demo/postgresql-ha-platform).
+#
+# Порядок плеев:
+#  1. platform_hosts — reverse_proxy_traefik (владеет docker-сетью "proxy") → monitoring_server
+#     (docker, Loki+MinIO) → backup_server → infra_panel (последней — ссылается и на Grafana,
+#     и на Bareos WebUI). Не зависит от остальных, можно первым.
+#  2. monitoring_agents — независим от остальных плеев (просто ставит экспортёры), но группа
+#     включает ansible_host каждого целевого хоста, поэтому логически после platform_hosts.
+#  3. mysql_replication (primary, без реплик) ДО ad hoc DB-пользователей.
+#  4. backup_agent на mysql-хосте — после того, как backup_server (play #1) уже знает про этого
+#     клиента (group_vars/platform_hosts.yml: backup_server_clients).
+#  5. proxysql — нужен живой backend (mysql) и monitor-пользователь (заведён в #3).
+#  6. postgresql_replication (primary, без реплик) ДО ad hoc DB-пользователей.
+#  7. odyssey — нужен живой backend (postgresql) и app-пользователь (заведён в #6).
+#  8. infra_dns — не зависит от порядка, логически "точка входа последней мили".
+#  9. nginx_multidomain(+fail2ban+fail2ban_ui) и npm(+docker+reverse_proxy_npm) — полностью
+#     независимые демонстрации альтернативных reverse-proxy ролей, не связаны с остальным стендом.
+
+- name: platform — reverse_proxy_traefik + monitoring_server(docker) + backup_server + infra_panel
+  hosts: platform_hosts
+  become: true
+  pre_tasks:
+    - name: Дождаться завершения cloud-init
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+      failed_when: false
+  roles:
+    - reverse_proxy_traefik
+    - monitoring_server
+    - backup_server
+    - infra_panel
+
+- name: monitoring_agent (systemd) — на всех VM, кроме platform
+  hosts: monitoring_agents
+  become: true
+  pre_tasks:
+    - name: Дождаться завершения cloud-init
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+      failed_when: false
+  roles:
+    - monitoring_agent
+
+- name: mysql_replication — primary (однонодовый, без реплик)
+  hosts: mysql_primary
+  become: true
+  roles:
+    - mysql_replication
+
+- name: Ad hoc DB-пользователи на mysql (композиция, не зона ответственности ролей)
+  hosts: mysql_primary
+  become: true
+  vars:
+    mysql_login_unix_socket: /var/run/mysqld/mysqld.sock
+  tasks:
+    - name: Create proxysql_monitor user (health-check, roles/proxysql/README.md)
+      ansible.mysql.mysql_user:
+        login_unix_socket: "{{ mysql_login_unix_socket }}"
+        name: "{{ proxysql_monitor_user }}"
+        host: '%'
+        password: "{{ proxysql_monitor_password }}"
+        priv: "*.*:REPLICATION CLIENT"
+        state: present
+
+    - name: Create mysqld_exporter user (стандартные права prometheus/mysqld_exporter)
+      ansible.mysql.mysql_user:
+        login_unix_socket: "{{ mysql_login_unix_socket }}"
+        name: "{{ monitoring_agent_mysqld_exporter_user }}"
+        host: "{{ monitoring_agent_mysqld_exporter_hosts }}"
+        password: "{{ monitoring_agent_mysqld_exporter_password }}"
+        priv: "*.*:PROCESS,REPLICATION CLIENT,SELECT"
+        state: present
+
+    - name: Create demo schema (для ручной проверки через db-write/db-read)
+      ansible.mysql.mysql_db:
+        login_unix_socket: "{{ mysql_login_unix_socket }}"
+        name: demo_app
+        state: present
+
+    - name: Create demo table
+      ansible.mysql.mysql_query:
+        login_unix_socket: "{{ mysql_login_unix_socket }}"
+        login_db: demo_app
+        query: >-
+          CREATE TABLE IF NOT EXISTS pings (
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            source VARCHAR(64) NOT NULL
+          )
+
+    # proxysql_mysql_users (group_vars/proxysql_hosts.yml) настраивает, каким пользователям
+    # ProxySQL разрешает подключаться К СЕБЕ — но сам backend-сервер должен знать того же
+    # пользователя с тем же паролем (ProxySQL не транслирует креды при проксировании).
+    - name: Create demo_app application user on the real backend
+      ansible.mysql.mysql_user:
+        login_unix_socket: "{{ mysql_login_unix_socket }}"
+        name: demo_app
+        host: '%'
+        password: "{{ demo_app_mysql_password }}"
+        priv: "demo_app.*:ALL"
+        state: present
+
+- name: backup_agent на mysql-хосте (единственная демонстрация backup_agent в этом стенде)
+  hosts: mysql_primary
+  become: true
+  pre_tasks:
+    # Реальные тестовые данные под backup_server_filesets (group_vars/platform_hosts.yml) — тот
+    # же паттерн, что demo/backup (client-a/client-b), но здесь один клиент на том же хосте,
+    # что и mysql_replication.
+    - name: Создать каталог демо-данных для backup_agent
+      ansible.builtin.file:
+        path: /var/lib/full-platform-demo-app
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Создать демо-файл для backup_agent
+      ansible.builtin.copy:
+        dest: /var/lib/full-platform-demo-app/dataset.csv
+        content: |
+          id,value
+          1,full-platform demo dataset (backup_agent)
+        owner: root
+        group: root
+        mode: '0644'
+  roles:
+    - backup_agent
+
+- name: proxysql
+  hosts: proxysql_hosts
+  become: true
+  roles:
+    - proxysql
+
+- name: postgresql_replication — primary (однонодовый, без реплик)
+  hosts: postgresql_primary
+  become: true
+  roles:
+    - postgresql_replication
+  tasks:
+    # Роль postgresql_replication открывает pg_hba.conf только для СВОИХ служебных пользователей
+    # (repl/repmgr) — приложенческий доступ (Odyssey → backend) не её забота (ADR-0005 §11,
+    # композиция, а не meta-зависимость). Без этого правила Odyssey падает "no pg_hba.conf entry
+    # for host ... user demo_app".
+    - name: Allow odyssey backend user to connect over TCP
+      community.postgresql.postgresql_pg_hba:
+        dest: "{{ postgresql_replication_config_dir }}/pg_hba.conf"
+        contype: host
+        databases: all
+        users: "{{ odyssey_backend_user }}"
+        address: 10.66.12.31/32
+        method: scram-sha-256
+      notify: Reload PostgreSQL
+
+- name: Ad hoc DB-пользователи на postgresql (композиция, не зона ответственности ролей)
+  hosts: postgresql_primary
+  become: true
+  become_user: postgres
+  vars:
+    postgresql_login_unix_socket: /var/run/postgresql
+  tasks:
+    - name: Create postgres_exporter monitoring user
+      community.postgresql.postgresql_user:
+        login_unix_socket: "{{ postgresql_login_unix_socket }}"
+        name: "{{ monitoring_agent_postgres_exporter_user }}"
+        password: "{{ monitoring_agent_postgres_exporter_password }}"
+        role_attr_flags: LOGIN
+        state: present
+
+    # pg_monitor — встроенная роль PostgreSQL 10+ с ровно нужным набором прав для
+    # prometheus-community/postgres_exporter (pg_read_all_stats + view настроек), без SUPERUSER.
+    - name: Grant pg_monitor role to postgres_exporter user
+      community.postgresql.postgresql_membership:
+        login_unix_socket: "{{ postgresql_login_unix_socket }}"
+        group: pg_monitor
+        target_roles:
+          - "{{ monitoring_agent_postgres_exporter_user }}"
+        state: present
+
+    - name: Create odyssey backend application user
+      community.postgresql.postgresql_user:
+        login_unix_socket: "{{ postgresql_login_unix_socket }}"
+        name: "{{ odyssey_backend_user }}"
+        password: "{{ odyssey_backend_password }}"
+        role_attr_flags: LOGIN
+        state: present
+
+    - name: Create demo database (для ручной проверки через db-write-pg)
+      community.postgresql.postgresql_db:
+        login_unix_socket: "{{ postgresql_login_unix_socket }}"
+        name: "{{ odyssey_write_database_name }}"
+        owner: "{{ odyssey_backend_user }}"
+        state: present
+
+    - name: Create demo table
+      community.postgresql.postgresql_query:
+        login_unix_socket: "{{ postgresql_login_unix_socket }}"
+        login_db: "{{ odyssey_write_database_name }}"
+        query: >-
+          CREATE TABLE IF NOT EXISTS pings (
+            id BIGSERIAL PRIMARY KEY,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            source VARCHAR(64) NOT NULL
+          )
+
+    - name: Grant table privileges on demo table to odyssey backend user
+      community.postgresql.postgresql_privs:
+        login_unix_socket: "{{ postgresql_login_unix_socket }}"
+        db: "{{ odyssey_write_database_name }}"
+        type: table
+        objs: pings
+        privs: SELECT,INSERT,UPDATE,DELETE
+        roles: "{{ odyssey_backend_user }}"
+
+    - name: Grant sequence privileges for the demo table's serial column
+      community.postgresql.postgresql_privs:
+        login_unix_socket: "{{ postgresql_login_unix_socket }}"
+        db: "{{ odyssey_write_database_name }}"
+        type: sequence
+        objs: pings_id_seq
+        privs: USAGE,SELECT
+        roles: "{{ odyssey_backend_user }}"
+
+    # odyssey_read_database_name (group_vars/all.yml) — намеренно "postgres" (штатная БД,
+    # существует на любом инстансе из коробки): в этом однонодовом стенде db-write и db-read
+    # указывают на один и тот же backend (нет отдельной реплики, group_vars/odyssey_hosts.yml),
+    # но конфигурация маршрутов остаётся той же формы, что и в demo/postgresql-ha-platform — так
+    # демо и там, и там расходится ролью Odyssey, а не форматом переменных.
+    - name: Grant CONNECT on postgres db to odyssey backend user (db-read route target)
+      community.postgresql.postgresql_privs:
+        login_unix_socket: "{{ postgresql_login_unix_socket }}"
+        db: postgres
+        type: database
+        privs: CONNECT
+        roles: "{{ odyssey_backend_user }}"
+
+- name: odyssey
+  hosts: odyssey_hosts
+  become: true
+  roles:
+    - odyssey
+
+- name: infra_dns
+  hosts: infra_dns
+  become: true
+  roles:
+    - infra_dns
+
+- name: nginx_multidomain + fail2ban + fail2ban_ui
+  hosts: nginx_multidomain_hosts
+  become: true
+  pre_tasks:
+    - name: Дождаться завершения cloud-init
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+      failed_when: false
+
+    - name: Создать root-каталог демо-домена
+      ansible.builtin.file:
+        path: /var/www/app.full-platform.demo/public
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: '0755'
+
+    - name: Создать index.html демо-домена
+      ansible.builtin.copy:
+        dest: /var/www/app.full-platform.demo/public/index.html
+        owner: www-data
+        group: www-data
+        mode: '0644'
+        content: |
+          <!doctype html>
+          <html><body><h1>full-platform demo — nginx_multidomain (rate-limited)</h1></body></html>
+  roles:
+    - nginx_multidomain
+    - fail2ban
+    - fail2ban_ui
+
+- name: NPM (docker + reverse_proxy_npm, без fail2ban — уже показан на nginx_multidomain-хосте)
+  hosts: npm_hosts
+  become: true
+  pre_tasks:
+    - name: Дождаться завершения cloud-init
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+      failed_when: false
+  roles:
+    - docker
+    - reverse_proxy_npm
+  tasks:
+    # Fixture-бэкенд для тестового proxy-host'а (whoami-npm.full-platform.demo,
+    # group_vars/npm_hosts.yml) — тот же паттерн, что demo/npm и
+    # extensions/molecule/reverse_proxy_npm/.
+    - name: Установить python3-docker (нужен community.docker.docker_container/docker_network ниже)
+      ansible.builtin.apt:
+        pkg:
+          - python3-docker
+
+    - name: Запустить fixture-бэкенд (traefik/whoami)
+      community.docker.docker_container:
+        name: reverse-proxy-npm-fixture-backend
+        image: traefik/whoami
+        state: started
+        restart_policy: unless-stopped
+
+    - name: Подключить fixture-бэкенд к docker-сети reverse_proxy_npm
+      community.docker.docker_network:
+        name: "{{ reverse_proxy_npm_docker_network }}"
+        connected:
+          - reverse-proxy-npm-fixture-backend
+        appends: true

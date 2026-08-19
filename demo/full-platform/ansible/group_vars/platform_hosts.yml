@@ -1,0 +1,118 @@
+---
+# reverse_proxy_traefik + monitoring_server(docker) + backup_server + infra_panel — общий
+# ingress/наблюдение/бэкап платформы на одном хосте (см. terraform/vms.tf). Пароли — открытым
+# текстом (не Ansible Vault). Осознанное упрощение ТОЛЬКО для демо-стенда (ADR-0006 §9): стенд не
+# подключён к внешней сети, реальных данных не хранит. НЕ переносить этот паттерн на роли
+# коллекции — там обязательный Vault остаётся в силе.
+
+# --- reverse_proxy_traefik ------------------------------------------------------------------
+# Владеет docker-сетью "proxy" в этом кейсе (создаёт её первой в списке ролей site.yml) —
+# monitoring_server/infra_panel/backup_server подключаются к ней как external: true.
+reverse_proxy_traefik_internal_domain: full-platform.demo
+reverse_proxy_traefik_dashboard_users:
+  - name: monitor
+    password: "demo-traefik-dashboard-CHANGE-ME"
+
+# TLSOptions-ресурс для backup_server_webui (см. ниже) — WebSocket-апгрейд к bareos-webui-proxy
+# ломается через HTTP/2 (docs/adr/0009-backup-server-role.md §11), тот же обход, что demo/backup.
+reverse_proxy_traefik_extra_dynamic_files:
+  - name: backup-webui-tls-options
+    content: |
+      tls:
+        options:
+          backup-webui-http1only:
+            alpnProtocols:
+              - "http/1.1"
+
+# --- monitoring_server (ADR-0007) ------------------------------------------------------------
+monitoring_server_orchestrator: docker
+monitoring_server_docker_proxy_network_external: true
+
+monitoring_server_victoria_metrics_enabled: true
+
+monitoring_server_grafana_enabled: true
+monitoring_server_grafana_security_admin_password: "demo-grafana-admin-CHANGE-ME"
+monitoring_server_grafana_server_domain: grafana.full-platform.demo
+monitoring_server_grafana_server_root_url: "https://grafana.full-platform.demo"
+
+# Loki требует local_storage_s3_enabled (хардкодит object_store: s3, roles/monitoring_server/
+# tasks/check-and-install-requirements.docker.yml) — внешний S3 не нужен, роль сама поднимает
+# MinIO.
+monitoring_server_local_storage_s3_enabled: true
+monitoring_server_local_storage_s3:
+  access_key: demo-minio-access-key
+  secret_key: demo-minio-secret-key-CHANGE-ME
+
+monitoring_server_grafana_loki_enabled: true
+
+# Дашборд-группы (ADR-0007 §2.4/§8) — все group_defaults_* по умолчанию enable: false. "mysql" —
+# mysqld_exporter (хост mysql). "postgres_exporter" — хост postgresql. "node_exporter" —
+# включён на всех агентских хостах (group_vars/monitoring_agents.yml).
+monitoring_server_grafana_dashboards_group_install:
+  mysql:
+    enable: true
+  postgres_exporter:
+    enable: true
+  node_exporter:
+    enable: true
+
+# --- backup_server (ADR-0009) -----------------------------------------------------------------
+backup_server_director_password: "demo-backup-director-password"
+backup_server_storage_password: "demo-backup-storage-password"
+backup_server_catalog_db_password: "demo-backup-catalog-password"
+backup_server_self_backup_client_password: "demo-backup-selffd-password"
+
+# Пароль должен совпадать с backup_agent_client_password в group_vars/mysql_primary.yml —
+# интеграция backup_server <-> backup_agent вручную, без кросс-ролевого автообнаружения (см.
+# roles/backup_agent/README.md). Единственный клиент в этом стенде (mysql-хост, см. решение в
+# чате — только он несёт backup_agent).
+backup_server_clients:
+  - name: mysql-fd
+    address: 10.66.12.20
+    password: "demo-backup-mysql-password"
+    fileset: mysql-files
+
+backup_server_filesets:
+  - name: mysql-files
+    content: |
+      Include {
+        Options { Signature = XXH128 }
+        File = /var/lib/full-platform-demo-app
+      }
+
+backup_server_webui_enabled: true
+backup_server_webui_console_password: "demo-backup-webui-console-password"
+backup_server_webui_reverse_proxy_server_name: backup-webui.full-platform.demo
+# У bareos-webui-new есть собственный логин (Console, см. выше) — доп. слой basic-auth избыточен
+# для этого демо-стенда (изолированная локальная сеть), тот же выбор, что demo/backup.
+backup_server_webui_reverse_proxy_basic_auth_enabled: false
+backup_server_webui_reverse_proxy_tls_options: backup-webui-http1only
+
+# --- infra_panel (ADR-0008) --------------------------------------------------------------------
+infra_panel_domain: infra-panel.full-platform.demo
+infra_panel_users:
+  - name: admin
+    password: "demo-infra-panel-admin-CHANGE-ME"
+
+# Авто-блок (ADR-0008 §3) добавит только Grafana. Остальное — вручную: VictoriaMetrics/MinIO по
+# прямым host-портам (technical debt, нет собственного traefik-роута, см. ADR), Bareos WebUI —
+# через свой traefik-роут (backup_server_webui_reverse_proxy_server_name выше).
+infra_panel_extra_services:
+  - name: Storage
+    icon: "mdi mdi-database"
+    items:
+      - name: VictoriaMetrics
+        icon: "mdi mdi-chart-line"
+        url: "http://platform.full-platform.demo:8428/vmui/"
+        target: _blank
+      - name: MinIO Console
+        icon: "mdi mdi-bucket"
+        url: "http://platform.full-platform.demo:9001/"
+        target: _blank
+  - name: Backup
+    icon: "mdi mdi-backup-restore"
+    items:
+      - name: Bareos WebUI
+        icon: "mdi mdi-server"
+        url: "https://{{ backup_server_webui_reverse_proxy_server_name }}/bareos-webui-new/"
+        target: _blank

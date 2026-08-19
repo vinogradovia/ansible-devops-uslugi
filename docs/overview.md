@@ -58,7 +58,7 @@ ad-hoc скриптами на каждом новом хосте/клиенте
 
 ## Демо-стенды
 
-7 стендов в [`demo/*`](../demo/) (Terraform/OpenTofu + libvirt, единая обёртка запуска —
+8 стендов в [`demo/*`](../demo/) (Terraform/OpenTofu + libvirt, единая обёртка запуска —
 `demo/stand.sh up|down <case-name>`; архитектура и обоснование выбора Terraform+libvirt — см.
 [`docs/adr/0006-demo-stand.md`](adr/0006-demo-stand.md)):
 
@@ -71,10 +71,9 @@ ad-hoc скриптами на каждом новом хосте/клиенте
 | `npm` | `docker` + `reverse_proxy_npm` + `fail2ban` + `fail2ban_ui` | NPM как reverse proxy с GUI, под защитой fail2ban + его веб-панелью, plus fixture-бэкенд (`traefik/whoami`) |
 | `nginx-multidomain` | `nginx_multidomain` + `fail2ban` + `fail2ban_ui` | nginx shared-hosting конфиг (rate limiting) под защитой fail2ban |
 | `samba-server` | Собственные ansible-задачи (не роль коллекции) | Отдельный стенд, вне контура ролей `roles/*` |
+| `full-platform` | Все 8 независимых ролей сразу: `reverse_proxy_traefik`+`monitoring_server`(docker)+`backup_server`+`infra_panel` на одном хосте, `monitoring_agent` (systemd, везде), `mysql_replication`+`backup_agent`, `proxysql`, `postgresql_replication`, `odyssey`, `infra_dns`, `nginx_multidomain`+`fail2ban`+`fail2ban_ui`, `docker`+`reverse_proxy_npm` | Особый стенд «всё сразу»: весь охват возможностей коллекции в минимальной конфигурации (СУБД — однонодовые, без реплик; без `freeipa` — не закоммичена; без генератора нагрузки — репликационный лаг показывать нечего) на 8 VM |
 
-Не покрыты демо-стендом: `docker` (только как зависимость внутри других стендов),
-`reverse_proxy_npm`/`fail2ban`/`fail2ban_ui` по отдельности (только вместе, в
-`npm`/`nginx-multidomain`), `freeipa` (роль ещё в разработке, не в `demo/`).
+Не покрыты демо-стендом: `freeipa` (роль ещё в разработке, не закоммичена в основную ветку).
 
 ## Сквозные архитектурные принципы
 

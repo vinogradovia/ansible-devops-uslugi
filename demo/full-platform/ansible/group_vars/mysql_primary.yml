@@ -1,0 +1,25 @@
+---
+# ADR-0004 §3/§4. Хост свежий (Terraform-провижининг) — mysql_replication делает fresh install.
+# Однонодовый стенд: read_replica/dr_replica сознательно не заводятся (решение из чата — минимум
+# VM, репликационный лаг демонстрировать нечего).
+mysql_replication_role: primary
+mysql_replication_server_id: 1
+
+# Требуется assert'ом роли даже без реплик (assert-required-vars.yml проверяет только
+# mysql_replication_role == primary, не наличие реплик в инвентаре) — без дефолта.
+mysql_replication_repl_password: "demo-mysql-repl-pwd-CHANGEME"
+
+# ADR §11 (композиция, не meta-зависимость): пользователя для mysqld_exporter создаём ad hoc в
+# site.yml, сама роль monitoring_agent его не заводит. _user/_hosts продублированы явно (=
+# дефолты roles/monitoring_agent/defaults/main.yml) — role defaults не переживают переход в
+# другой play, даже на том же хосте (тот же эффект, что в demo/mysql-ha-platform).
+monitoring_agent_mysqld_exporter_enabled: true
+monitoring_agent_mysqld_exporter_password: "demo-mysqld-exporter-password-CHANGE-ME"
+monitoring_agent_mysqld_exporter_user: mysql-exporter
+monitoring_agent_mysqld_exporter_hosts: 127.0.0.1
+
+# --- backup_agent (единственный клиент backup_server в этом стенде, ROADMAP №48) --------------
+# Пароль должен совпадать с backup_server_clients[].password в group_vars/platform_hosts.yml —
+# интеграция вручную, без кросс-ролевого автообнаружения (roles/backup_agent/README.md).
+backup_agent_client_name: mysql-fd
+backup_agent_client_password: "demo-backup-mysql-password"

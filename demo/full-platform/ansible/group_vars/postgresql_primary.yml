@@ -1,0 +1,17 @@
+---
+# ADR-0005 §2/§3. Хост свежий (Terraform-провижининг) — postgresql_replication делает fresh
+# install. Однонодовый стенд: read_replica/dr_replica сознательно не заводятся (решение из чата).
+postgresql_replication_role: primary
+postgresql_replication_node_id: 1
+
+# Требуются assert'ом роли даже без реплик/кластера repmgr из нескольких узлов — без дефолта.
+postgresql_replication_repl_password: "demo-pg-repl-pwd-CHANGEME"
+postgresql_replication_repmgr_password: "demo-pg-repmgr-pwd-CHANGEME"
+
+# ADR-0005 §11 (композиция, не meta-зависимость): пользователя для postgres_exporter создаём
+# ad hoc в site.yml, сама роль monitoring_agent его не заводит. _user/_host продублированы явно
+# (= дефолты roles/monitoring_agent/defaults/main.yml) — role defaults не переживают переход в
+# другой play, даже на том же хосте.
+monitoring_agent_postgres_exporter_enabled: true
+monitoring_agent_postgres_exporter_user: postgres-exporter
+monitoring_agent_postgres_exporter_password: "demo-postgres-exporter-password-CHANGE-ME"

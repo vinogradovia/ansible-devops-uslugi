@@ -1,0 +1,39 @@
+---
+infra_dns_enabled: true
+
+infra_dns_listen_on:
+  - 10.66.12.40
+infra_dns_allow_query:
+  - 10.66.12.0/24
+
+infra_dns_zones:
+  - name: full-platform.demo
+    soa_ns: infra-dns.full-platform.demo
+    ns_records:
+      - infra-dns.full-platform.demo.
+    # ADR-0004 §6 / ADR-0005 §6: db-write/db-read → proxysql (MySQL), db-write-pg/db-read-pg →
+    # odyssey (PostgreSQL) — короткий TTL (переключение при promote должно разъезжаться быстро,
+    # не ждать дефолтные 600с зоны).
+    records:
+      - {name: db-write, type: A, value: 10.66.12.21, ttl: 30}
+      - {name: db-read, type: A, value: 10.66.12.21, ttl: 30}
+      - {name: db-write-pg, type: A, value: 10.66.12.31, ttl: 30}
+      - {name: db-read-pg, type: A, value: 10.66.12.31, ttl: 30}
+      # platform — reverse_proxy_traefik + monitoring_server + backup_server + infra_panel на
+      # одном хосте (ADR-0008), поэтому все сервис-сабдомены указывают на тот же IP.
+      - {name: platform, type: A, value: 10.66.12.10}
+      - {name: grafana, type: A, value: 10.66.12.10}
+      - {name: infra-panel, type: A, value: 10.66.12.10}
+      - {name: backup-webui, type: A, value: 10.66.12.10}
+      - {name: traefik-dashboard, type: A, value: 10.66.12.10}
+      - {name: whoami-traefik, type: A, value: 10.66.12.10}
+      - {name: mysql, type: A, value: 10.66.12.20}
+      - {name: proxysql, type: A, value: 10.66.12.21}
+      - {name: postgresql, type: A, value: 10.66.12.30}
+      - {name: odyssey, type: A, value: 10.66.12.31}
+      - {name: infra-dns, type: A, value: 10.66.12.40}
+      - {name: nginx-multidomain, type: A, value: 10.66.12.50}
+      - {name: app, type: A, value: 10.66.12.50}
+      - {name: fail2ban-ui, type: A, value: 10.66.12.50}
+      - {name: npm, type: A, value: 10.66.12.51}
+      - {name: whoami-npm, type: A, value: 10.66.12.51}

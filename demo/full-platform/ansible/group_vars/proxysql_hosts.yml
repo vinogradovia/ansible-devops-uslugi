@@ -1,0 +1,22 @@
+---
+# ADR-0004 §6: единая точка подключения — db-write/db-read (group_vars/infra_dns.yml) ведут
+# сюда, ProxySQL сам маршрутизирует. Однонодовый стенд — writer- и reader-hostgroup указывают на
+# ОДИН И ТОТ ЖЕ единственный mysql-хост (решение из чата — нет отдельной read-реплики).
+
+proxysql_admin_password: "demo-proxysql-admin-password-CHANGE-ME"
+# proxysql_monitor_user/_password — см. group_vars/all.yml (нужны и на mysql).
+
+proxysql_backend_servers:
+  - hostgroup: "{{ proxysql_writer_hostgroup }}"
+    address: 10.66.12.20 # mysql
+    port: 3306
+  - hostgroup: "{{ proxysql_reader_hostgroup }}"
+    address: 10.66.12.20 # mysql (тот же хост — нет отдельной read-реплики)
+    port: 3306
+
+# Пользователь для ручной проверки через db-write/db-read (demo_app_mysql_password —
+# group_vars/all.yml).
+proxysql_mysql_users:
+  - username: demo_app
+    password: "{{ demo_app_mysql_password }}"
+    default_hostgroup: "{{ proxysql_writer_hostgroup }}"

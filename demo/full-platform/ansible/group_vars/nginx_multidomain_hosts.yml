@@ -1,0 +1,42 @@
+---
+# Пароли — открытым текстом (не Ansible Vault). Осознанное упрощение ТОЛЬКО для этого демо-стенда
+# (ADR-0006 §9): стенд не подключён к внешней сети, реальных данных не хранит.
+
+# --- nginx_multidomain ---------------------------------------------------------------------
+# Один демо-домен с агрессивной rate-limit-зоной (1 запрос/сек, burst 2, nodelay) — нарочно
+# низкий порог, чтобы небольшой curl-цикл в реальной проверке гарантированно упирался в 503 и
+# писал "limiting requests..." в error-лог, который ловит fail2ban-jail ниже (тот же паттерн, что
+# demo/nginx-multidomain).
+nginx_domains:
+  - name: app.full-platform.demo
+    type: static
+    root: /var/www/app.full-platform.demo/public
+    rate_limit:
+      zone_name: demo_zone
+      rate: "1r/s"
+      burst: 2
+      nodelay: true
+
+# --- fail2ban (ROADMAP Backlog №47) — единственная демонстрация fail2ban+fail2ban_ui в этом
+# стенде (решение из чата: npm-хост её не дублирует) -------------------------------------------
+fail2ban_jails:
+  - name: sshd
+    filter: sshd
+    backend: systemd
+    port: ssh
+    maxretry: 5
+  - name: nginx-limit-req
+    filter: nginx-limit-req
+    logpath: /var/log/nginx/error_*.log
+    maxretry: 2
+    findtime: 60
+    bantime: 120
+
+# --- fail2ban_ui -----------------------------------------------------------------------------
+fail2ban_ui_orchestrator: systemd
+fail2ban_ui_reverse_proxy: nginx
+fail2ban_ui_reverse_proxy_server_name: fail2ban-ui.full-platform.demo
+
+fail2ban_ui_reverse_proxy_users_auth:
+  - name: admin
+    password: "demo-full-platform-fail2ban-admin-CHANGE-ME"
