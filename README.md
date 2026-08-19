@@ -1,5 +1,10 @@
 # Ansible Collection - devops.uslugi
 
+## Документация
+
+- [Цели и задачи проекта](docs/overview.md) — что это за коллекция, зачем нужна, из чего состоит.
+- [Реестр компонентов](docs/components.md) — список ролей со ссылками на README/ADR/runbook/molecule каждой.
+
 ## Требования
 
 Роль `monitoring_server` при `monitoring_server_orchestrator: k3s` зависит от standalone-роли
