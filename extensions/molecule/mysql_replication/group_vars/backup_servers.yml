@@ -1,0 +1,33 @@
+---
+# ROADMAP №48, Фаза 2 (docs/adr/0010-backup-agent-role.md) — backup_server для реального
+# Bareos-пути mysql_replication_backup_tool: bareos на mysql-dr-replica (см.
+# group_vars/mysql_dr_replica.yml). Тот же паттерн, что extensions/molecule/backup_agent/
+# group_vars/backup_servers.yml.
+
+backup_server_director_password: molecule-test-director-password
+backup_server_storage_password: molecule-test-storage-password
+backup_server_catalog_db_password: molecule-test-catalog-password
+
+# Self-backup выключен — сценарий сфокусирован на одном реальном job'е mysql-dr-replica-fd.
+backup_server_self_backup_enabled: false
+
+backup_server_clients:
+  - name: mysql-dr-replica-fd
+    address: 192.168.56.12
+    password: molecule-test-backup-agent-password
+    fileset: mysql-dr-replica-files
+
+# bareos-fd-percona-xtrabackup — плагин ставится backup_agent через условную meta-зависимость
+# mysql_replication (backup_agent_install_percona_xtrabackup_plugin: true), бинарник xtrabackup
+# ставит сама mysql_replication (tasks/backup-bareos.yml). MySQL на mysql-dr-replica — свежий
+# MySQL 8 с root@localhost через auth_socket (см. roles/mysql_replication/tasks/install-mysql.yml)
+# — тот же неявный root/unix-socket доступ, которым уже пользуется backup-mysql.sh.j2 для
+# xtrabackup в S3-пути, без mycnf=. Если первый прогон это не подтвердит — потребуется явный
+# mycnf= (см. план/ADR).
+backup_server_filesets:
+  - name: mysql-dr-replica-files
+    content: |
+      Include {
+        Options { Signature = XXH128 }
+        Plugin = "python3:module_name=bareos-fd-percona-xtrabackup"
+      }

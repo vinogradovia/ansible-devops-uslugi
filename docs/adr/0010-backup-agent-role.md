@@ -102,13 +102,52 @@ ADR-0009 §7) → `bareos-dir -t` падал `Could not find config resource "De
 
 ## Дальнейшие шаги (вне scope Фазы 1, ROADMAP №48)
 
-- **Фаза 2** — `mysql_replication_backup_tool: bareos` (третье значение существующей переменной,
-  переиспользует уже существующую установку `percona-xtrabackup-80`/`mariadb-backup` из
-  `tasks/backup.yml:6-43`, без rclone/S3/systemd-timer-части).
+~~**Фаза 2**~~ — **сделано**: `mysql_replication_backup_tool: bareos` (третье значение
+существующей переменной). Реализация разделила прежний единый `tasks/backup.yml` на общий
+`install-backup-tool.yml` (repo.percona.com + `percona-xtrabackup-80`/`mariadb-backup` —
+переиспользуется обоими путями) и `backup-bareos.yml` (только этот общий шаг, без rclone/S3/
+systemd-timer). `backup_agent` подключается условной `meta`-зависимостью, тем же паттерном, что
+`docker` (§1 выше) — `backup_agent_install_percona_xtrabackup_plugin: true` прокидывается
+безусловно. Molecule (`extensions/molecule/mysql_replication/`, 4-я ВМ `mysql-backup-server`,
+реальный `bconsole`-job на `mysql-dr-replica` через `bareos-fd-percona-xtrabackup`-плагин) —
+см. «Финальный статус Фазы 2» ниже.
+
 - **Фаза 3** — `postgresql_replication_backup_tool: pgbackrest|bareos` (новая переменная, дефолт
   `pgbackrest` — обратная совместимость). Взаимоисключающий выбор: `bareos`-плагин
   (`bareos-fd-postgresql`) сам архивирует WAL в `wal_archive_dir` через `archive_command`,
-  занятый сейчас pgBackRest — параллельная работа невозможна.
+  занятый сейчас pgBackRest — параллельная работа невозможна. Не реализовано.
+
+## Финальный статус Фазы 2
+
+`molecule test -s mysql_replication` — полностью зелёный: `create` → `prepare` → `converge` →
+`idempotence` (`changed=0` на всех 4 ВМ) → `verify` (реальный `bconsole run
+job=backup-mysql-dr-replica-fd`, `Termination: Backup OK`, непустой том на диске) → `destroy`.
+Первый же прогон поймал три реальные регрессии, ни одна не была видна по коду до реального
+исполнения:
+
+1. **`repo.percona.com/percona/apt/percona-release.gpg` (404, прежний код ADR-0004 §8)** — сам
+   URL прямого GPG-ключа больше не существует: Percona перешла на пакет `percona-release`
+   (разворачивает keyring в `/usr/share/keyrings/percona-keyring.gpg`) и репозитории по продуктам
+   (`pxb-80` для XtraBackup 8.0, а не единый `.../percona/apt`). Этот код (общий для `xtrabackup`/
+   `mariabackup`/`bareos`) не был раньше нигде реально исполнен — `mysql_replication`-molecule
+   намеренно отключал бэкапы (требовали внешнего S3), а Фаза 2 стала первым реальным прогоном.
+   Исправлено в `roles/mysql_replication/tasks/install-backup-tool.yml`.
+2. **Неверный выбор apt-пакета для `bareos`** — тернарник `'percona-xtrabackup-80' if
+   backup_tool == 'xtrabackup' else 'mariadb-backup'` не учитывал третье значение: `bareos`
+   попадал в `else` и пытался поставить `mariadb-backup`, чей пакет **конфликтует** с уже
+   установленным Oracle MySQL (apt пытался снести `mysql-server`/`mysql-client`). Плагин
+   `bareos-fd-percona-xtrabackup` всегда про XtraBackup, не про `mariabackup` — исправлено:
+   только явное `mariabackup` выбирает `mariadb-backup`, оба других значения (`xtrabackup`,
+   `bareos`) — `percona-xtrabackup-80`.
+3. **`backup_agent`: `Plugin Directory` не был объявлен в `bareos-fd.d/client/myself.conf`** —
+   `Fatal error: Plugin Directory not defined. Cannot use plugin: "python3:module_name=..."`.
+   `client.conf.j2` (§2 выше) декларировал только `Name`, поэтому ЛЮБОЙ `Plugin = "python3:..."`
+   в `FileSet` падал, даже когда соответствующий `*-plugin` apt-пакет установлен
+   (`backup_agent_install_percona_xtrabackup_plugin`/`_install_postgresql_plugin`). Это первый
+   реальный прогон, где эти флаги вообще были включены — Фаза 1 (§ выше) проверяла только
+   `type: files`, без плагинов. Исправлено: `Plugin Directory = "/usr/lib/bareos/plugins"`
+   добавлен в `roles/backup_agent/templates/bareos-fd.d/client/client.conf.j2` безусловно
+   (`Plugin Names` намеренно не задаётся — грузятся только реально установленные `.so`).
 
 ## Ссылки
 

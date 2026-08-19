@@ -137,3 +137,41 @@
       retries: 15
       delay: 2
       changed_when: false
+
+# ROADMAP №48, Фаза 2 (docs/adr/0010-backup-agent-role.md) — реальный Bareos-путь
+# (mysql_replication_backup_tool: bareos на mysql-dr-replica), тот же приём, что
+# extensions/molecule/backup_agent/verify.yml: настоящий job через bconsole, не только "конфиг
+# синтаксически верен".
+- name: Verify (backup_servers)
+  hosts: backup_servers
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Запустить job backup-mysql-dr-replica-fd через bconsole и дождаться завершения
+      ansible.builtin.shell: |
+        set -o pipefail
+        printf 'run job=backup-mysql-dr-replica-fd level=Full yes\nwait\nmessages\nquit\n' | bconsole -c /etc/bareos/bconsole.conf
+      args:
+        executable: /bin/bash
+      register: molecule_bconsole_run
+      changed_when: true
+
+    - name: Вывод bconsole должен подтвердить успешное завершение job'а
+      ansible.builtin.assert:
+        that:
+          - "'Backup OK' in molecule_bconsole_run.stdout or 'Termination:            Backup OK' in molecule_bconsole_run.stdout"
+        quiet: true
+        fail_msg: "bconsole run job=backup-mysql-dr-replica-fd не завершился успешно, вывод: {{ molecule_bconsole_run.stdout }}"
+
+    - name: Найти файлы томов в storage-каталоге
+      ansible.builtin.find:
+        paths: /var/lib/bareos/storage
+        file_type: file
+      register: molecule_storage_volumes
+
+    - name: Storage daemon должен реально записать хотя бы один непустой том с данными xtrabackup
+      ansible.builtin.assert:
+        that:
+          - molecule_storage_volumes.matched > 0
+          - molecule_storage_volumes.files | map(attribute='size') | max > 0
+        quiet: true

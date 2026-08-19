@@ -77,7 +77,10 @@ mysql_replication_backup_enabled: false
 # нагрузки ни на primary, ни на read-реплику (ADR §8).
 mysql_replication_backup_source_role: dr_replica
 
-# xtrabackup | mariabackup — выбирается по СУБД/версии на этапе реализации.
+# xtrabackup | mariabackup | bareos — первые два выбираются по СУБД/версии, каждый со своим
+# независимым путём rclone → S3. bareos — делегирует на backup_agent (условная meta-зависимость,
+# см. meta/main.yml) вместо rclone/S3/systemd-timer — единый control-plane бэкапов через
+# backup_server (ROADMAP №48, Фаза 2, docs/adr/0010-backup-agent-role.md "Дальнейшие шаги").
 mysql_replication_backup_tool: xtrabackup
 mysql_replication_backup_dir: /var/backups/mysql
 mysql_replication_backup_time: "02:30:00"
@@ -107,3 +110,14 @@ mysql_replication_rclone_install_path: /usr/local/bin/rclone
 # monitoring_agent_node_exporter_textfile_directory на этом же хосте — композиция на уровне
 # инвентаря/плейбука, роль mysql_replication не тянет monitoring_agent зависимостью (ADR §11).
 mysql_replication_backup_metrics_textfile_path: /var/lib/node_exporter/textfile_collector/mysql_backup.prom
+
+# --- Интеграция с backup_agent, только при mysql_replication_backup_tool == 'bareos' (ROADMAP
+# №48, Фаза 2) --- условная meta-зависимость (см. meta/main.yml) прокидывает эти значения в
+# backup_agent_director_name/backup_agent_client_name/backup_agent_client_password. Значения
+# должны совпадать с backup_server_director_name и полем name/password соответствующего элемента
+# backup_server_clients на стороне backup_server (тот же принцип, что roles/backup_agent/README.md).
+mysql_replication_backup_agent_director_name: bareos-dir
+mysql_replication_backup_agent_client_name: "{{ inventory_hostname }}-fd"
+# Обязателен при backup_tool: bareos, fail-fast если пусто (assert-required-vars.yml) — без
+# дефолта, как и backup_agent_client_password в самой роли backup_agent.
+mysql_replication_backup_agent_client_password: ""

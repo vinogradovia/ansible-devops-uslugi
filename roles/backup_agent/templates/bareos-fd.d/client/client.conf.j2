@@ -1,3 +1,10 @@
 Client {
   Name = {{ backup_agent_client_name }}
+  # Найдено реальным прогоном molecule (ROADMAP №48, Фаза 2, extensions/molecule/
+  # mysql_replication/) — без Plugin Directory file daemon падает "Plugin Directory not
+  # defined" на любом Plugin = "python3:..." из FileSet (backup_server_filesets), даже когда
+  # соответствующий *-plugin пакет установлен (backup_agent_install_*_plugin). Plugin Names
+  # намеренно не задаётся — грузятся все .so, реально присутствующие в каталоге, а это уже
+  # ограничено тем, какие *-plugin пакеты установлены (см. tasks/install.yml).
+  Plugin Directory = "/usr/lib/bareos/plugins"
 }

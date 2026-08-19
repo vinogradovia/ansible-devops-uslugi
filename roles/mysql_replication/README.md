@@ -63,7 +63,8 @@ ansible-vault encrypt group_vars/mysql_primary/vault.yml
 Переменные без дефолта, роль падает через `assert`, если не заданы (см.
 `tasks/assert-required-vars.yml`): `mysql_replication_server_id` (на каждом хосте, обязан быть
 уникальным), `mysql_replication_repl_password`, и (если включены бэкапы)
-`mysql_replication_backup_s3_access_key`/`_secret_key`.
+`mysql_replication_backup_s3_access_key`/`_secret_key` (`backup_tool: xtrabackup|mariabackup`) или
+`mysql_replication_backup_agent_client_password` (`backup_tool: bareos`).
 
 ## Шифрование трафика репликации между ДЦ
 
@@ -98,14 +99,46 @@ ansible-playbook -i inventory.yml mysql-replicas.yml \
 ## Бэкапы
 
 `mysql_replication_backup_enabled: true` на хосте с ролью
-`mysql_replication_backup_source_role` (по умолчанию `dr_replica`, ADR §8) — физический бэкап
-через `xtrabackup`/`mariabackup`, ежедневно через systemd-таймер, выгрузка в S3-совместимое
-хранилище через `rclone`, ретеншн:
-`mysql_replication_backup_retention_{daily,weekly,monthly}` (по умолчанию 14/4/6).
+`mysql_replication_backup_source_role` (по умолчанию `dr_replica`, ADR §8) — физический бэкап,
+инструмент выбирается `mysql_replication_backup_tool`:
 
-Метрика успешности пишется в `mysql_replication_backup_metrics_textfile_path` — путь должен
-совпадать с textfile-каталогом `node_exporter` из `monitoring_agent` на этом же хосте
-(композиция на уровне инвентаря/плейбука, не meta-зависимость — ADR §11).
+- `xtrabackup`/`mariabackup` (по умолчанию) — ежедневно через systemd-таймер, выгрузка в
+  S3-совместимое хранилище через `rclone`, ретеншн:
+  `mysql_replication_backup_retention_{daily,weekly,monthly}` (по умолчанию 14/4/6). Метрика
+  успешности пишется в `mysql_replication_backup_metrics_textfile_path` — путь должен совпадать
+  с textfile-каталогом `node_exporter` из `monitoring_agent` на этом же хосте (композиция на
+  уровне инвентаря/плейбука, не meta-зависимость — ADR §11).
+- `bareos` — делегирует на единый control-plane `backup_server`/`backup_agent`
+  (ROADMAP №48, Фаза 2, `docs/adr/0010-backup-agent-role.md`) вместо rclone/S3/systemd-timer.
+  Роль ставит только сам бинарник (`percona-xtrabackup-80`/`mariadb-backup` — его вызывает
+  `bareos-fd-percona-xtrabackup`-плагин) и подключает `backup_agent` условной meta-зависимостью
+  (file daemon + сам плагин). ЧТО бекапить (`FileSet`/`Plugin`-директива) и расписание —
+  на стороне `backup_server` (`backup_server_clients`/`backup_server_filesets`), не здесь
+  (ADR-0010 §2) — интеграция вручную через совпадающие переменные:
+
+  ```yaml
+  mysql_replication_backup_tool: bareos
+  mysql_replication_backup_agent_client_name: mysql-dr-replica-fd  # совпадает с name в backup_server_clients
+  mysql_replication_backup_agent_client_password: "{{ vault_backup_agent_password }}"  # совпадает с password там же
+  ```
+
+  На `backup_server` (тот же пароль, тот же `name`):
+
+  ```yaml
+  backup_server_clients:
+    - name: mysql-dr-replica-fd
+      address: <адрес dr_replica>
+      password: "{{ vault_backup_agent_password }}"
+      fileset: mysql-dr-replica-files
+
+  backup_server_filesets:
+    - name: mysql-dr-replica-files
+      content: |
+        Include {
+          Options { Signature = XXH128 }
+          Plugin = "python3:module_name=bareos-fd-percona-xtrabackup:..."
+        }
+  ```
 
 ## Пример
 

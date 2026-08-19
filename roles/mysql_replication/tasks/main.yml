@@ -44,12 +44,23 @@
   ansible.builtin.include_tasks:
     file: configure-replica.yml
 
-- name: Configure physical backups (only on the designated backup source)
+- name: Configure physical backups (xtrabackup/mariabackup → S3, only on the designated backup source)
   when:
     - mysql_replication_backup_enabled
     - mysql_replication_role == mysql_replication_backup_source_role
+    - mysql_replication_backup_tool in ['xtrabackup', 'mariabackup']
   ansible.builtin.include_tasks:
     file: backup.yml
+
+# ROADMAP №48, Фаза 2 (docs/adr/0010-backup-agent-role.md) — backup_agent подключается условной
+# meta-зависимостью (см. meta/main.yml), здесь только установка бинарника (backup-bareos.yml).
+- name: Configure physical backups (bareos, only on the designated backup source)
+  when:
+    - mysql_replication_backup_enabled
+    - mysql_replication_role == mysql_replication_backup_source_role
+    - mysql_replication_backup_tool == 'bareos'
+  ansible.builtin.include_tasks:
+    file: backup-bareos.yml
 
 # Ручная операция (ADR §7) — никогда не выполняется в обычном прогоне. Запускается оператором
 # явно: ansible-playbook ... --tags mysql_replication_promote --limit <dr-replica-host>

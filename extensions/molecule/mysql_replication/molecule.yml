@@ -64,6 +64,22 @@ platforms:
     groups:
       - mysql_dr_replica
 
+  # ROADMAP №48, Фаза 2 (docs/adr/0010-backup-agent-role.md) — реальный Bareos-путь
+  # (mysql_replication_backup_tool: bareos на dr_replica, см. group_vars/mysql_dr_replica.yml).
+  # Box cloud-image/ubuntu-24.04, как у extensions/molecule/backup_server|backup_agent — не
+  # зависит от MOLECULE_BOX, параметризующего только MySQL-ВМ.
+  - name: mysql-backup-server
+    box: cloud-image/ubuntu-24.04
+    memory: 1536
+    cpus: 1
+    interfaces:
+      - auto_config: true
+        network_name: private_network
+        type: static
+        ip: 192.168.56.13
+    groups:
+      - backup_servers
+
 scenario:
   test_sequence:
     - dependency

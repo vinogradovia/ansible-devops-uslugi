@@ -609,9 +609,17 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
     `JobDefs` при `self_backup_enabled: false` + непустом `backup_server_clients`) — обе
     исправлены.
 
-    **Не реализовано** (следующие шаги, вне Фазы 1): декларативные bundled-профили `postgres`/
-    `mysql` типов в `backup_agent` изначально задумывались как список источников внутри самой
-    роли — по факту реализации решение изменилось (см. ниже, «Интеграция с
+    ~~**`mysql_replication_backup_tool: bareos`, Фаза 2**~~ — **сделано**: третье значение
+    `mysql_replication_backup_tool` (наравне с `xtrabackup`/`mariabackup`), делегирует на
+    `backup_server`/`backup_agent` вместо rclone/S3/systemd-timer-пути — `backup_agent`
+    подключается условной `meta`-зависимостью (тот же паттерн, что `docker`). Molecule
+    (`extensions/molecule/mysql_replication/`, 4-я ВМ `mysql-backup-server`) — см.
+    `docs/adr/0010-backup-agent-role.md` «Финальный статус Фазы 2».
+
+    **Не реализовано** (следующий шаг): Фаза 3 —
+    `postgresql_replication_backup_tool: pgbackrest|bareos` — декларативные bundled-профили
+    `postgres`/`mysql` типов в `backup_agent` изначально задумывались как список источников
+    внутри самой роли — по факту реализации решение изменилось (см. ниже, «Интеграция с
     `postgresql_replication`/`mysql_replication`»).
 
     **Расширение `backup_server` под DR-экспорт на внешний носитель** (второе требование,
@@ -640,10 +648,10 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
     systemd-таймером/ретеншном, ADR-0004 §8/ADR-0005) — децентрализованная схема, обратная цели
     единого control-plane. **Решено не заменять и не дублировать их отдельной ролью**, а добавить
     Bareos как **третий вариант** `_backup_tool` внутри самих этих ролей:
-    - **Фаза 2** — `mysql_replication_backup_tool: bareos` (третье значение существующей
-      переменной, переиспользует уже существующую установку `percona-xtrabackup-80`/
-      `mariadb-backup` из `tasks/backup.yml:6-43`, без rclone/S3/systemd-timer-части). Не
-      реализовано.
+    - ~~**Фаза 2**~~ — **сделано**: `mysql_replication_backup_tool: bareos` (третье значение
+      существующей переменной, переиспользует уже существующую установку `percona-xtrabackup-80`/
+      `mariadb-backup`, вынесенную в общий `tasks/install-backup-tool.yml`, без rclone/S3/
+      systemd-timer-части).
     - **Фаза 3** — `postgresql_replication_backup_tool: pgbackrest|bareos` (новая переменная,
       дефолт `pgbackrest`). Взаимоисключающий выбор — `bareos`-плагин сам архивирует WAL в
       `wal_archive_dir` через `archive_command`, занятый сейчас pgBackRest. Не реализовано, самая

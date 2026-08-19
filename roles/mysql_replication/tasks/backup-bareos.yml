@@ -1,0 +1,10 @@
+---
+# mysql_replication_backup_tool: bareos (ROADMAP №48, Фаза 2, docs/adr/0010-backup-agent-role.md
+# "Дальнейшие шаги"). backup_agent (file daemon + bareos-fd-percona-xtrabackup плагин) подключается
+# условной meta-зависимостью (см. meta/main.yml) — здесь только бинарник, который плагин реально
+# вызывает при бэкапе; ЧТО бекапить (FileSet/Plugin-директива) решается на backup_server
+# (backup_server_filesets), не здесь (ADR-0010 §2).
+
+- name: Install backup tool (used by the bareos-fd-percona-xtrabackup plugin)
+  ansible.builtin.include_tasks:
+    file: install-backup-tool.yml

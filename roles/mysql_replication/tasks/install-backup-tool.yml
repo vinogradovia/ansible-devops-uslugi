@@ -1,0 +1,38 @@
+---
+# Установка бинарника физического бэкапа (percona-xtrabackup-80/mariadb-backup) из официального
+# apt-репозитория repo.percona.com. Общий шаг для обоих путей mysql_replication_backup_tool:
+# - xtrabackup/mariabackup (backup.yml) — бинарник вызывает собственный backup-mysql.sh.j2;
+# - bareos (backup-bareos.yml) — тот же бинарник вызывает bareos-fd-percona-xtrabackup плагин
+#   на стороне backup_agent (см. meta/main.yml), сам плагин его не устанавливает.
+#
+# Найдено реальным прогоном molecule (ROADMAP №48, Фаза 2): прежний прямой URL GPG-ключа
+# (repo.percona.com/percona/apt/percona-release.gpg) больше не существует (404 — подтверждено
+# напрямую). Percona перешла на пакет percona-release: он сам разворачивает keyring в
+# /usr/share/keyrings/percona-keyring.gpg и репозитории по продуктам (XtraBackup 8.0 — pxb-80,
+# не единый .../percona/apt, как было). apt-модуль умеет ставить .deb прямо по URL — отдельный
+# get_url не нужен. Репозиторий объявляется через apt_repository (идемпотентен), а не через
+# percona-release CLI — идемпотентность его вывода не документирована.
+
+- name: "[repo] Установить percona-release (разворачивает keyring /usr/share/keyrings/percona-keyring.gpg)"
+  ansible.builtin.apt:
+    deb: "https://repo.percona.com/apt/percona-release_latest.generic_all.deb"
+
+- name: "[repo] Подключить репозиторий Percona XtraBackup 8.0 (pxb-80)"
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [signed-by=/usr/share/keyrings/percona-keyring.gpg]
+      https://repo.percona.com/pxb-80/apt {{ ansible_distribution_release }} main
+    state: present
+    filename: percona-xtrabackup
+    update_cache: true
+
+- name: Install backup tool ({{ mysql_replication_backup_tool }})
+  vars:
+    # bareos использует bareos-fd-percona-xtrabackup плагин (см. roles/backup_agent) — тот же
+    # xtrabackup-бинарник, что и путь xtrabackup, а не mariabackup. Найдено реальным прогоном
+    # molecule: до этой правки 'bareos' попадал в ветку mariadb-backup, чей apt-пакет конфликтует
+    # с уже установленным mysql-server (Oracle MySQL) — apt пытался снести mysql-server/client.
+    mysql_replication_backup_apt_package: "{{ 'mariadb-backup' if mysql_replication_backup_tool == 'mariabackup' else 'percona-xtrabackup-80' }}"
+  ansible.builtin.apt:
+    name: "{{ mysql_replication_backup_apt_package }}"
+    state: present

@@ -41,6 +41,7 @@
   when:
     - mysql_replication_backup_enabled
     - mysql_replication_role == mysql_replication_backup_source_role
+    - mysql_replication_backup_tool != 'bareos'
   ansible.builtin.assert:
     that:
       - mysql_replication_backup_s3_endpoint | length > 0
@@ -51,3 +52,17 @@
     fail_msg: >-
       mysql_replication_backup_enabled=true requires S3 endpoint/bucket/credentials
       (Vault, see ADR §9) and a pinned rclone checksum (see ADR §8, ROADMAP P1 №13).
+
+- name: Assert backup_agent client password is set (bareos backup tool, backup source host)
+  when:
+    - mysql_replication_backup_enabled
+    - mysql_replication_role == mysql_replication_backup_source_role
+    - mysql_replication_backup_tool == 'bareos'
+  ansible.builtin.assert:
+    that:
+      - mysql_replication_backup_agent_client_password | length > 0
+    fail_msg: >-
+      mysql_replication_backup_tool == 'bareos' requires
+      mysql_replication_backup_agent_client_password — no default, must match the password
+      field of the corresponding backup_server_clients entry on backup_server (see ROADMAP №48,
+      Фаза 2, roles/backup_agent/README.md).

@@ -4,6 +4,14 @@
 # обнаруживает версию уже установленного MySQL, которую нужно передать репликам для fresh
 # install той же версии.
 
+- name: Converge (backup_servers)
+  hosts: backup_servers
+  become: true
+  tasks:
+    - name: Прогнать роль backup_server (переменные — см. group_vars/backup_servers.yml)
+      ansible.builtin.import_role:
+        name: devops.uslugi.backup_server
+
 - name: Converge (primary)
   hosts: mysql_primary
   become: true

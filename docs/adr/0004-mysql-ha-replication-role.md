@@ -190,6 +190,12 @@ TTL, не трогая TTL остальных записей зоны. Реше�
 **Решение:** физический бэкап через `xtrabackup`/`mariabackup` (по версии MySQL), устанавливается
 из официального Percona apt-репозитория (`repo.percona.com`, тот же `signed-by`-паттерн).
 
+**Дополнение (ROADMAP №48, Фаза 2, `docs/adr/0010-backup-agent-role.md`):** `mysql_replication_
+backup_tool` получил третье значение, `bareos` — делегирует на единый control-plane `backup_server`/
+`backup_agent` вместо описанного ниже rclone/S3/systemd-timer-пути (роль ставит только бинарник
+`xtrabackup`/`mariabackup`, `backup_agent` подключается условной `meta`-зависимостью). Детали и
+обоснование — см. ADR-0010, не дублируются здесь.
+
 **Источник бэкапа по умолчанию — DR-реплика** (`mysql_replication_backup_source_role: dr_replica`,
 переопределяемо): она и так не обслуживает боевое чтение, снятие бэкапа с неё не создаёт
 дополнительной нагрузки ни на primary, ни на read-реплику. Оператор может переопределить на
