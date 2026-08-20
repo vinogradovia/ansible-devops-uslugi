@@ -68,7 +68,7 @@ backup_server_self_backup_client_password: "demo-backup-selffd-password"
 # чате — только он несёт backup_agent).
 backup_server_clients:
   - name: mysql-fd
-    address: 10.66.12.20
+    address: 10.66.13.20
     password: "demo-backup-mysql-password"
     fileset: mysql-files
 
@@ -96,8 +96,19 @@ infra_panel_users:
 
 # Авто-блок (ADR-0008 §3) добавит только Grafana. Остальное — вручную: VictoriaMetrics/MinIO по
 # прямым host-портам (technical debt, нет собственного traefik-роута, см. ADR), Bareos WebUI —
-# через свой traefik-роут (backup_server_webui_reverse_proxy_server_name выше).
+# через свой traefik-роут (backup_server_webui_reverse_proxy_server_name выше). NPM admin UI
+# сознательно не добавлен — по дизайну роли (docs/adr/0001-reverse-proxy-npm-role.md) слушает
+# только 127.0.0.1:81 на npm-хосте, публикация через собственный self-managed proxy-host NPM
+# требует настоящего Let's Encrypt HTTP-01, который не пройдёт в изолированной сети стенда —
+# доступ только через SSH-туннель на npm-хост.
 infra_panel_extra_services:
+  - name: Ingress
+    icon: "mdi mdi-router-network"
+    items:
+      - name: Traefik Dashboard
+        icon: "mdi mdi-view-dashboard"
+        url: "https://traefik-dashboard.full-platform.demo/"
+        target: _blank
   - name: Storage
     icon: "mdi mdi-database"
     items:

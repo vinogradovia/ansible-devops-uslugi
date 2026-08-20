@@ -8,10 +8,10 @@ proxysql_admin_password: "demo-proxysql-admin-password-CHANGE-ME"
 
 proxysql_backend_servers:
   - hostgroup: "{{ proxysql_writer_hostgroup }}"
-    address: 10.66.12.20 # mysql
+    address: 10.66.13.20 # mysql
     port: 3306
   - hostgroup: "{{ proxysql_reader_hostgroup }}"
-    address: 10.66.12.20 # mysql (тот же хост — нет отдельной read-реплики)
+    address: 10.66.13.20 # mysql (тот же хост — нет отдельной read-реплики)
     port: 3306
 
 # Пользователь для ручной проверки через db-write/db-read (demo_app_mysql_password —

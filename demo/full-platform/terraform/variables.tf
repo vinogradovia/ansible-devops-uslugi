@@ -24,9 +24,9 @@ variable "network_name" {
 }
 
 variable "network_cidr" {
-  description = "CIDR плоской сети стенда — следующий свободный октет после остальных 6 стендов demo/* (10.66.6.0/24 .. 10.66.11.0/24), отдельный, чтобы не конфликтовать при одновременном запуске"
+  description = "CIDR плоской сети стенда — отдельный от остальных 6 стендов demo/* (10.66.6.0/24 .. 10.66.11.0/24), чтобы не конфликтовать при одновременном запуске. .12 занят демо-стендом demo-samba-server (его terraform-файлы удалены из репозитория, но сама сеть/VM остаётся поднятой на хосте — обнаружено первым же apply, см. `virsh net-list --all`), поэтому взят следующий свободный — .13."
   type        = string
-  default     = "10.66.12.0/24"
+  default     = "10.66.13.0/24"
 }
 
 variable "network_domain" {
@@ -45,10 +45,14 @@ variable "base_image_url" {
 
 # По умолчанию — уже существующий в репозитории публичный ключ (tests/.ssh-pub-keys/), см.
 # ADR-0006 §9 (упрощённая схема без Vault, стенд в изолированной локальной сети).
+# id_ed25519_vinogradov_desktop-u24.pub (дефолт у остальных demo/*-стендов) — приватной пары к
+# нему на этой машине нет (она физически на другом хосте, desktop-u24), из-за чего ansible не мог
+# подключиться к VM после пересоздания. Здесь используется id_ed25519_vinogradov_ivan-fmi-721.pub
+# — приватный ключ есть локально (~/.ssh/id_ed25519, тот же, что уже в ssh-agent).
 variable "ssh_public_key_path" {
   description = "Путь к публичному SSH-ключу, который получит ansible_user на всех VM стенда"
   type        = string
-  default     = "../../../tests/.ssh-pub-keys/id_ed25519_vinogradov_desktop-u24.pub"
+  default     = "../../../tests/.ssh-pub-keys/id_ed25519_vinogradov_ivan-fmi-721.pub"
 }
 
 variable "ansible_user" {

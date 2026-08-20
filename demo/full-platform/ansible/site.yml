@@ -156,7 +156,7 @@
         contype: host
         databases: all
         users: "{{ odyssey_backend_user }}"
-        address: 10.66.12.31/32
+        address: 10.66.13.31/32
         method: scram-sha-256
       notify: Reload PostgreSQL
 
