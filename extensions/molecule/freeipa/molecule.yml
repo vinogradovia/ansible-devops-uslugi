@@ -1,0 +1,57 @@
+---
+# Molecule-сценарий для freeipa. driver: vagrant/libvirt (единое требование для всех
+# molecule-сценариев коллекции, см. CLAUDE.md, «Molecule-тесты»). memory/cpus заметно больше,
+# чем у остальных одно-сервисных сценариев (1024/1) — ipa-server-install разворачивает
+# LDAP+Kerberos KDC+httpd+собственный CA одновременно и требует минимум ~4GB RAM/2 vCPU
+# (рекомендация upstream FreeIPA), меньше — падает или зависает на дирректорисервере.
+#
+# box: rockylinux/9 (не cloud-image/ubuntu-24.04, как у остальных сценариев коллекции) —
+# freeipa-server не существует пакетом для Ubuntu/Debian вообще, см. roles/freeipa/README.md,
+# «Целевая ОС».
+#
+# box_version зафиксирован на 5.0.0 (Rocky 9.5) — последняя версия (6.0.0, Rocky 9.6) 404-ит
+# при скачивании у апстрима (dl.rockylinux.org, не наша конфигурация). generic/rocky9 (другая
+# сборка, roboxes/generic project) проверялась как альтернатива — её текущая версия (4.3.12)
+# тоже 404-ит при скачивании, хуже, чем rockylinux/9 5.0.0.
+#
+# ИЗВЕСТНАЯ ПРОБЛЕМА ОКРУЖЕНИЯ: на момент написания гостевая ВМ (rockylinux/9 5.0.0) зависает во
+# время загрузки ядра при пробинге ATA/AHCI-контроллера (легаси-путь, диск при этом virtio) —
+# воспроизведено скриншотами консоли (virsh screenshot), не прогрессирует минуту+, DHCP-адрес не
+# получает никогда. Смена machine_type на q35 (вместо дефолтного i440fx) не помогла — зависание
+# просто сдвигается на AHCI-probe вместо PATA-probe, то есть проблема не в конкретном чипсете.
+# Ubuntu-боксы (cloud-image/ubuntu-24.04) на этом же хосте грузятся нормально — похоже на
+# специфику именно RHEL/Rocky-ядра/initramfs с этим QEMU/KVM (CPU model «EPYC-Genoa», см. лог
+# `vagrant up`) на данном конкретном хосте, а не на баг роли/сценария. `molecule test -s freeipa`
+# на этом хосте сейчас не проходит дальше `create` — роль и сценарий линтуются и синтаксически
+# верны, но не верифицированы реальным прогоном. Если апстрим/хост поменяются, стоит убрать этот
+# комментарий и просто перепроверить.
+driver:
+  name: vagrant
+  provider:
+    name: libvirt
+
+platforms:
+  - name: freeipa
+    box: rockylinux/9
+    box_version: "5.0.0"
+    memory: 4096
+    cpus: 2
+
+scenario:
+  test_sequence:
+    - dependency
+    - destroy
+    - syntax
+    - create
+    - prepare
+    - converge
+    - idempotence
+    - verify
+    - destroy
+
+shared_state: false
+
+ansible:
+  executor:
+    args:
+      ansible_playbook: []

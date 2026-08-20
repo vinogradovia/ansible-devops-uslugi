@@ -1,0 +1,89 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    # --- Сервис ---------------------------------------------------------------------------
+    - name: Собрать факты о службе ipa
+      ansible.builtin.service_facts:
+
+    - name: Служба ipa должна быть running и enabled
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.services['ipa.service'].state == 'running'
+          - ansible_facts.services['ipa.service'].status == 'enabled'
+        quiet: true
+
+    - name: /etc/ipa/default.conf должен существовать (маркер завершённой установки)
+      ansible.builtin.stat:
+        path: /etc/ipa/default.conf
+      register: molecule_freeipa_default_conf
+
+    - name: Проверить наличие /etc/ipa/default.conf
+      ansible.builtin.assert:
+        that:
+          - molecule_freeipa_default_conf.stat.exists
+        quiet: true
+
+    # --- Kerberos: admin реально может получить TGT ------------------------------------------
+    - name: Kinit admin с паролем freeipa_admin_password
+      ansible.builtin.command:
+        cmd: kinit admin
+        stdin: "{{ freeipa_admin_password }}\n"
+      changed_when: false
+      no_log: true
+
+    - name: Klist должен показать валидный тикет admin@{{ freeipa_realm }}
+      ansible.builtin.command: klist
+      register: molecule_freeipa_klist
+      changed_when: false
+
+    - name: Проверить, что тикет выдан на нужного принципала
+      ansible.builtin.assert:
+        that:
+          - ("admin@" + freeipa_realm) in molecule_freeipa_klist.stdout
+        quiet: true
+
+    # --- ipa CLI: аутентифицированный запрос к каталогу (использует тикет из kinit выше) ----
+    - name: Ipa user-show admin должен вернуть запись пользователя admin
+      ansible.builtin.command: ipa user-show admin
+      register: molecule_freeipa_user_show
+      changed_when: false
+
+    - name: Проверить содержимое ответа ipa user-show
+      ansible.builtin.assert:
+        that:
+          - "'User login: admin' in molecule_freeipa_user_show.stdout"
+        quiet: true
+
+    # --- LDAP напрямую: независимая от Kerberos/ipa CLI проверка каталога -------------------
+    - name: Установить openldap-clients (нужен для функциональной LDAP-проверки)
+      ansible.builtin.dnf:
+        name: openldap-clients
+        state: present
+
+    - name: Ldapsearch должен найти запись uid=admin по base DN, собранному из freeipa_domain
+      ansible.builtin.command:
+        argv:
+          - ldapsearch
+          - -x
+          - -H
+          - "ldap://{{ freeipa_hostname }}"
+          - -D
+          - "cn=Directory Manager"
+          - -w
+          - "{{ freeipa_dm_password }}"
+          - -b
+          - "{{ freeipa_domain.split('.') | map('regex_replace', '^(.*)$', 'dc=\\1') | join(',') }}"
+          - "(uid=admin)"
+          - uid
+      register: molecule_freeipa_ldapsearch
+      changed_when: false
+      no_log: true
+
+    - name: Проверить, что ldapsearch нашёл именно admin
+      ansible.builtin.assert:
+        that:
+          - "'uid: admin' in molecule_freeipa_ldapsearch.stdout"
+        quiet: true

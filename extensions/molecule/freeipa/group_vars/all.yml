@@ -1,0 +1,16 @@
+---
+# Переменные роли freeipa для converge/verify этого сценария. Лежат в group_vars/, а не в
+# vars: playbook'ов — тот же паттерн, что extensions/molecule/infra_dns/group_vars/all.yml
+# (нужны и prepare.yml, и verify.yml, не только converge.yml).
+
+# freeipa_hostname обязан быть поддоменом freeipa_domain (роль проверяет это assert'ом) —
+# короткое имя ВМ (platforms[].name в molecule.yml — "freeipa") не годится, задаём FQDN явно.
+freeipa_domain: freeipa.molecule.test
+freeipa_realm: FREEIPA.MOLECULE.TEST
+freeipa_hostname: ipa-01.freeipa.molecule.test
+
+# Пароли в открытом виде — тестовый одноразовый стенд, не production (тот же подход, что
+# extensions/molecule/reverse_proxy_npm/group_vars/all.yml). В README роли явно указано, что в
+# реальном использовании пароли должны приходить из ansible-vault.
+freeipa_dm_password: "Molecule_Test_DM_Pass!23"
+freeipa_admin_password: "Molecule_Test_Admin_Pass!23"

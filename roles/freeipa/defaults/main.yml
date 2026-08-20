@@ -1,0 +1,38 @@
+---
+freeipa_enabled: true
+
+# Rocky/AlmaLinux 9: freeipa-server стоит из коробки через AppStream (dnf), без доп.
+# репозиториев или module enable — см. README, «Целевая ОС».
+freeipa_packages:
+  - freeipa-server
+
+# FQDN хоста, под которым разворачивается IPA-сервер. ipa-server-install требует форму
+# host.{{ freeipa_domain }}, а не голый hostname — ansible_fqdn часто не в этой форме
+# (зависит от того, как настроен резолвинг на хосте), задавайте freeipa_hostname явно, если
+# ansible_fqdn не подходит.
+freeipa_hostname: "{{ ansible_fqdn }}"
+
+# Роль сознательно не поднимает встроенный DNS FreeIPA (ipa-server-install --setup-dns) —
+# отдельный DNS-сервер для одной роли платформы это лишняя инфраструктура; резолвинг FQDN
+# обеспечивается либо внешним DNS (например, роль infra_dns этой коллекции), либо
+# freeipa_manage_hosts_entry ниже. См. README, «Без встроенного DNS».
+freeipa_manage_hosts_entry: true
+
+# Пропустить настройку NTP (chrony) инсталлятором — время на хосте синхронизируется другим
+# способом (host clock виртуалки, systemd-timesyncd, отдельная роль и т.п.), а собственный
+# chrony от ipa-server-install иногда конфликтует с уже работающим клиентом времени.
+freeipa_no_ntp: true
+
+# ОБЯЗАТЕЛЬНЫ к переопределению в inventory/group_vars (пароли — через ansible-vault) — без
+# значения по умолчанию намеренно. Роль падает на этапе Validate, если не заданы (тот же
+# fail-fast паттерн, что reverse_proxy_npm/reverse_proxy_traefik — см. их defaults/main.yml).
+#
+# freeipa_domain: example.com
+# freeipa_realm: EXAMPLE.COM
+# freeipa_dm_password: "{{ vault_freeipa_dm_password }}"    # пароль Directory Manager (LDAP)
+# freeipa_admin_password: "{{ vault_freeipa_admin_password }}"  # пароль Kerberos-принципала admin
+#
+freeipa_domain: ""
+freeipa_realm: ""
+freeipa_dm_password: ""
+freeipa_admin_password: ""

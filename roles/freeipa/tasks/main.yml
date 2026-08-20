@@ -1,0 +1,119 @@
+---
+- name: Deploy FreeIPA server
+  when: freeipa_enabled
+  block:
+    - name: Validate required freeipa_* variables
+      ansible.builtin.assert:
+        that:
+          - freeipa_domain | length > 0
+          - freeipa_realm | length > 0
+          - freeipa_hostname | length > 0
+        fail_msg: >-
+          freeipa_domain, freeipa_realm и freeipa_hostname обязательны — задайте их в
+          inventory/group_vars (см. defaults/main.yml).
+        quiet: true
+      tags:
+        - validate
+
+    - name: Validate required freeipa_* passwords
+      ansible.builtin.assert:
+        that:
+          - freeipa_dm_password | length > 0
+          - freeipa_admin_password | length > 0
+        fail_msg: >-
+          freeipa_dm_password и freeipa_admin_password обязательны — задайте настоящие пароли
+          через ansible-vault в inventory/group_vars, без дефолтов намеренно.
+        quiet: true
+      no_log: true
+      tags:
+        - validate
+
+    - name: Проверить, что freeipa_hostname — поддомен freeipa_domain
+      ansible.builtin.assert:
+        that:
+          - freeipa_hostname == freeipa_domain or freeipa_hostname.endswith('.' + freeipa_domain)
+        fail_msg: >-
+          freeipa_hostname ({{ freeipa_hostname }}) должен быть в форме host.{{ freeipa_domain }}
+          — этого требует ipa-server-install.
+        quiet: true
+      tags:
+        - validate
+
+    - name: Set system hostname to freeipa_hostname
+      ansible.builtin.hostname:
+        name: "{{ freeipa_hostname }}"
+      tags:
+        - install
+
+    - name: Ensure self-entry for freeipa_hostname in /etc/hosts
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: "^{{ ansible_default_ipv4.address }}\\s"
+        line: "{{ ansible_default_ipv4.address }} {{ freeipa_hostname }} {{ freeipa_hostname.split('.')[0] }}"
+        state: present
+      when: freeipa_manage_hosts_entry
+      tags:
+        - install
+
+    - name: Install FreeIPA packages
+      ansible.builtin.dnf:
+        name: "{{ freeipa_packages }}"
+        state: present
+        update_cache: true
+      tags:
+        - install
+
+    # ipa-server-install не идемпотентен сам по себе (падает при повторном запуске на уже
+    # настроенном сервере) — creates: даёт идемпотентность на уровне ansible-задачи. no_log:
+    # пароли передаются в командную строку (ipa-server-install не поддерживает stdin/файл с
+    # паролями для --ds-password/--admin-password), поэтому здесь они неизбежно попадают в argv
+    # процесса на время установки — в отличие от smbpasswd в samba_server, обойти это нельзя.
+    - name: Run ipa-server-install (unattended, one-shot)
+      ansible.builtin.command:
+        cmd: >-
+          ipa-server-install
+          --realm={{ freeipa_realm }}
+          --domain={{ freeipa_domain }}
+          --hostname={{ freeipa_hostname }}
+          --ds-password={{ freeipa_dm_password }}
+          --admin-password={{ freeipa_admin_password }}
+          --no-host-dns
+          {{ '--no-ntp' if freeipa_no_ntp else '' }}
+          --unattended
+        creates: /etc/ipa/default.conf
+      no_log: true
+      tags:
+        - install
+
+    - name: Ensure ipa service is enabled and started
+      ansible.builtin.systemd:
+        name: ipa
+        state: started
+        enabled: true
+      tags:
+        - install
+
+- name: Uninstall FreeIPA server
+  when: not freeipa_enabled
+  block:
+    - name: Check whether FreeIPA is installed
+      ansible.builtin.stat:
+        path: /etc/ipa/default.conf
+      register: freeipa_installed_check
+      tags:
+        - install
+
+    - name: Run ipa-server-install --uninstall
+      ansible.builtin.command:
+        cmd: ipa-server-install --uninstall --unattended
+      when: freeipa_installed_check.stat.exists
+      changed_when: true
+      tags:
+        - install
+
+    - name: Remove FreeIPA packages
+      ansible.builtin.dnf:
+        name: "{{ freeipa_packages }}"
+        state: absent
+      tags:
+        - install
