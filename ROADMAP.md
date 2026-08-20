@@ -673,6 +673,26 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
     `bconsole run job=backup-client-a-fd`/`backup-client-b-fd`/`BackupCatalog` — все три
     `Termination: Backup OK`, тома реально на диске (`Full-0001`, `Incremental-0002`).
 
+49. **Единая система авторизации для сервисов коллекции (OAuth — приоритет, LDAP — альтернатива).**
+    Сейчас авторизация в разных ролях реализована независимо и минимально: basic-auth с
+    htpasswd-хэшем, генерируемым/инлайнящимся отдельно в каждой роли (`reverse_proxy_traefik`
+    dashboard, `infra_panel`, `reverse_proxy_npm` admin UI) — нет ни единого набора
+    пользователей/групп, ни SSO между сервисами (Grafana, Bareos webui, infra-panel, NPM admin,
+    Traefik dashboard). Роль `freeipa` (в разработке, некоммичена — LDAP/Kerberos-каталог) —
+    первый шаг именно в эту сторону, но как **альтернативный**, не приоритетный механизм.
+
+    Приоритет — OAuth2/OIDC (единый identity provider, современный протокол; у большинства
+    сервисов стека — Grafana, Traefik `forwardAuth`, NPM — есть нативная поддержка OIDC без
+    доп. прокси); LDAP (через `freeipa`) — как fallback для сервисов, которые OIDC не умеют
+    (basic-auth-only админки вроде `reverse_proxy_traefik`/`infra_panel` dashboard).
+
+    Не проработано архитектурно: какой OIDC-provider ставить самим (self-hosted — например,
+    Keycloak/Authelia — или полагаться на внешний); нужна ли отдельная роль
+    (`oauth_provider`/`sso`?) по паттерну `_server`/`_agent`; как роли-потребители (Grafana,
+    Traefik, NPM, infra_panel) переключаются между basic-auth/LDAP/OAuth — общая переменная
+    `*_auth_method` по образцу `*_backup_tool` (№48) или отдельная интеграционная роль. Требует
+    отдельного ADR перед реализацией — сейчас зафиксирована только идея и приоритет протокола.
+
 ---
 
 ## Предлагаемая последовательность работ
