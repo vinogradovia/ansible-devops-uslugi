@@ -148,6 +148,31 @@ docker-путь, `monitoring_server` docker-путь — Docker ставится
   credentials, 200 с ними, и отдельно `GET /assets/config.yml` с проверкой, что в нём есть пункт
   из `infra_panel_extra_services` (доказывает, что конфиг собран из переменных роли, а не отдаёт
   дефолтный пример homer из образа).
+- `extensions/molecule/freeipa/` — сценарий для роли `freeipa`
+  (`docs/adr/0011-freeipa-role.md`). Единственный сценарий коллекции на RHEL-семействе —
+  box `cloud-image/rocky-9` (тот же издатель/пайплайн, что уже используемый везде
+  `cloud-image/ubuntu-24.04`, но не сам ubuntu-24.04 — `freeipa-server` пакетом для
+  Ubuntu/Debian не существует, см. `roles/freeipa/README.md`, «Целевая ОС»).
+  `memory: 4096`/`cpus: 2` — заметно больше дефолта других одно-сервисных сценариев,
+  `ipa-server-install` разворачивает LDAP+Kerberos KDC+httpd+собственный CA одновременно.
+  `verify.yml` — функциональные проверки поверх всех трёх интерфейсов каталога: `kinit`
+  admin + `klist` (Kerberos), `ipa user-show admin` (ipa CLI поверх выданного тикета) и
+  прямой `ldapsearch` по `cn=Directory Manager` (LDAP независимо от Kerberos/CLI).
+  **Известная проблема окружения** (полная диагностика и история подбора бокса — комментарий в
+  `extensions/molecule/freeipa/molecule.yml`, актуально на 2026-08-21) — исходный
+  `rockylinux/9 5.0.0` (официальный box) под QEMU/libvirt на этом хосте не доходит до
+  `create`: initramfs (`dracut`) не успевает смонтировать root за `rd.timeout` и уходит в
+  emergency mode; проверенные обходы (`machine_type: q35`, `cpu_model: qemu64`,
+  `disk_bus: scsi`) не помогли. Альтернатива `openlogic/rockylinux-9` реально грузится и
+  получает IP (подтверждает, что баг специфичен для `rockylinux/9`/dracut, не хоста и не
+  роли), но это cloud-marketplace-образ — vagrant insecure keypair не подсаживается через
+  NoCloud, `ssh`/`vagrant up` стабильно падает на `Authentication failure`. Текущий выбор
+  (`cloud-image/rocky-9`) сам пока не верифицирован реальным прогоном — на момент проверки
+  `vagrantcloud.com`/hashicorp-archivist CDN массово отдавал 404 (подтверждено даже на уже
+  используемом `cloud-image/ubuntu-24.04` — временная проблема инфраструктуры HashiCorp, не
+  наша конфигурация). Роль и сценарий линтуются и синтаксически верны (`ansible-lint`
+  профиль `production` проходит). Если archivist восстановится, стоит перепроверить
+  `molecule test -s freeipa` заново.
 
 Запускать нужно из корня коллекции (molecule ищет `galaxy.yml` строго в текущей директории —
 `Path.cwd()`, без обхода родителей — поэтому `cd` в сам каталог сценария не работает с новыми
@@ -287,6 +312,22 @@ ansible-playbook -i inventory.yml monitoring-server.yml \
   HTTP-запросы — 401 без credentials, 200 с ними, HTTP→HTTPS редирект, и отдельно проверяет, что
   `/assets/config.yml` содержит пункт из `infra_panel_extra_services` (доказывает, что конфиг
   реально собран из переменных, а не раздаётся дефолтный пример homer из образа).
+- **freeipa** — разворачивает один standalone-сервер [FreeIPA](https://www.freeipa.org/)
+  (LDAP + Kerberos KDC + собственный CA) через `ipa-server-install`. Первый шаг к единому каталогу
+  пользователей/групп для платформы (см. `docs/adr/0011-freeipa-role.md`) — но только провижининг
+  сервера: роль не заводит пользователей/группы в каталоге, не покрывает репликацию
+  (`ipa-replica-install`) и не подключает клиентов (`ipa-client-install`), см.
+  `roles/freeipa/README.md`, «Назначение и границы». Единственная роль коллекции на
+  Rocky/AlmaLinux 9 (`dnf`) вместо Debian/Ubuntu (`apt`) — пакета `freeipa-server` для
+  Ubuntu/Debian не существует (найдено эмпирически при первом прогоне molecule). Встроенный DNS
+  FreeIPA (`--setup-dns`) сознательно не используется — резолвинг `freeipa_hostname` обеспечивается
+  либо `freeipa_manage_hosts_entry: true` (дефолт, self-entry в `/etc/hosts`), либо внешним
+  `infra_dns` этой коллекции. `ipa-server-install` не открывает порты в firewalld сам (подтверждённое
+  поведение апстрима) — роль тоже этого не делает, см. README. Molecule-покрытие —
+  `extensions/molecule/freeipa/` (см. раздел «Molecule-тесты» выше) — линтуется и синтаксически
+  верен, но пока не верифицирован реальным прогоном (блокер на стороне хоста/бокса). Федерация
+  OAuth/OIDC поверх этого каталога — открытая идея (`docs/adr/0011-freeipa-role.md`,
+  ROADMAP Backlog №49), не реализована.
 
 ### Добавление нового экспортера мониторинга
 

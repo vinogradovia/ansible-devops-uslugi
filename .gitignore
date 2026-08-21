@@ -23,3 +23,11 @@ demo/*/terraform/terraform.tfstate.backup
 demo/*/terraform/*.tfplan
 demo/*/terraform/crash.log
 demo/*/ansible/inventory.yml
+
+# extensions/molecule/freeipa/packer/ — Packer-шаблон для сборки собственного vagrant/libvirt box
+# Rocky Linux 9 (см. molecule.yml, «История подбора бокса», п.4) отслеживается целиком (*.pkr.hcl,
+# http/ks.cfg), кроме скачанного ISO и извлечённых из него ядра/initrd, и результата сборки —
+# это локальные бинарные артефакты одного прогона, не фикстуры.
+extensions/molecule/freeipa/packer/cache/
+extensions/molecule/freeipa/packer/output-*/
+extensions/molecule/freeipa/packer/*.box

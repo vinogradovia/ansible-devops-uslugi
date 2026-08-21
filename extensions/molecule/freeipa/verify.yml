@@ -8,11 +8,29 @@
     - name: Собрать факты о службе ipa
       ansible.builtin.service_facts:
 
-    - name: Служба ipa должна быть running и enabled
+    # ipa.service — Type=oneshot/RemainAfterExit=yes (мета-юнит, который запускает реальные
+    # демоны — dirsrv/krb5kdc/httpd/pki-tomcatd/... — и завершается), поэтому после успешного
+    # старта его SubState закономерно 'exited', а не 'running' (ActiveState при этом 'active') —
+    # ansible_facts.services[].state отражает именно SubState. Проверять здесь 'running' —
+    # ложное условие, никогда не станет true даже при полностью исправном сервере (поймано
+    # реальным прогоном 2026-08-21: converge/idempotence проходили, verify падал). Реальную
+    # работоспособность подсистем проверяет ipactl status ниже.
+    - name: Служба ipa должна быть enabled в systemd
       ansible.builtin.assert:
         that:
-          - ansible_facts.services['ipa.service'].state == 'running'
           - ansible_facts.services['ipa.service'].status == 'enabled'
+        quiet: true
+
+    - name: Собрать реальный статус подсистем FreeIPA
+      ansible.builtin.command: ipactl status
+      register: molecule_freeipa_ipactl_status
+      changed_when: false
+
+    - name: Все подсистемы FreeIPA (dirsrv/krb5kdc/httpd/...) должны быть RUNNING
+      ansible.builtin.assert:
+        that:
+          - "'RUNNING' in molecule_freeipa_ipactl_status.stdout"
+          - "'STOPPED' not in molecule_freeipa_ipactl_status.stdout"
         quiet: true
 
     - name: /etc/ipa/default.conf должен существовать (маркер завершённой установки)

@@ -678,8 +678,12 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
     htpasswd-хэшем, генерируемым/инлайнящимся отдельно в каждой роли (`reverse_proxy_traefik`
     dashboard, `infra_panel`, `reverse_proxy_npm` admin UI) — нет ни единого набора
     пользователей/групп, ни SSO между сервисами (Grafana, Bareos webui, infra-panel, NPM admin,
-    Traefik dashboard). Роль `freeipa` (в разработке, некоммичена — LDAP/Kerberos-каталог) —
-    первый шаг именно в эту сторону, но как **альтернативный**, не приоритетный механизм.
+    Traefik dashboard). Роль `freeipa` (**сделано**: standalone-сервер LDAP/Kerberos-каталог —
+    `ipa-server-install`, без репликации и без управления данными каталога, см.
+    `docs/adr/0011-freeipa-role.md`) — первый шаг именно в эту сторону, но как
+    **альтернативный**, не приоритетный механизм. Molecule-сценарий (`extensions/molecule/freeipa/`)
+    линтуется и синтаксически верен, но не верифицирован реальным прогоном — блокер на стороне
+    хоста/бокса (см. комментарий в `extensions/molecule/freeipa/molecule.yml`), не роли.
 
     Приоритет — OAuth2/OIDC (единый identity provider, современный протокол; у большинства
     сервисов стека — Grafana, Traefik `forwardAuth`, NPM — есть нативная поддержка OIDC без

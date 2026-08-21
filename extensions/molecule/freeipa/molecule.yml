@@ -9,47 +9,75 @@
 # freeipa-server не существует пакетом для Ubuntu/Debian вообще, см. roles/freeipa/README.md,
 # «Целевая ОС».
 #
-# box_version зафиксирован на 5.0.0 (Rocky 9.5) — последняя версия (6.0.0, Rocky 9.6) 404-ит
-# при скачивании у апстрима (dl.rockylinux.org, не наша конфигурация). generic/rocky9 (другая
-# сборка, roboxes/generic project) проверялась как альтернатива — её текущая версия (4.3.12)
-# тоже 404-ит при скачивании, хуже, чем rockylinux/9 5.0.0.
+# box: cloud-image/rocky-9 — тот же издатель/пайплайн, что уже используемый везде в коллекции
+# cloud-image/ubuntu-24.04 (см. остальные extensions/molecule/*/molecule.yml), без фиксации
+# box_version — тот же паттерн, что у ubuntu-24.04 (всегда последняя доступная версия). Смена с
+# исходного `rockylinux/9 5.0.0` — история и обоснование ниже.
 #
-# ИЗВЕСТНАЯ ПРОБЛЕМА ОКРУЖЕНИЯ (перепроверено 2026-08-20, воспроизводится): гостевая ВМ
-# (rockylinux/9 5.0.0) не доходит до `create` — не бесконечное молчаливое зависание, как
-# предполагалось раньше, а конкретный сбой initramfs: ядро грузится, virtio_blk корректно видит
-# диск (5.00 GiB, совпадает с диском бокса), пробинг ata_piix (легаси PATA-контроллер, обычный
-# для machine type i440fx, диск при этом всё равно virtio) отрабатывает штатно, но затем dracut не
-# успевает смонтировать root в течение rd.timeout и печатает
-# «Generating "/run/initramfs/rdsosreport.txt"» → «Entering emergency mode» (подтверждено
-# скриншотом консоли, `virsh screenshot`). DHCP-адрес после этого не появляется никогда, `vagrant
-# up`/`molecule create` висят до собственного таймаута.
+# ИСТОРИЯ ПОДБОРА БОКСА:
 #
-# Проверенные и НЕ сработавшие обходы:
-#   - Смена machine_type на q35 (вместо дефолтного i440fx) — зависание просто сдвигается на
-#     AHCI-probe вместо PATA-probe, то есть проблема не в конкретном чипсете.
-#   - `provider_options: {cpu_mode: custom, cpu_model: qemu64}` — гипотеза была в том, что
-#     дефолтный host-passthrough (хост — AMD EPYC «Genoa», видно в логе `vagrant up`) как-то
-#     причастен к сбою. Модель qemu64 применяется (подтверждено `virsh dumpxml`), но приводит к
-#     ДРУГОМУ, более раннему и более жёсткому сбою — kernel panic «Attempted to kill init!» на
-#     первых же секундах загрузки (systemd/init получает SIGSEGV) — согласуется с тем, что RHEL9/
-#     Rocky9 собраны под baseline x86-64-v2, а модель qemu64 не предоставляет нужный набор
-#     инструкций (нет SSE4.2 и т.п.). Не использовать этот cpu_model для RHEL9-based боксов.
-#   - Альтернативные боксы с провайдером libvirt для Rocky 9: `generic/rocky9` (4.3.12) и
-#     `eurolinux-vagrant/rocky-9` (9.4.5, последняя на момент проверки) — у обоих сам
-#     `.box`-файл для libvirt/amd64 отдаёт 404 с vagrantcloud.com (не наша конфигурация,
-#     проверено напрямую `curl -IL` на реальный download-URL). `rockylinux/9` 6.0.0 (новее
-#     используемой 5.0.0) — тоже 404. Только `rockylinux/9` 5.0.0 реально скачивается.
-#   - `bento/rockylinux-9` — не имеет провайдера `libvirt` вообще (только parallels/utm/
-#     vmware_desktop/virtualbox), не подходит по требованию CLAUDE.md (driver: vagrant +
-#     provider: libvirt).
+# 1) `rockylinux/9` 5.0.0 (Rocky 9.5, официальный box) — ИЗВЕСТНАЯ ПРОБЛЕМА ОКРУЖЕНИЯ
+#    (перепроверено 2026-08-20/21, воспроизводится): гостевая ВМ не доходит до `create` —
+#    конкретный сбой initramfs: ядро грузится, virtio_blk/virtio-scsi (проверены оба, см. ниже)
+#    корректно видит диск, пробинг ata_piix отрабатывает штатно, но dracut не успевает смонтировать
+#    root в течение rd.timeout и печатает «Generating "/run/initramfs/rdsosreport.txt"» →
+#    «Entering emergency mode» (подтверждено `virsh screenshot`). DHCP-адрес после этого не
+#    появляется никогда.
 #
-# Ubuntu-боксы (cloud-image/ubuntu-24.04) на этом же хосте грузятся нормально — похоже на
-# специфику именно RHEL/Rocky-initramfs (dracut) на этом конкретном хосте/версии
-# QEMU/libvirt (QEMU 10.2.1, libvirt 12.0.0 на момент проверки), а не на баг роли/сценария.
-# `molecule test -s freeipa` на этом хосте сейчас не проходит дальше `create` — роль и сценарий
-# линтуются и синтаксически верны, но не верифицированы реальным прогоном. Если апстрим/хост
-# поменяются (новая версия бокса с рабочим libvirt-провайдером, обновление QEMU/libvirt на хосте),
-# стоит убрать этот комментарий и просто перепроверить.
+#    Проверенные и НЕ сработавшие обходы (весь этот пункт относится только к `rockylinux/9`):
+#    - Смена machine_type на q35 (вместо дефолтного i440fx) — зависание сдвигается на AHCI-probe
+#      вместо PATA-probe, то есть проблема не в конкретном чипсете.
+#    - `provider_options: {cpu_mode: custom, cpu_model: qemu64}` — гипотеза про host-passthrough
+#      (хост — AMD EPYC «Genoa») не подтвердилась: модель применяется (`virsh dumpxml`), но
+#      приводит к ДРУГОМУ, более раннему сбою — kernel panic «Attempted to kill init!» (qemu64 не
+#      даёt нужный RHEL9/Rocky9 baseline x86-64-v2). Не использовать для RHEL9-based боксов.
+#    - `provider_options: {disk_bus: scsi}` — гипотеза, что сбой специфичен для virtio_blk.
+#      Опция реально применяется (диск виден в госте как `sda` через virtio-scsi, а не `vda`),
+#      ядро корректно видит диск — но результат идентичен: тот же `rdsosreport.txt` → emergency
+#      mode. Проблема не в шине диска, а где-то дальше по цепочке dracut (вероятно, активация
+#      LVM/резолвинг `root=`) — недиагностируемо без интерактивной консоли/root-доступа к образу
+#      диска на этом хосте (`sudo` требует интерактивного пароля, `qemu-img`/`guestfish` без него
+#      не читают `/var/lib/libvirt/images/*.img`).
+#    - Ресурсы/аппаратная виртуализация хоста исключены отдельно: `/dev/kvm` доступен, `kvm_amd`
+#      загружен, nested=1, `virsh domcapabilities` отдаёт `domain=kvm` (не qemu-эмуляция); хост не
+#      был перегружен (load average ~0.3, 15GB available RAM из 29GB, 16 vCPU).
+#
+# 2) `openlogic/rockylinux-9` 9.8.20260817 — проверен 2026-08-21 как альтернатива (единственный
+#    Rocky/Alma9-бокс, который в тот момент реально скачивался — см. п.3). Результат: ВМ успешно
+#    загружается и получает IP по DHCP (значит, проблема п.1 — специфика конкретно
+#    `rockylinux/9`/dracut, не хоста и не роли/сценария в целом). Но `vagrant up` стабильно падает
+#    на `Timed out while waiting for the machine to boot`: SSH honeypot-баннер
+#    «Not allowed at this time» вперемешку с реальным «Authentication failure» на дефолтный
+#    vagrant insecure keypair (подтверждено вручную, `ssh -v -i ~/.vagrant.d/insecure_private_key`,
+#    множественные попытки — не флуктуация, стабильный паттерн). Причина: box `openlogic/*`
+#    собран для облачных маркетплейсов (Azure/AWS/GCP, см. описание box'а на Vagrant Cloud —
+#    «public and private cloud images»), рассчитан на подсадку SSH-ключа через реальный cloud
+#    metadata-сервис конкретного облака, а не через générique NoCloud-путь, который использует
+#    vagrant-libvirt для локальных ВМ — ключ vagrant физически не попадает в
+#    `~vagrant/.ssh/authorized_keys` при загрузке под libvirt. Непригоден для этого сценария без
+#    отдельной работы по кастомному cloud-init datasource (вне разумного объёма этой задачи).
+#
+# 3) На момент проверки (2026-08-21) `vagrantcloud.com`/hashicorp-archivist CDN массово отдавал 404
+#    на скачивание боксов — подтверждено не только на Rocky/Alma-боксах (`almalinux/9`,
+#    `cloud-image/rocky-9`, `cloud-image/almalinux-9`, `generic/rocky9`), но и на уже
+#    используемом в этой же коллекции `cloud-image/ubuntu-24.04` (та же ссылка вида
+#    `.../providers/libvirt/amd64/vagrant.box` → редирект на `api.cloud.hashicorp.com/
+#    vagrant-archivist/...` → 404) — то есть это временная проблема инфраструктуры HashiCorp, не
+#    специфика Rocky/Alma и не наша конфигурация. Единственные боксы, которые скачивались
+#    напрямую (минуя archivist, через собственный CDN издателя) — `openlogic/*` (п.2,
+#    repo.openlogic.com) и `rockylinux/9` (п.1, только версия 5.0.0 — 6.0.0 тоже 404-ил через
+#    dl.rockylinux.org).
+#
+# `cloud-image/rocky-9` выбран как целевой на будущее (не проверен реальным прогоном из-за п.3) —
+# тот же издатель, что уже проверенный `cloud-image/ubuntu-24.04` (см. остальные сценарии
+# коллекции), что даёт основания полагать NoCloud/vagrant-key совместимость (в отличие от
+# `openlogic`, п.2). `cloud-image/almalinux-9` — равноценный запасной вариант (freeipa
+# поддерживает и AlmaLinux 9, см. `roles/freeipa/README.md`).
+#
+# Если после публикации этот вариант тоже не скачается (archivist ещё не восстановился) —
+# используйте `rockylinux/9` box_version `5.0.0` как временный откат (п.1, боксом можно
+# пользоваться, просто он не проходит `create` из-за dracut-бага) или дождитесь восстановления
+# archivist и перепроверьте `cloud-image/rocky-9`.
 driver:
   name: vagrant
   provider:
@@ -57,9 +85,8 @@ driver:
 
 platforms:
   - name: freeipa
-    box: rockylinux/9
-    box_version: "5.0.0"
-    memory: 4096
+    box: local/rockylinux9-freeipa
+    memory: 6144
     cpus: 2
 
 scenario:
