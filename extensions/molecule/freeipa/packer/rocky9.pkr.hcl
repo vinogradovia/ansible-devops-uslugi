@@ -18,6 +18,13 @@
 # Добавить в локальный стор vagrant и указать в extensions/molecule/freeipa/molecule.yml:
 #   vagrant box add --name local/rockylinux9-freeipa --provider libvirt rockylinux9-freeipa-libvirt.box
 #   # molecule.yml: platforms[].box: local/rockylinux9-freeipa (без box_version — локальный box)
+#
+# Второй потребитель того же box'а (тот же ks.cfg — теперь с cloud-init, не только vagrant insecure
+# keypair) — demo/full-platform/terraform: сырой output-rockylinux9-freeipa/rockylinux9-freeipa.qcow2
+# (остаётся на диске благодаря keep_input_artifact у post-processor'а ниже, не удаляется после
+# упаковки в .box) используется напрямую как backing-образ VM freeipa, тем же NoCloud/cloud-init
+# механизмом, что и debian-based VM стенда — без vagrant-обёртки. См.
+# demo/full-platform/terraform/variables.tf (freeipa_base_image_url).
 
 packer {
   required_plugins {
@@ -104,9 +111,14 @@ source "qemu" "rockylinux9" {
 build {
   sources = ["source.qemu.rockylinux9"]
 
+  # keep_input_artifact: сырой output-rockylinux9-freeipa/rockylinux9-freeipa.qcow2 иначе удаляется
+  # post-processor'ом после упаковки в .box (стандартное поведение) — но этот же qcow2 нужен и
+  # demo/full-platform/terraform (второй потребитель box'а, напрямую как backing-образ, без
+  # vagrant-обёртки — см. terraform/variables.tf, freeipa_base_image_url).
   post-processor "vagrant" {
-    output            = "rockylinux9-freeipa-libvirt.box"
-    provider_override = "libvirt"
-    compression_level = 6
+    output              = "rockylinux9-freeipa-libvirt.box"
+    provider_override   = "libvirt"
+    compression_level   = 6
+    keep_input_artifact = true
   }
 }

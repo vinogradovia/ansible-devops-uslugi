@@ -67,6 +67,25 @@ locals {
       ip      = "10.66.13.51"
       mac     = "52:54:00:66:0d:51"
     }
+    # Единственная VM стенда не на общем debian-образе — freeipa требует Rocky 9 (см.
+    # variables.tf, storage.tf). base = "rocky9" выбирает backing-том в base_volumes ниже;
+    # у остальных VM поле не задано — lookup(..., "debian") ниже подставляет дефолт.
+    # memory/cpus — минимум по README роли (LDAP+Kerberos KDC+httpd+CA одновременно).
+    freeipa = {
+      vcpu    = 2
+      memory  = 4096
+      disk_gb = 20
+      ip      = "10.66.13.60"
+      mac     = "52:54:00:66:0d:60"
+      base    = "rocky9"
+    }
+  }
+
+  # Волюм-бэкенды по ключу base (см. поле local.vms[*].base) — по умолчанию "debian" (общий
+  # backing-образ стенда, storage.tf).
+  base_volumes = {
+    debian = libvirt_volume.base
+    rocky9 = libvirt_volume.freeipa_base
   }
 }
 
@@ -84,7 +103,7 @@ resource "libvirt_volume" "disk" {
   }
 
   backing_store = {
-    path = libvirt_volume.base.path
+    path = local.base_volumes[lookup(each.value, "base", "debian")].path
     format = {
       type = "qcow2"
     }
@@ -106,10 +125,11 @@ resource "libvirt_cloudinit_disk" "vm" {
   })
 
   user_data = templatefile("${path.module}/templates/cloud-init/user-data.yml.tpl", {
-    hostname       = each.key
-    fqdn           = "${each.key}.${var.network_domain}"
-    ansible_user   = var.ansible_user
-    ssh_public_key = trimspace(file(var.ssh_public_key_path))
+    hostname         = each.key
+    fqdn             = "${each.key}.${var.network_domain}"
+    ansible_user     = var.ansible_user
+    ssh_public_key   = trimspace(file(var.ssh_public_key_path))
+    manage_etc_hosts = lookup(each.value, "base", "debian") == "rocky9" ? "false" : "true"
   })
 }
 
@@ -194,8 +214,8 @@ resource "libvirt_domain" "vm" {
         }
         # Без явного backing_store здесь libvirt не знает про base-образ в цепочке этого
         # конкретного диска домена и не применяет к нему dynamic_ownership при старте VM — QEMU
-        # получает "Permission denied" на debian-12-generic-amd64-base.qcow2, хотя сам
-        # backing_store у тома (storage.tf/libvirt_volume.disk) уже объявлен на уровне пула.
+        # получает "Permission denied" на base-образе, хотя сам backing_store у тома
+        # (storage.tf/libvirt_volume.disk) уже объявлен на уровне пула.
         backing_store = {
           format = {
             type = "qcow2"
@@ -203,7 +223,7 @@ resource "libvirt_domain" "vm" {
           source = {
             volume = {
               pool   = libvirt_pool.demo.name
-              volume = libvirt_volume.base.name
+              volume = local.base_volumes[lookup(each.value, "base", "debian")].name
             }
           }
         }

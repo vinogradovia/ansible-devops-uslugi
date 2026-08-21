@@ -35,3 +35,26 @@ resource "libvirt_volume" "base" {
     }
   }
 }
+
+# Второй base-образ — только для VM freeipa (Rocky 9, см. variables.tf freeipa_base_image_path).
+# file:// вместо https:// у debian-образа выше — источник локальный (собственная сборка Packer,
+# не публичный URL).
+resource "libvirt_volume" "freeipa_base" {
+  name = "rockylinux9-freeipa-base.qcow2"
+  pool = libvirt_pool.demo.name
+
+  target = {
+    format = {
+      type = "qcow2"
+    }
+    permissions = {
+      mode = "0644"
+    }
+  }
+
+  create = {
+    content = {
+      url = "file://${abspath("${path.module}/${var.freeipa_base_image_path}")}"
+    }
+  }
+}

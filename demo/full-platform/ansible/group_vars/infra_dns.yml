@@ -37,3 +37,4 @@ infra_dns_zones:
       - {name: fail2ban-ui, type: A, value: 10.66.13.50}
       - {name: npm, type: A, value: 10.66.13.51}
       - {name: whoami-npm, type: A, value: 10.66.13.51}
+      - {name: freeipa, type: A, value: 10.66.13.60}

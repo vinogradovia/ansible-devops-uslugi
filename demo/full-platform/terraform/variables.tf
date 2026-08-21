@@ -60,3 +60,21 @@ variable "ansible_user" {
   type        = string
   default     = "ansible"
 }
+
+# freeipa требует Rocky/AlmaLinux 9 (roles/freeipa/README.md, «Целевая ОС») — второй, отдельный
+# base-образ только для VM freeipa (остальной стенд — debian-12-generic-amd64-base.qcow2 выше).
+# Готовых Rocky9-боксов с рабочим cloud-init/NoCloud под этот хост нет (см.
+# extensions/molecule/freeipa/molecule.yml, «История подбора бокса») — вместо загрузки готового
+# образа используется собственная сборка через Packer
+# (extensions/molecule/freeipa/packer/rocky9.pkr.hcl), тот же box, что и у molecule-сценария
+# freeipa, но с добавленным cloud-init (см. http/ks.cfg). Обязательный предварительный шаг:
+#   cd ../../../extensions/molecule/freeipa/packer && packer init . && packer build rocky9.pkr.hcl
+# (keep_input_artifact в шаблоне сохраняет сырой qcow2 рядом с .box — именно его использует
+# terraform ниже напрямую, без vagrant-обёртки).
+# Функции (abspath) недоступны в default variable — путь относительно каталога модуля,
+# приводится к абсолютному file:// в locals (storage.tf).
+variable "freeipa_base_image_path" {
+  description = "Путь к собственному Rocky 9 qcow2-образу (extensions/molecule/freeipa/packer), см. комментарий выше"
+  type        = string
+  default     = "../../../extensions/molecule/freeipa/packer/output-rockylinux9-freeipa/rockylinux9-freeipa.qcow2"
+}

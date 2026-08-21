@@ -1,0 +1,19 @@
+---
+# freeipa (ADR-0011) — standalone LDAP/Kerberos-каталог, единственный компонент стенда на Rocky 9
+# (см. terraform/vms.tf, terraform/variables.tf freeipa_base_image_path). Пока без потребителей
+# (ADR-0011 §«Идея» — федерация OAuth/OIDC не реализована) — этот кейс просто показывает, что роль
+# разворачивается на реальном стенде. Пароли — открытым текстом, как и у остальных ролей этого
+# стенда (ADR-0006 §9, НЕ production-паттерн).
+
+freeipa_domain: full-platform.demo
+freeipa_realm: FULL-PLATFORM.DEMO
+# Совпадает с FQDN, который cloud-init уже назначил VM (vms.tf: fqdn = "${each.key}.${var.network_domain}")
+# — роль сама переустанавливает system hostname на freeipa_hostname (idempotent, тот же результат).
+freeipa_hostname: freeipa.full-platform.demo
+freeipa_dm_password: "demo-freeipa-dm-password-CHANGE-ME"
+freeipa_admin_password: "demo-freeipa-admin-password-CHANGE-ME"
+
+# freeipa_manage_hosts_entry: true (дефолт роли) — self-entry в /etc/hosts на самой VM freeipa
+# достаточно (см. roles/freeipa/README.md, «Без встроенного DNS»); в infra_dns-зону стенда
+# (group_vars/infra_dns.yml) A-запись добавлена отдельно — только для внешней видимости из браузера
+# оператора, не как источник резолвинга для самой роли.

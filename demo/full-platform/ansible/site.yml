@@ -3,12 +3,12 @@
 #   ansible-playbook -i inventory.yml site.yml
 #
 # Стенд «всё сразу» — минимальная (для СУБД однонодовая, без реплик) конфигурация КАЖДОЙ
-# независимой роли коллекции, кроме freeipa (не закоммичена, без ADR) и без генератора нагрузки
-# (репликационный лаг показывать нечего — фокус на широте охвата, а не на нагрузочном поведении;
-# полноценные HA + нагрузка — demo/mysql-ha-platform, demo/postgresql-ha-platform).
+# независимой роли коллекции, без генератора нагрузки (репликационный лаг показывать нечего —
+# фокус на широте охвата, а не на нагрузочном поведении; полноценные HA + нагрузка —
+# demo/mysql-ha-platform, demo/postgresql-ha-platform).
 #
 # Порядок плеев:
-#  1. platform_hosts — reverse_proxy_traefik (владеет docker-сетью "proxy") → monitoring_server
+#  1. platform_hosts — reverse_proxy_traefik (владеет докер-сетью "proxy") → monitoring_server
 #     (docker, Loki+MinIO) → backup_server → infra_panel (последней — ссылается и на Grafana,
 #     и на Bareos WebUI). Не зависит от остальных, можно первым.
 #  2. monitoring_agents — независим от остальных плеев (просто ставит экспортёры), но группа
@@ -22,6 +22,8 @@
 #  8. infra_dns — не зависит от порядка, логически "точка входа последней мили".
 #  9. nginx_multidomain(+fail2ban+fail2ban_ui) и npm(+docker+reverse_proxy_npm) — полностью
 #     независимые демонстрации альтернативных reverse-proxy ролей, не связаны с остальным стендом.
+#  10. freeipa (ADR-0011) — единственная VM на Rocky 9 (terraform/vms.tf), полностью независима от
+#      остальных плеев; без потребителей в этом стенде (сама роль — только провижининг сервера).
 
 - name: platform — reverse_proxy_traefik + monitoring_server(docker) + backup_server + infra_panel
   hosts: platform_hosts
@@ -318,3 +320,14 @@
         connected:
           - reverse-proxy-npm-fixture-backend
         appends: true
+
+- name: freeipa (ADR-0011) — standalone LDAP/Kerberos-каталог, единственная VM стенда на Rocky 9
+  hosts: freeipa_hosts
+  become: true
+  pre_tasks:
+    - name: Дождаться завершения cloud-init
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+      failed_when: false
+  roles:
+    - freeipa

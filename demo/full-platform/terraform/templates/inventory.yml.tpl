@@ -67,3 +67,11 @@ all:
       hosts:
         npm:
           ansible_host: ${vms["npm"].ip}
+
+    # freeipa (ADR-0011) — единственная VM стенда на Rocky 9, не входит в monitoring_agents (роль
+    # monitoring_agent в этой коллекции ориентирована на apt/Debian, не проверена на RHEL — не
+    # тянем непроверенную комбинацию в демо).
+    freeipa_hosts:
+      hosts:
+        freeipa:
+          ansible_host: ${vms["freeipa"].ip}
