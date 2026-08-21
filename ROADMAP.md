@@ -232,8 +232,8 @@
     `check-and-install-requirements.docker.yml` — `docker network inspect` через
     `ansible.builtin.command` (не `community.docker.docker_network_info` — тому нужен python-пакет
     `docker` на целевом хосте, которого роль `docker` не ставит), падает понятной ошибкой заранее.
-46. **`postgresql_replication`/`mysql_replication`: идемпотентная регистрация в `repmgr` не
-    сверяет `node_id`.** `tasks/replication-user.yml`/`configure-replica.yml` пропускают `repmgr
+46. ~~**`postgresql_replication`/`mysql_replication`: идемпотентная регистрация в `repmgr` не
+    сверяет `node_id`.**~~ — **исправлено**: `tasks/replication-user.yml`/`configure-replica.yml` пропускают `repmgr
     primary register`/`standby register`, если `node check --role` уже успешен (узел уже
     зарегистрирован) — но не проверяют, что зарегистрированный в кластере `node_id`/`node_name`
     совпадает с текущим `postgresql_replication_node_id`/`repmgr.conf`. При этом `repmgr.conf`
@@ -246,10 +246,14 @@
     `docs/runbooks/postgresql-failover.md`, раздел 3, шаг 3: у хоста в `repmgr.conf` был
     `node_id=1`, а в кластере он значился под `node_id=2`, ровно как и в `group_vars`, откуда
     `repmgr.conf` рендерится). Чинить: `assert`/явная проверка перед пропуском
-    register-задачи — сравнить `node_id` из `postgresql_replication_node_id` с тем, что вернёт
-    `repmgr node check --role` (или прямой запрос к `repmgr.nodes`), fail-fast при расхождении
-    вместо молчаливого дрейфа. Тот же паттерн регистрации (`node check` → skip-if-ok) используется
-    и в `mysql_replication` — стоит проверить и там.
+    register-задачи — добавлена: `SELECT node_id FROM repmgr.nodes WHERE node_name = ...` (только
+    когда `node check --role` уже нашёл рабочую регистрацию), `assert` fail-fast при расхождении с
+    `postgresql_replication_node_id` — и на primary (`replication-user.yml`), и на репликах
+    (`configure-replica.yml`). Проверено полным прогоном
+    `extensions/molecule/postgresql_replication` (create → prepare → converge → idempotence →
+    verify, три хоста, включая failback) — `idempotence` по-прежнему `changed=0`. Тезис про
+    `mysql_replication` не подтвердился при проверке: там нет repmgr/node registry вообще
+    (репликация — нативный MySQL GTID без понятия `node_id`), сверять нечего.
 
 ---
 
