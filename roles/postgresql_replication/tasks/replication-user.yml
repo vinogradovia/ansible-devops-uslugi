@@ -52,6 +52,38 @@
   changed_when: false
   failed_when: false
 
+# P2 №46: rc == 0 значит "узел уже зарегистрирован" — но не значит "под тем node_id, что сейчас в
+# group_vars/repmgr.conf". repmgr.conf перетемплейчивается безусловно каждый прогон; если
+# postgresql_replication_node_id поменяли задним числом (задача выше это не ловит, только rc),
+# локальный конфиг молча расходится с repmgr.nodes — обнаруживается не сразу, а в разгар
+# следующего failover/rejoin ("ERROR: unable to retrieve node record for the local node",
+# воспроизведено на реальном инциденте, docs/runbooks/postgresql-failover.md, раздел 3, шаг 3).
+- name: Look up registered node_id for this node_name in repmgr.nodes
+  when: postgresql_replication_primary_node_check.rc == 0
+  become: true
+  become_user: postgres
+  community.postgresql.postgresql_query:
+    login_unix_socket: /var/run/postgresql
+    db: "{{ postgresql_replication_repmgr_db }}"
+    query: SELECT node_id FROM repmgr.nodes WHERE node_name = %s
+    positional_args:
+      - "{{ postgresql_replication_node_name }}"
+  register: postgresql_replication_primary_registered_node
+
+- name: Fail fast if repmgr.conf node_id has drifted from what repmgr.nodes has registered
+  when: postgresql_replication_primary_node_check.rc == 0
+  ansible.builtin.assert:
+    that:
+      - postgresql_replication_primary_registered_node.query_result | length > 0
+      - postgresql_replication_primary_registered_node.query_result[0].node_id == postgresql_replication_node_id | int
+    fail_msg: >-
+      Узел {{ postgresql_replication_node_name }} уже зарегистрирован в repmgr.nodes с
+      node_id={{ postgresql_replication_primary_registered_node.query_result[0].node_id
+      | default('<не найден>') }}, но group_vars/repmgr.conf задают
+      postgresql_replication_node_id={{ postgresql_replication_node_id }} — конфигурация
+      разошлась с кластером (ROADMAP.md, P2 №46). Синхронизируйте group_vars с реальным node_id
+      из кластера (repmgr cluster show) прежде чем продолжать.
+
 - name: Register primary with repmgr
   when: postgresql_replication_primary_node_check.rc != 0
   become: true
