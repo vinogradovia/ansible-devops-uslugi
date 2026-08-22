@@ -74,8 +74,32 @@ metrics/health эндпоинтов (не нужны для локального
 semaphoreJobID}` через `Status().Update`. `lastAppliedRevision` — `metadata.generation` в виде
 строки (не git-revision, как задумано изначально в схеме, — контроллер не знает git-revision
 inventory/vars напрямую, только Kubernetes-ресурс; сведение этих двух понятий — открытый вопрос,
-см. ниже). Сознательно **без непрерывного drift-loop** (Фаза 4) — `ctrl.Result{}` без
-`RequeueAfter`, реагирует только на события create/update spec.
+см. ниже).
+
+**Poll-loop до завершения job'а** (продолжение Фазы 3, до непрерывного drift-loop Фазы 4):
+`StartTask` не дожидается результата — Semaphore выполняет job асинхронно. Вместо блокирующего
+ожидания внутри одного вызова `Reconcile` использован стандартный для `controller-runtime`
+приём — `ctrl.Result{RequeueAfter: pollInterval}` (5с): после старта job'а контроллер
+возвращается, ставит `Ready=Unknown/SemaphoreTaskRunning`, и на следующий (перезапущенный по
+таймеру) `Reconcile` для того же объекта — если `status.lastAppliedRevision` уже равен текущему
+`metadata.generation` и `status.semaphoreJobID` уже проставлен — не стартует новый job, а
+опрашивает существующий через `GetTask`, пока статус не станет терминальным
+(`success`/`error`/`stopped`), и только тогда пишет финальный `Ready=True|False`. Сознательно
+**без непрерывного drift-loop поверх уже завершённых job'ов** (Фаза 4) — после терминального
+статуса `Reconcile` возвращает `ctrl.Result{}` без `RequeueAfter`, реагирует на новый
+create/update spec только через `GenerationChangedPredicate`.
+
+**Найденный и исправленный реальным прогоном баг: гонка кэша.** Изначально `Reconcile` читал
+объект через обычный `r.Get()` (кэшированный клиент `controller-runtime`, из manager). На живом
+стенде это привело к тому, что сразу за успешным стартом job'а иногда прилетал повторный
+`Reconcile` (по таймеру `RequeueAfter`), который читал **устаревшую** версию объекта — кэш
+(informer) ещё не успел увидеть только что записанный этим же контроллером `status`, поэтому
+проверка «job для текущего generation уже запущен» ложно возвращала «нет» и стартовался **второй**
+job для того же generation. Кэшированные чтения после собственной же записи `status` в одном и
+том же reconcile-цикле — известная ловушка `controller-runtime`. Исправлено: `Reconcile` читает
+объект через `mgr.GetAPIReader()` (`ModuleReconciler.APIReader`, отдельное поле, не встроенный
+`client.Client`) — напрямую с API-сервера, минуя кэш. После исправления повторных job'ов на одном
+generation при реальных прогонах больше не наблюдалось (см. ниже).
 
 ### Запуск (локально, не в кластере)
 
@@ -102,20 +126,29 @@ Semaphore API, не хранится в git) — на реальном запу�
 control-хоста для приватного IP стенда — `NO_PROXY` его не покрывает) против живого стенда
 `platform/cicd` с реальным API-токеном Semaphore.
 
-Полный цикл подтверждён: контроллер стартовал, подхватил существующий `Module`
-`infra-panel-pilot` (create-событие при первой синхронизации кеша), вызвал
-`POST /api/project/1/tasks` с `template_id=1` и `environment` из `spec.vars`, получил реальный
-`task.id`/`status` от Semaphore, записал их в `status` модуля. Проверено через
-`kubectl get module infra-panel-pilot -o jsonpath='{.status}'` — `conditions[0].status: "True"`,
-`semaphoreJobID` совпадает с реальным ID задачи в Semaphore (`GET /api/project/1/tasks`
-подтверждает существование задачи с этим ID, `template_id: 1`, `environment` с переданными
-vars). Сама задача в Semaphore закономерно завершилась `status: "error"` — collection
+Полный цикл подтверждён несколькими прогонами (каждый раз — новый `generation` через
+`kubectl patch spec.vars`, чтобы имитировать create/update): контроллер стартовал, вызывал ровно
+один `POST /api/project/1/tasks`, писал `Ready=Unknown/SemaphoreTaskRunning`, через `pollInterval`
+опрашивал тот же job (`GET /api/project/1/tasks/{id}`, статус `waiting` → `error`), и по
+достижении терминального статуса писал финальный `Ready=False/SemaphoreTaskFailed` — **без
+единого повторного/дублирующего job'а** на один и тот же generation, после исправления гонки
+кэша выше. Проверено через `kubectl get module infra-panel-pilot -o jsonpath='{.status}'` на
+каждом шаге; `semaphoreJobID` каждый раз совпадал с реальным ID задачи, независимо подтверждённым
+`GET /api/project/1/tasks` (тот же `template_id`, тот же `environment` с переданными vars). Сама
+задача в Semaphore каждый раз закономерно завершалась `status: "error"` — collection
 `devops.uslugi` не установлена раннером (тот же открытый вопрос, что и в
 `platform/cicd/README.md`, «Ручные шаги»: `requirements.yml` ссылается на несуществующий пока
 `platform/devops-uslugi`) — это ожидаемо и не относится к зоне ответственности контроллера
-(«вызвать Semaphore API и записать статус», не «убедиться, что сам job внутри Semaphore
-успешен» — то, что реально произошло в Semaphore, корректно долетело в `status.conditions`
-Module в виде `SemaphoreTaskStarted`/`True`, что и требовалось доказать на этой фазе).
+(«вызвать Semaphore API, дождаться результата и записать статус», не «убедиться, что сам job
+внутри Semaphore успешен» — то, что реально произошло в Semaphore, каждый раз корректно долетало
+в `status.conditions` Module, что и требовалось доказать на этой фазе).
+
+Побочно обнаружено (не баг, а ожидаемое поведение Фазы 2): ручной `kubectl patch spec.vars`
+для тестирования — это дрейф от Git, и уже работающий с Фазы 2 `Kustomization`
+`platform-modules` в течение своего reconcile-интервала (1 мин) откатывает такой ручной патч
+обратно к версии из `platform/gitops` — что само по себе тоже генерирует новый `generation` и
+успешно проходит тот же самый путь `Reconcile` без дублирования job'ов. Наглядная демонстрация
+того, что Фазы 2 и 3 корректно сочетаются друг с другом.
 
 **Фаза 3 закрыта**: контроллер вне кластера реально управляет Module-объектами в кластере через
 Semaphore API.
@@ -124,12 +157,9 @@ Semaphore API.
 
 - Соответствие `role → semaphoreTemplateID` задаётся вручную в каждом CR — автоматический lookup
   (например, по конвенции именования Task Template) не спроектирован.
-- Формат `status.conditions` не финализирован строгим набором `type` (`Ready`/`Progressing`/...) —
-  контроллер пока пишет только `Ready`; `Progressing` (job ещё выполняется в Semaphore) не
-  реализован — `StartTask` не дожидается завершения job'а, `status.conditions[0].status: "True"`
-  сейчас означает «job поставлен в очередь», а не «job выполнен успешно» (см. `GetTask`, уже
-  написан в клиенте, но пока не вызывается из reconcile — отслеживание итогового результата job'а
-  асинхронно от reconcile-цикла не спроектировано).
+- Формат `status.conditions` использует только `type: Ready` (`True`/`False`/`Unknown` в
+  зависимости от фазы job'а) — отдельный `type: Progressing` не заведён; при желании различать
+  «ещё не решено» от «решено и работает» на уровне conditions потребуется отдельный тип.
 - `lastAppliedRevision` — `metadata.generation` ресурса, не git-revision inventory/vars, как
   предполагала схема Фазы 1 (git-revision конкретного коммита `platform/gitops`, из которого Flux
   синхронизировал Module, контроллеру сейчас не виден — не передаётся Flux дальше в сам объект).
@@ -141,3 +171,7 @@ Semaphore API.
 - Развёртывание самого контроллера в кластер (Deployment, RBAC на `modules.platform.devops.uslugi`
   и их `status` subresource) — не сделано, контроллер запускается только локально с внешним
   `KUBECONFIG`. Непрерывный drift-loop (Фаза 4) без этого не имеет смысла разворачивать в проде.
+- `pollInterval` (5с) — захардкожен константой, не вынесен в конфигурацию. Тот же нерешённый
+  вопрос «период requeue-цикла», что и ADR-0014, «Не проработано» (компромисс между быстрым
+  обнаружением завершения job'а и нагрузкой на Semaphore API при множестве модулей одновременно),
+  актуальный уже здесь, ещё до самого drift-loop Фазы 4.

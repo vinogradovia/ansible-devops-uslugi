@@ -67,6 +67,7 @@ func main() {
 
 	reconciler := &controller.ModuleReconciler{
 		Client:    mgr.GetClient(),
+		APIReader: mgr.GetAPIReader(),
 		Semaphore: semClient,
 	}
 
