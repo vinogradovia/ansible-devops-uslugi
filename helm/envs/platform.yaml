@@ -27,3 +27,12 @@ releases:
     namespace: platform
     chart: localrepo/universal-chart
     version: 2.8.1
+
+  # Фаза 2 (ROADMAP.md, пункт 7; docs/adr/0014-platform-controller-architecture.md §4) — Flux
+  # выбран вместо ArgoCD (CRD-first, без второго web UI, легче для одной ноды). Namespace
+  # flux-system — конвенция апстрима (не "platform", в отличие от Gitea/Semaphore выше), чтобы
+  # не расходиться с документацией/CLI flux при последующей отладке.
+  - name: flux2
+    namespace: flux-system
+    chart: fluxcd-community/flux2
+    version: 2.19.0

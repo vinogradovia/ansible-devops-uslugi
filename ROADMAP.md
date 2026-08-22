@@ -850,10 +850,15 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
       через `kubectl patch --subresource=status` (имитация будущей записи контроллера) — все поля
       принимаются и корректно читаются обратно. См. `platform-controller/README.md`. Схема
       достаточна для перехода к Фазе 2.
-   3. **Фаза 2** — GitOps-синхронизация: **Flux** (выбран вместо ArgoCD — CRD-first, без
+   3. ~~**Фаза 2**~~ — GitOps-синхронизация: **Flux** (выбран вместо ArgoCD — CRD-first, без
       второго web UI, легче для одной ноды; `docs/overview.md` уже отражает этот выбор через
-      ADR-0014). Коммит `Module`-манифеста в Gitea должен без ручных команд отражаться в
-      `kubectl get module`.
+      ADR-0014) — **сделано**: `flux2` Helm-релиз (только `source-controller`+
+      `kustomize-controller`, остальные контроллеры чарта отключены) через Helmwave
+      (`helm/envs/platform.yaml`), `GitRepository`/`Kustomization`/`Secret` в
+      `platform/cicd/flux/` применены на живой стенд. Проверено реальным прогоном: поле
+      `spec.vars.infra_panel_gitops_managed: true`, закоммиченное в `platform/gitops` **только
+      через Gitea API** (без единого `kubectl apply`), появилось в живом `Module` в кластере
+      после reconcile-цикла (~20-30с). См. `platform/cicd/flux/README.md`.
    4. **Фаза 3** — контроллер MVP (`platform-controller/`, новый top-level каталог этого же
       репозитория — единая история версий с ролями, свой `go.mod`, независимый от poetry/
       ansible-lint тулчейна остального репозитория): событийный reconcile (create/update →

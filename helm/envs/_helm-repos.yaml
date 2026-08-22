@@ -10,6 +10,10 @@ repositories:
   # официальный Helm-чарт Gitea (https://gitea.com/gitea/helm-gitea).
   - name: gitea-charts
     url: https://dl.gitea.com/charts/
+  # platform/cicd (ROADMAP.md, пункт 7, Фаза 2; docs/adr/0014-platform-controller-architecture.md
+  # §4) — Flux (GitOps-синхронизация Module-манифестов из Gitea в кластер).
+  - name: fluxcd-community
+    url: https://fluxcd-community.github.io/helm-charts
 
 registries:
   - host: ghcr.io
