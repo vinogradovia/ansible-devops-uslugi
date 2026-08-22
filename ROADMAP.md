@@ -859,11 +859,22 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
       `spec.vars.infra_panel_gitops_managed: true`, закоммиченное в `platform/gitops` **только
       через Gitea API** (без единого `kubectl apply`), появилось в живом `Module` в кластере
       после reconcile-цикла (~20-30с). См. `platform/cicd/flux/README.md`.
-   4. **Фаза 3** — контроллер MVP (`platform-controller/`, новый top-level каталог этого же
+   4. ~~**Фаза 3**~~ — контроллер MVP (`platform-controller/`, новый top-level каталог этого же
       репозитория — единая история версий с ролями, свой `go.mod`, независимый от poetry/
       ansible-lint тулчейна остального репозитория): событийный reconcile (create/update →
       вызов Semaphore API → запись `status`), ещё БЕЗ непрерывного drift-loop — снижает риск
-      первого прогона, не отменяет итоговое решение ADR §3.
+      первого прогона, не отменяет итоговое решение ADR §3 — **сделано**: `controller-runtime`
+      manager без leader election/metrics, watch по unstructured `Module`,
+      `GenerationChangedPredicate` (не реагирует на свои же записи `status`). Semaphore API-клиент
+      (`internal/semaphore/`) — `Authorization: Bearer <персональный токен>`,
+      `POST /api/project/{id}/tasks` с `spec.vars` в поле `environment`. Проверено реальным
+      прогоном: контроллер запущен локально (Go на control-хосте нет, собран/выполнен через
+      `docker run golang:1.23 --network host`, чтобы обойти системный HTTP-прокси для приватного
+      IP стенда) против живого стенда — подхватил существующий `Module`, вызвал реальный Semaphore
+      API, записал `status.conditions`/`semaphoreJobID`, подтверждённые независимым запросом
+      `GET /api/project/1/tasks` (тот же ID, тот же `environment`). Сама задача в Semaphore
+      закономерно упала (`devops.uslugi` не установлена раннером — уже известный открытый вопрос
+      Фазы 0) — вне зоны ответственности этой фазы. См. `platform-controller/README.md`.
    5. **Фаза 4** — непрерывный reconcile (`RequeueAfter` + exponential backoff на ошибках) —
       закрывает ADR §3 полностью. Регрессионная проверка: ручной Semaphore-прогон с другими
       vars (аварийный путь, ADR §2) должен откатиться автоматически на следующем цикле —
