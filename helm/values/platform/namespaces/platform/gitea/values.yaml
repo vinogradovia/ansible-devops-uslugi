@@ -1,0 +1,60 @@
+# Gitea (https://gitea.com) — self-hosted git, источник Module-манифестов/inventory для
+# платформенного контроллера (docs/adr/0014-platform-controller-architecture.md §4,
+# docs/adr/0012-cicd-platform-architecture.md §4). Официальный чарт gitea-charts/gitea.
+#
+# Проверено реальным прогоном (platform/cicd/README.md, «Проверено реальным прогоном»): под
+# Running, PVC Bound, HTTP 200 через встроенный k3s Traefik.
+#
+# admin.password — ПЛЕЙСХОЛДЕР, обязательно сменить перед реальным использованием (в отличие от
+# demo/*/ansible/group_vars, где plaintext-секреты — осознанное упрощение для одноразового стенда,
+# ADR-0006 §9, этот стенд персистентный — секреты здесь временные до появления OpenBao,
+# ADR-0012 §3, не постоянная практика).
+gitea:
+  admin:
+    username: gitea_admin
+    password: "PleAse_Change_ME!"
+    email: gitea_admin@cicd.platform
+  config:
+    database:
+      DB_TYPE: sqlite3
+    session:
+      PROVIDER: memory
+    cache:
+      ADAPTER: memory
+    queue:
+      TYPE: level
+
+# SQLite — минимальная схема для Фазы 0 (нет отдельного требования к консистентности между
+# несколькими подами Gitea, single-node k3s), без bundled Postgres/Redis subchart.
+postgresql:
+  enabled: false
+postgresql-ha:
+  enabled: false
+redis-cluster:
+  enabled: false
+
+persistence:
+  enabled: true
+  size: 10Gi
+  storageClass: local-path
+
+service:
+  http:
+    type: ClusterIP
+    port: 3000
+  ssh:
+    type: ClusterIP
+    port: 22
+
+# Штатный k3s Traefik как ingress controller (не reverse_proxy_traefik этой коллекции — тот
+# работает в Docker на других стендах, это другой физический инстанс внутри k8s-кластера).
+# HTTP на Фазе 0 — TLS/внешний доступ через Authelia/публичный домен — предмет более поздней
+# фазы (ADR-0013), не блокирует локальную проверку.
+ingress:
+  enabled: true
+  className: traefik
+  hosts:
+    - host: gitea.cicd.platform
+      paths:
+        - path: /
+          pathType: Prefix

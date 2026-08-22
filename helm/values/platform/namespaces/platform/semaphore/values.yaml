@@ -1,0 +1,86 @@
+# Semaphore UI (https://semaphoreui.com) — исполнитель Task Template
+# (docs/adr/0012-cicd-platform-architecture.md §5, docs/adr/0014-platform-controller-architecture.md
+# §2). Официального Helm-чарта на момент написания не найдено — развёрнут через
+# nxs-universal-chart (helm/localrepo/universal-chart), тем же приёмом, что уже применён для
+# homer в helm/envs/k3s-monitoring.yaml (helm/values/k3s-monitoring/namespaces/monitoring/homer/
+# values.yaml) — голый Deployment/PVC/Service/IngressRoute вместо отдельного чарта.
+#
+# Проверено реальным прогоном (platform/cicd/README.md, «Проверено реальным прогоном»): под
+# Running, PVC Bound, HTTP 200 через IngressRoute (встроенный k3s Traefik). ЗНАЧИМАЯ находка
+# этого прогона: IngressRoute рендерится только если Traefik CRD уже зарегистрирован в
+# кластере — при первом `helmwave up` сразу после установки k3s CRD ещё не существовал (k3s
+# разворачивает встроенный Traefik асинхронно), и Helm молча пропустил ресурс. Исправлено на
+# уровне плейбука (platform/cicd/ansible/site.yml ждёт CRD перед helmwave up), не здесь.
+#
+# БД — bolt (встроенная, файл на persistent volume) — минимальная схема для Фазы 0, без
+# отдельного Postgres. Admin-пароль и cookie/access-key секреты ниже — ПЛЕЙСХОЛДЕРЫ, обязательно
+# сменить (и переместить в OpenBao, когда он появится, ADR-0012 §3) перед реальным
+# использованием — в отличие от demo/*/ansible/group_vars (ADR-0006 §9, осознанное упрощение для
+# одноразового стенда), этот стенд персистентный.
+
+pvcs:
+  data:
+    accessModes:
+      - ReadWriteOnce
+    size: 5Gi
+    storageClassName: local-path
+
+deployments:
+  semaphore:
+    containers:
+      - name: semaphore
+        image: semaphoreui/semaphore
+        imageTag: v2.10.30
+        env:
+          - name: SEMAPHORE_DB_DIALECT
+            value: bolt
+          - name: SEMAPHORE_DB_PATH
+            value: /var/lib/semaphore/database.boltdb
+          - name: SEMAPHORE_ADMIN
+            value: admin
+          - name: SEMAPHORE_ADMIN_EMAIL
+            value: admin@cicd.platform
+          - name: SEMAPHORE_ADMIN_NAME
+            value: Administrator
+          # ПЛЕЙСХОЛДЕР, сменить перед реальным использованием (тот же принцип, что
+          # gitea.admin.password в ../gitea/values.yaml).
+          - name: SEMAPHORE_ADMIN_PASSWORD
+            value: "PleAse_Change_ME!"
+          # Сгенерированы один раз для Фазы 0 (openssl rand -base64 32) — Semaphore требует
+          # непустые валидные base64-значения при первом старте. РЕГЕНЕРИРОВАТЬ перед реальным
+          # использованием — это demo-значения, закоммиченные в открытом виде, не секрет.
+          - name: SEMAPHORE_COOKIE_HASH
+            value: "qSNbSZN8lFbXiSEed0rUgzEogPkyfs+xcqcTqNqqao0="
+          - name: SEMAPHORE_COOKIE_ENCRYPTION
+            value: "GMVmi8UjPuCIcZsEi3mWhlw01m8Lu8lPcNGPq8PURIA="
+          - name: SEMAPHORE_ACCESS_KEY_ENCRYPTION
+            value: "TKAvMupcIvklSh0XL9ajVpzESAd+G+zsVVX7VH+p7JM="
+        ports:
+          - name: http
+            containerPort: 3000
+        volumeMounts:
+          - name: data
+            mountPath: /var/lib/semaphore
+    volumes:
+      - name: data
+        type: pvc
+
+services:
+  semaphore:
+    ports:
+      - name: http
+        port: 3000
+
+# Semaphore аутентифицирует пользователей сам (встроенный логин, в отличие от homer — статической
+# страницы без какой-либо аутентификации) — дополнительный basicAuth middleware здесь избыточен,
+# в отличие от homer/values.yaml, где он обязателен.
+ingressroutes:
+  semaphore:
+    entryPoints:
+      - websecure
+    routes:
+      "Host(`semaphore.cicd.platform`)":
+        services:
+          semaphore-semaphore:
+            port: 3000
+    tls: {}

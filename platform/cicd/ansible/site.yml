@@ -1,0 +1,119 @@
+---
+# platform/cicd — ROADMAP.md, «Предлагаемая последовательность работ», пункт 7, Фаза 0
+# (docs/adr/0014-platform-controller-architecture.md; docs/adr/0012-cicd-platform-architecture.md
+# §4/§5). Одна K3s-нода, Gitea + Semaphore UI — оба Helm-релизами через Helmwave, тем же
+# способом, что roles/monitoring_server/tasks/monitoring-server.k3s.yml
+# (docs/adr/0007-monitoring-server-role.md §6), но без monitoring-специфичных задач
+# (namespace/secret для Grafana) — здесь не нужны: helmwave.yml.tpl уже создаёт namespace на
+# каждый релиз сам (create_namespace: true в .options), а bootstrap-креды Gitea/Semaphore задаются
+# прямо в values (helm/values/platform/namespaces/platform/{gitea,semaphore}/values.yaml).
+#
+# В отличие от monitoring_server (k3s_server.disable: [local-storage] + собственный
+# custom-local-storage.yaml) — здесь штатный k3s local-path provisioner НЕ переопределяется:
+# причины использовать другой storage class для Gitea/Semaphore пока не было.
+#
+# Запуск вручную: ansible-playbook -i inventory.yml site.yml
+
+- name: Platform CI/CD infra (K3s + Gitea + Semaphore UI)
+  hosts: platform_hosts
+  become: true
+  pre_tasks:
+    # Тот же паттерн, что demo/*/ansible/site.yml — без ожидания cloud-init apt-задачи
+    # xanmanning.k3s (скачивание бинарника/checksum) могут упереться в ещё не снятую
+    # cloud-init'ом блокировку.
+    - name: Дождаться завершения cloud-init
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+      failed_when: false
+
+  tasks:
+    # Версия — тот же пин, что roles/monitoring_server/meta/main.yml, чтобы не плодить второй
+    # независимый источник правды о версии k3s в коллекции.
+    - name: Установить K3s (single-node)
+      ansible.builtin.include_role:
+        name: xanmanning.k3s
+      vars:
+        k3s_state: installed
+        k3s_release_version: v1.35.1+k3s1
+        k3s_build_cluster: false
+        k3s_become: true
+
+    - name: Снять kubeconfig с control-хоста
+      ansible.builtin.fetch:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: "{{ playbook_dir }}/.kube-tmp/"
+      register: platform_cicd_kubeconfig
+      changed_when: false
+
+    # kubeconfig, который отдаёт k3s, содержит "server: https://127.0.0.1:6443" — годится только
+    # для запуска kubectl прямо на самой ноде. helmwave выполняется на control-хосте
+    # (delegate_to: localhost ниже), поэтому адрес нужно подменить на реальный IP ноды — тот же
+    # приём, что roles/monitoring_server/tasks/monitoring-server.k3s.yml.
+    - name: Подставить реальный IP вместо 127.0.0.1 в снятый kubeconfig
+      when: "'dest' in platform_cicd_kubeconfig"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      ansible.builtin.lineinfile:
+        path: "{{ platform_cicd_kubeconfig.dest }}"
+        regexp: '    server: https://127.0.0.1:6443'
+        line: '    server: https://{{ ansible_facts["default_ipv4"]["address"] }}:6443'
+
+    # Найдено реальным прогоном: k3s разворачивает встроенный Traefik (и его CRD,
+    # ingressroutes.traefik.io) асинхронно через собственный HelmChart-контроллер — сразу после
+    # того, как xanmanning.k3s отчитывается об успехе, CRD может ещё не существовать. Chart
+    # helm/localrepo/universal-chart (Semaphore) рендерит IngressRoute только если
+    # $.Capabilities.APIVersions.Has "traefik.io/v1alpha1" — без ожидания релиз применяется БЕЗ
+    # IngressRoute и без ошибки (Helm просто пропускает ресурс), обнаруживается только руками
+    # позже. Ждём появления CRD перед helmwave up, а не просто готовности API-сервера.
+    - name: Дождаться регистрации Traefik CRD (встроенный в k3s, разворачивается асинхронно)
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        KUBECONFIG: "{{ platform_cicd_kubeconfig.dest }}"
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+      kubernetes.core.k8s_info:
+        api_version: apiextensions.k8s.io/v1
+        kind: CustomResourceDefinition
+        name: ingressroutes.traefik.io
+      register: platform_cicd_traefik_crd
+      until: platform_cicd_traefik_crd.resources | length > 0
+      retries: 30
+      delay: 5
+
+    - name: Helmwave up (Gitea + Semaphore, helm/envs/platform.yaml)
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        KUBECONFIG: "{{ platform_cicd_kubeconfig.dest }}"
+        K8S_CLUSTER: platform
+        # Прокси control-хоста иначе уводит запросы к приватному IP kube-apiserver через себя —
+        # таймаут "Kubernetes cluster unreachable" вместо ошибки роли/helmwave, тот же found,
+        # что в roles/monitoring_server/tasks/monitoring-server.k3s.yml.
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+      # --file helmwave.platform.yml (не дефолтный helmwave.yml) — тот дефолтный файл уже
+      # закоммичен как референсный рендер для K8S_CLUSTER=k3s-monitoring
+      # (roles/monitoring_server), --yml безусловно перезаписывает его под ТЕКУЩИЙ K8S_CLUSTER —
+      # найдено вручную при отладке этого плейбука: ручной запуск с K8S_CLUSTER=platform
+      # перезаписал чужой референс, пришлось откатывать через git checkout.
+      ansible.builtin.command:
+        chdir: "{{ playbook_dir }}/../../../helm"
+        argv:
+          - helmwave
+          - up
+          - --build
+          - --yml
+          - --templater
+          - gomplate
+          - --file
+          - helmwave.platform.yml
+      register: platform_cicd_helmwave_up
+      changed_when: true
+
+    - name: Вывод helmwave up
+      ansible.builtin.debug:
+        var: platform_cicd_helmwave_up.stderr_lines

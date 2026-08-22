@@ -1,0 +1,29 @@
+---
+# platform/cicd (ROADMAP.md, «Предлагаемая последовательность работ», пункт 7, Фаза 0;
+# docs/adr/0012-cicd-platform-architecture.md §4/§5) — Gitea (self-hosted git, источник
+# Module-манифестов) + Semaphore UI (исполнитель Task Template) на одной K3s-ноде. Namespace
+# "platform" для обоих — helmwave options.create_namespace: true (helmwave.yml.tpl) создаёт его
+# сам, отдельная задача в site.yml не нужна (в отличие от roles/monitoring_server, где namespace
+# создаётся явно через kubernetes.core.k8s — там же заводится Grafana-секрет, здесь эквивалента
+# нет, admin-креды идут прямо в values ниже).
+repositories: []
+registries: []
+
+releases:
+  - name: gitea
+    namespace: platform
+    chart: gitea-charts/gitea
+    # Версия не проверена реальным прогоном (нет ещё поднятой VM на момент написания) — сверить
+    # актуальную стабильную версию чарта на https://gitea.com/gitea/helm-gitea перед первым
+    # applyем и поправить при необходимости.
+    version: 11.0.0
+
+  # Официального Helm-чарта Semaphore UI (semaphoreui.com) на момент написания не найдено —
+  # используем тот же приём, что уже применён для homer (envs/k3s-monitoring.yaml): голый
+  # Deployment/Service/PVC/IngressRoute через nxs-universal-chart, распакованный локально в
+  # helm/localrepo/universal-chart/ (packed .tgz не годится — helmwave безусловно прогоняет
+  # `helm dependency update`, а Helm отказывается делать это для запакованных чартов).
+  - name: semaphore
+    namespace: platform
+    chart: localrepo/universal-chart
+    version: 2.8.1

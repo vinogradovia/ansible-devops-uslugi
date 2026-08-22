@@ -8,6 +8,12 @@
 helm/.claude/
 helm/.helmwave/
 helm/tmp/
+# helm/helmwave.yml — единственный закоммиченный референсный рендер (K8S_CLUSTER=k3s-monitoring).
+# platform/cicd (ROADMAP.md, «Предлагаемая последовательность работ», пункт 7) рендерит СВОЙ
+# helmwave.yml под другим именем (--file helmwave.platform.yml) именно чтобы не перезаписывать
+# этот референс при каждом прогоне своего site.yml — рендер под платформенный кластер не
+# коммитится, это транзиентный артефакт запуска, не документация.
+helm/helmwave.platform.yml
 
 # extensions/molecule/default/create.yml пишет сюда per-host дамп hostvars (tmp_dir из
 # extensions/molecule/inventory/hosts.yml) — рабочий артефакт прогона, не фикстура. Раньше уже
@@ -23,6 +29,17 @@ demo/*/terraform/terraform.tfstate.backup
 demo/*/terraform/*.tfplan
 demo/*/terraform/crash.log
 demo/*/ansible/inventory.yml
+
+# platform/cicd (ROADMAP.md, «Предлагаемая последовательность работ», пункт 7, Фаза 0) — та же
+# логика, что demo/* выше: состояние Terraform, сгенерированный inventory и снятый kubeconfig
+# локальны для конкретного прогона/хоста, не коммитятся.
+platform/*/terraform/.terraform/
+platform/*/terraform/terraform.tfstate
+platform/*/terraform/terraform.tfstate.backup
+platform/*/terraform/*.tfplan
+platform/*/terraform/crash.log
+platform/*/ansible/inventory.yml
+platform/*/ansible/.kube-tmp/
 
 # extensions/molecule/freeipa/packer/ — Packer-шаблон для сборки собственного vagrant/libvirt box
 # Rocky Linux 9 (см. molecule.yml, «История подбора бокса», п.4) отслеживается целиком (*.pkr.hcl,

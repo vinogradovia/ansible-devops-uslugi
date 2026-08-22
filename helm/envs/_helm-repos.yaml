@@ -6,6 +6,10 @@ repositories:
   #   url: https://registry.nixys.io/chartrepo/public
   - name: grafana
     url: https://grafana.github.io/helm-charts
+  # platform/cicd (ROADMAP.md, «Предлагаемая последовательность работ», пункт 7, Фаза 0) —
+  # официальный Helm-чарт Gitea (https://gitea.com/gitea/helm-gitea).
+  - name: gitea-charts
+    url: https://dl.gitea.com/charts/
 
 registries:
   - host: ghcr.io

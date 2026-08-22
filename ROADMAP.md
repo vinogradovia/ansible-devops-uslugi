@@ -824,11 +824,18 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
    вместе с решением P5-32.
 7. **Платформенный контроллер (ADR-0014)** — архитектура решена, план реализации по стадиям
    (зависимости между стадиями см. в `docs/adr/0014-platform-controller-architecture.md`):
-   1. **Фаза 0** (пререквизит из ADR-0012, не часть ADR-0014 самого по себе) — минимальный срез:
-      K3s (одна нода) + Gitea (self-hosted git, источник манифестов) + Semaphore UI с одним
-      рабочим Task Template на уже готовой роли (`infra_panel`) — без ожидания Harbor/OpenBao/
-      Authelia, которые независимы и не блокируют это. Критерий готовности: оператор вручную
-      запускает Task Template из Semaphore UI, роль применяется, джоб виден в истории.
+   1. ~~**Фаза 0**~~ (пререквизит из ADR-0012, не часть ADR-0014 самого по себе) — **сделано**:
+      минимальный срез — K3s (одна нода) + Gitea + Semaphore UI, оба Helm-релизами через
+      Helmwave на одном кластере (`platform/cicd/`, см. README там) — без ожидания
+      Harbor/OpenBao/Authelia, которые независимы и не блокируют это. Проверено реальным
+      прогоном: `tofu apply` → `ansible-playbook site.yml`, оба пода `Running`, PVC `Bound`,
+      HTTP 200 через встроенный k3s Traefik, idempotent повторный прогон. Две реальные находки —
+      race condition (Traefik CRD ещё не зарегистрирован в момент первого `helmwave up` — k3s
+      разворачивает встроенный Traefik асинхронно) и коллизия `helm/helmwave.yml` (общий
+      рендер-файл с `roles/monitoring_server`, `K8S_CLUSTER=platform` перезаписывал чужой
+      референс) — обе исправлены, см. `platform/cicd/README.md`. Ручные шаги (создание
+      репозитория в Gitea, Task Template в Semaphore на роли `infra_panel`) — задокументированы,
+      не выполнены на живую (следующий шаг перед Фазой 1).
    2. **Фаза 1** — схема `Module` CRD (`spec.role`/`spec.vars`/`spec.inventoryRef`,
       `status.conditions`/`lastAppliedRevision`/`lastSyncTime`/`semaphoreJobID`), без кода
       контроллера — один пример CR вручную через `kubectl apply`, чтобы доказать достаточность
