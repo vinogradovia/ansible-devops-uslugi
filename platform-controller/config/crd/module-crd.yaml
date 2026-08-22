@@ -1,0 +1,120 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: modules.platform.devops.uslugi
+spec:
+  group: platform.devops.uslugi
+  scope: Namespaced
+  names:
+    kind: Module
+    listKind: ModuleList
+    plural: modules
+    singular: module
+    shortNames:
+      - mod
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Role
+          type: string
+          jsonPath: .spec.role
+        - name: Ready
+          type: string
+          jsonPath: ".status.conditions[?(@.type=='Ready')].status"
+        - name: LastSync
+          type: string
+          jsonPath: .status.lastSyncTime
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          required:
+            - spec
+          properties:
+            spec:
+              type: object
+              required:
+                - role
+                - inventoryRef
+              properties:
+                role:
+                  type: string
+                  description: >-
+                    Имя Ansible-роли коллекции devops.uslugi, которую применяет этот модуль
+                    (ADR-0014 §1). Соответствие роль -> Semaphore Task Template задаётся
+                    отдельно, полем semaphoreTemplateID.
+                vars:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                  description: >-
+                    Эквивалент Ansible group_vars для роли — произвольная структура,
+                    передаётся в Semaphore-задание как extra vars (ADR-0014 §1).
+                inventoryRef:
+                  type: object
+                  required:
+                    - repository
+                    - path
+                  properties:
+                    repository:
+                      type: string
+                      description: >-
+                        Git URL репозитория с inventory-файлом (ADR-0014 §5) — не отдельный
+                        CRD, а ссылка на уже существующий Ansible-inventory в git.
+                    revision:
+                      type: string
+                      default: main
+                      description: Git-ветка или тег с inventory.
+                    path:
+                      type: string
+                      description: Путь к inventory-файлу внутри репозитория.
+                semaphoreTemplateID:
+                  type: integer
+                  description: >-
+                    ID Task Template в Semaphore, который контроллер вызывает при reconcile
+                    (ADR-0014 §2). Соответствие role -> ID пока настраивается вручную здесь,
+                    автоматический lookup — открытый вопрос ADR-0014 «Не проработано».
+            status:
+              type: object
+              properties:
+                conditions:
+                  type: array
+                  description: >-
+                    Стандартный K8s conditions-паттерн (аналог Crossplane Managed Resources),
+                    см. ADR-0014 «Не проработано»: тип Ready — годно/негодно после последнего
+                    reconcile, тип Progressing — job в Semaphore ещё выполняется.
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                lastAppliedRevision:
+                  type: string
+                  description: >-
+                    Git-revision spec/inventory, применённый последним успешно завершённым
+                    reconcile (используется, чтобы отличить «дрейф инфраструктуры» от «ещё не
+                    применённое изменение spec», ADR-0014 §3).
+                lastSyncTime:
+                  type: string
+                  format: date-time
+                semaphoreJobID:
+                  type: integer
+                  description: ID последнего запущенного Semaphore-задания (ADR-0014 §2).

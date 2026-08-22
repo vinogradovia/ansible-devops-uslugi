@@ -840,10 +840,16 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
       см. `platform/cicd/README.md`. Сам Task Template ни разу не запускался — установка
       коллекции `devops.uslugi` на runner'е и реальный целевой хост в inventory остаются открытыми
       (не блокируют переход к Фазе 1). **Фаза 0 закрыта целиком.**
-   2. **Фаза 1** — схема `Module` CRD (`spec.role`/`spec.vars`/`spec.inventoryRef`,
+   2. ~~**Фаза 1**~~ — схема `Module` CRD (`spec.role`/`spec.vars`/`spec.inventoryRef`,
       `status.conditions`/`lastAppliedRevision`/`lastSyncTime`/`semaphoreJobID`), без кода
-      контроллера — один пример CR вручную через `kubectl apply`, чтобы доказать достаточность
-      схемы.
+      контроллера — **сделано**: `platform-controller/config/crd/module-crd.yaml`, применена на
+      живом стенде `platform/cicd` вместе с одним примером CR
+      (`config/samples/module-infra-panel.yaml`, ссылается на реальные `platform/gitops` в Gitea
+      и Task Template id=1 в Semaphore из Фазы 0). Проверено: валидация OpenAPI-схемы (вложенные
+      `vars`/`inventoryRef`), short name `mod`, printer columns, и отдельно `status`-subresource
+      через `kubectl patch --subresource=status` (имитация будущей записи контроллера) — все поля
+      принимаются и корректно читаются обратно. См. `platform-controller/README.md`. Схема
+      достаточна для перехода к Фазе 2.
    3. **Фаза 2** — GitOps-синхронизация: **Flux** (выбран вместо ArgoCD — CRD-first, без
       второго web UI, легче для одной ноды; `docs/overview.md` уже отражает этот выбор через
       ADR-0014). Коммит `Module`-манифеста в Gitea должен без ручных команд отражаться в

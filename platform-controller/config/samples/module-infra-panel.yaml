@@ -1,0 +1,21 @@
+# Пример Module CR — доказательство достаточности схемы (Фаза 1 ADR-0014), без кода
+# контроллера. Применяется вручную: kubectl apply -f module-infra-panel.yaml.
+#
+# Ссылается на реально существующие на стенде platform/cicd объекты (не гипотетические):
+# репозиторий platform/gitops в Gitea (organization/repo созданы вручную через API, см.
+# platform/cicd/README.md, «Ручные шаги»), inventory/infra_panel.ini в нём (placeholder-хост,
+# не реальный таргет) и Task Template id=1 в Semaphore-проекте platform (id=1).
+apiVersion: platform.devops.uslugi/v1alpha1
+kind: Module
+metadata:
+  name: infra-panel-pilot
+  namespace: platform
+spec:
+  role: infra_panel
+  vars:
+    infra_panel_orchestrator: docker
+  inventoryRef:
+    repository: http://gitea-http.platform.svc.cluster.local:3000/platform/gitops.git
+    revision: main
+    path: inventory/infra_panel.ini
+  semaphoreTemplateID: 1
