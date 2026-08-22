@@ -4,6 +4,14 @@
 # версия 16) и обнаруживает версию уже установленного PostgreSQL, которую нужно передать репликам
 # для fresh install той же версии (а не дефолтной версии роли — 17).
 
+- name: Converge (backup_servers)
+  hosts: backup_servers
+  become: true
+  tasks:
+    - name: Прогнать роль backup_server (переменные — см. group_vars/backup_servers.yml)
+      ansible.builtin.import_role:
+        name: devops.uslugi.backup_server
+
 - name: Converge (primary)
   hosts: postgresql_primary
   become: true

@@ -1,0 +1,7 @@
+[Unit]
+Description=Delete WAL segments older than {{ postgresql_replication_bareos_wal_archive_retention_days }} days from wal_archive_dir (bareos-fd-postgresql plugin does not purge them itself)
+
+[Service]
+Type=oneshot
+User=postgres
+ExecStart=/usr/bin/find {{ postgresql_replication_bareos_wal_archive_dir }} -type f -mtime +{{ postgresql_replication_bareos_wal_archive_retention_days }} -delete

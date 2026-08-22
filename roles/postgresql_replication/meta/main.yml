@@ -8,4 +8,18 @@ galaxy_info:
     - postgresql
     - replication
     - database
-dependencies: []
+# ROADMAP №48, Фаза 3 (docs/adr/0010-backup-agent-role.md "Дальнейшие шаги") — postgresql_
+# replication_backup_tool: bareos без установленного/настроенного file daemon не работает в
+# принципе, поэтому meta-зависимость (тот же паттерн, что docker/mysql_replication, ADR-0002 §2),
+# а не композиция на уровне плейбука.
+dependencies:
+  - role: backup_agent
+    when: >-
+      postgresql_replication_backup_enabled and
+      postgresql_replication_backup_tool == 'bareos' and
+      postgresql_replication_role == postgresql_replication_backup_source_role
+    vars:
+      backup_agent_director_name: "{{ postgresql_replication_backup_agent_director_name }}"
+      backup_agent_client_name: "{{ postgresql_replication_backup_agent_client_name }}"
+      backup_agent_client_password: "{{ postgresql_replication_backup_agent_client_password }}"
+      backup_agent_install_postgresql_plugin: true

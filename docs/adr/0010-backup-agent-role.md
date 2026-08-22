@@ -112,10 +112,11 @@ systemd-timer). `backup_agent` подключается условной `meta`-
 реальный `bconsole`-job на `mysql-dr-replica` через `bareos-fd-percona-xtrabackup`-плагин) —
 см. «Финальный статус Фазы 2» ниже.
 
-- **Фаза 3** — `postgresql_replication_backup_tool: pgbackrest|bareos` (новая переменная, дефолт
-  `pgbackrest` — обратная совместимость). Взаимоисключающий выбор: `bareos`-плагин
-  (`bareos-fd-postgresql`) сам архивирует WAL в `wal_archive_dir` через `archive_command`,
-  занятый сейчас pgBackRest — параллельная работа невозможна. Не реализовано.
+- ~~**Фаза 3**~~ — **сделано**: `postgresql_replication_backup_tool: pgbackrest|bareos` (новая
+  переменная, дефолт `pgbackrest` — обратная совместимость). Взаимоисключающий выбор:
+  `bareos`-плагин (`bareos-fd-postgresql`) сам архивирует WAL в `wal_archive_dir` через
+  `archive_command`, занятый pgBackRest на альтернативном пути — параллельная работа невозможна.
+  См. «Финальный статус Фазы 3» ниже.
 
 ## Финальный статус Фазы 2
 
@@ -149,6 +150,59 @@ job=backup-mysql-dr-replica-fd`, `Termination: Backup OK`, непустой то
    добавлен в `roles/backup_agent/templates/bareos-fd.d/client/client.conf.j2` безусловно
    (`Plugin Names` намеренно не задаётся — грузятся только реально установленные `.so`).
 
+## Финальный статус Фазы 3
+
+`molecule test -s postgresql_replication` (4 ВМ: primary, read_replica, dr_replica,
+postgresql-backup-server) — `converge` → `idempotence` (`changed=0` на всех 4 хостах) →
+`verify`: bareos-специфичные проверки (реальный `bconsole run
+job=backup-postgresql-dr-replica-fd`, `Termination: Backup OK`, непустой том на диске;
+`archive_mode` на всех узлах соответствует роли) полностью зелёные. Полный сквозной прогон
+`verify` (включая ручную promote/failback-последовательность, ADR §7) упирается в отдельную,
+не связанную с bareos находку — ROADMAP №54 (`read_replica` не переподключается к новому primary
+после failback) — обнаруженную только этим прогоном (раньше verify не доходил так далеко из-за
+находок №1–2 ниже). Фаза 3 считается валидированной в границах собственной функциональности.
+
+Три реальные находки, ни одна не была видна по коду до реального исполнения:
+
+1. **`pg_backup_stop(wait_for_archive=true)` виснет бесконечно на тихой БД.** Плагин
+   `bareos-fd-postgresql` вызывает `pg_backup_stop()` в non-exclusive backup mode, которая ждёт
+   архивации ПОСЛЕДНЕГО WAL-сегмента бэкапа — если после снятия бэкапа в БД мало/нет записи
+   (типичная ситуация в тестовом окружении сразу после verify-проверок), сегмент никогда не
+   заполняется естественным трафиком, и job виснет часами (в проверке — больше часа на пустой
+   тестовой БД). Исправлено: новая переменная
+   `postgresql_replication_bareos_archive_timeout` (по умолчанию 60 секунд) — принудительное
+   переключение WAL-сегмента по таймеру, `templates/postgresql-replication.conf.j2`.
+2. **`archive_timeout` сам по себе не помогает, если `backup_source_role` — реплика (дефолт,
+   ADR §8).** WAL-сегмент физически переключает только primary — реплика лишь архивирует то, что
+   уже получила потоковой репликацией, и не может «попросить» primary переключиться сама. С
+   `archive_mode=off` на primary (штатное поведение до этой находки, чтобы не плодить
+   бесполезный WAL-архив там, где источник бэкапа — не primary) `archive_timeout`, выставленный
+   только на реплике, не имеет эффекта вообще — `XLogArchivingActive()` требует активного
+   архивирования именно на том узле, где происходит переключение сегмента. Исправлено: primary
+   архивирует всегда при `backup_tool: bareos`, независимо от того, primary ли сам
+   `backup_source_role` — `archive_mode = always`, `archive_command = 'true'` (в никуда, эту копию
+   никто не читает, если `backup_source_role != primary`), `archive_timeout` из той же
+   переменной. Цель — не архив primary, а сам факт периодического переключения сегмента,
+   распространяющегося на все реплики потоковой репликацией.
+3. **Promote/failback-путь неявно подключает `backup_agent` там, где раньше он не требовался.**
+   `include_role: postgresql_replication` в `verify.yml` (`tasks_from: promote`/
+   `configure-replica`) обрабатывает `meta/main.yml`-зависимости роли независимо от
+   `tasks_from` — там, где `postgresql_replication_role` (в т.ч. явно переопределённая в vars
+   конкретного `include_role`, как того требует сам ранбук, `docs/runbooks/postgresql-failover.md`
+   раздел 3 шаг 5) совпадает с `backup_source_role`, `backup_agent`-зависимость реально
+   выполняется, а `gather_facts: false` (обычный режим для узких verify-плеев с одними
+   psql-командами) не даёт `ansible_distribution`, нужного `backup_agent/defaults/main.yml` —
+   `'ansible_distribution' is undefined`. Дополнительно: при failback старый primary временно
+   играет роль `dr_replica` для целей `promote.yml` — а значит должен быть заранее
+   зарегистрирован клиентом bareos, как и штатный `dr_replica`, иначе падает на «Fail if
+   backup_agent_client_password is not set» посреди failback-теста. Это не искусственный
+   тестовый артефакт, а прямое следствие продовой семантики: любой узел, способный временно
+   стать `backup_source_role` при failover/failback, должен иметь bareos-credentials
+   заранее — то же самое верно и в реальной эксплуатации, не только в molecule. Исправлено:
+   `gather_facts: true` на всех plays с `include_role: postgresql_replication`
+   (`extensions/molecule/postgresql_replication/verify.yml`), второй bareos-клиент
+   (`postgresql-primary-fd`) заведён в `group_vars/backup_servers.yml`/`postgresql_primary.yml`.
+
 ## Ссылки
 
 - `roles/backup_agent/` — реализация (README.md — подробное описание переменных, пример
@@ -160,3 +214,9 @@ job=backup-mysql-dr-replica-fd`, `Termination: Backup OK`, непустой то
 - `docs/adr/0004-mysql-ha-replication-role.md` §8, §11 — существующий backup-механизм
   `mysql_replication` и принцип «meta-зависимость vs композиция», применённый в §1 выше.
 - `docs/adr/0002-docker-role.md` §2 — прецедент условной `meta`-зависимости.
+- `roles/postgresql_replication/` (Фаза 3) — `README.md`, «Бэкапы», описывает bareos-путь и
+  пример конфигурации на обеих сторонах (`backup_source_role`/primary).
+- `extensions/molecule/postgresql_replication/` — molecule-сценарий (4 ВМ, реальный job через
+  `bconsole`, promote/failback-последовательность).
+- `ROADMAP.md` №54 — находка про `read_replica`/failback, обнаруженная тем же прогоном, но не
+  относящаяся к bareos — вынесена отдельным пунктом, не блокирует статус Фазы 3.

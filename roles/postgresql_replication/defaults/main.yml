@@ -96,9 +96,15 @@ postgresql_replication_port: 5432
 postgresql_replication_primary_host: ""
 postgresql_replication_primary_port: 5432
 
-# --- Физические бэкапы pgBackRest (ADR §8) ---
+# --- Физические бэкапы (ADR §8) ---
 
 postgresql_replication_backup_enabled: false
+
+# pgbackrest | bareos — первый rclone-независимый (S3 через встроенный driver) путь, второй
+# делегирует на backup_server/backup_agent (условная meta-зависимость, см. meta/main.yml) вместо
+# archive-push в pgBackRest. Взаимоисключающий выбор — archive_command на хосте только один
+# (ROADMAP №48, Фаза 3, docs/adr/0010-backup-agent-role.md).
+postgresql_replication_backup_tool: pgbackrest
 
 # primary | read_replica | dr_replica — на каком хосте реально снимается бэкап. По умолчанию
 # DR-реплика: она и так не обслуживает боевое чтение единолично (обслуживает как fallback, ADR
@@ -129,6 +135,41 @@ postgresql_replication_backup_s3_secret_key: ""
 # инвентаря/плейбука, роль postgresql_replication не тянет monitoring_agent зависимостью (ADR
 # §11).
 postgresql_replication_backup_metrics_textfile_path: /var/lib/node_exporter/textfile_collector/postgresql_backup.prom
+
+# --- Интеграция с backup_agent, только при postgresql_replication_backup_tool == 'bareos'
+# (ROADMAP №48, Фаза 3) --- условная meta-зависимость (см. meta/main.yml) прокидывает эти значения
+# в backup_agent_director_name/backup_agent_client_name/backup_agent_client_password. Значения
+# должны совпадать с backup_server_director_name и полем name/password соответствующего элемента
+# backup_server_clients на стороне backup_server (тот же принцип, что roles/backup_agent/README.md).
+postgresql_replication_backup_agent_director_name: bareos-dir
+postgresql_replication_backup_agent_client_name: "{{ inventory_hostname }}-fd"
+# Обязателен при backup_tool: bareos, fail-fast если пусто (assert-required-vars.yml).
+postgresql_replication_backup_agent_client_password: ""
+
+# Куда archive_command кладёт WAL-сегменты для чтения bareos-fd-postgresql плагином
+# (обязательная опция wal_archive_dir= в Plugin =, см. README) — плагин НЕ удаляет файлы отсюда
+# сам, поэтому нужна отдельная очистка по возрасту (см. tasks/backup-bareos.yml,
+# postgresql-wal-archive-cleanup.timer).
+postgresql_replication_bareos_wal_archive_dir: /var/lib/postgresql/bareos_wal_archive
+postgresql_replication_bareos_wal_archive_retention_days: 7
+
+# archive_timeout (PostgreSQL) — принудительное переключение WAL-сегмента раз в N секунд, даже
+# если он не заполнен трафиком записи. Обязательно для bareos-пути: bareos-fd-postgresql вызывает
+# pg_backup_stop(wait_for_archive=true), которая ждёт архивации ПОСЛЕДНЕГО WAL-сегмента бэкапа —
+# без периодического переключения на тихой БД (мало/нет записи после снятия бэкапа) сегмент может
+# не заполниться никогда, и pg_backup_stop() виснет бесконечно (найдено реальным прогоном
+# molecule — job завис на час на пустой БД без принудительного archive_timeout). Применяется И на
+# хосте-источнике бэкапа, И безусловно на primary (templates/postgresql-replication.conf.j2) —
+# WAL-сегмент физически переключает только primary, реплика лишь архивирует то, что уже получила
+# потоковой репликацией; без archive_timeout на primary реплика не архивирует чаще, даже если
+# archive_timeout стоит у неё самой (вторая находка того же прогона molecule, после первой).
+postgresql_replication_bareos_archive_timeout: 60
+
+# DB-роль, от имени которой плагин вызывает pg_backup_start/pg_backup_stop (не суперпользователь —
+# точечный GRANT EXECUTE на эти функции, см. tasks/backup-bareos.yml). Пароль без дефолта,
+# обязателен при backup_tool: bareos (Vault, как и остальные секреты роли, ADR §9).
+postgresql_replication_backup_agent_db_user: bareos_backup
+postgresql_replication_backup_agent_db_password: ""
 
 # Фактическая версия, используемая всеми путями роли (fresh install и adopt). Приоритет:
 # 1) adopt (postgresql_replication_existing_instance=true, обнаружено detect-existing-

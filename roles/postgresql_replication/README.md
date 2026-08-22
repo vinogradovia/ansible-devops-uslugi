@@ -65,7 +65,9 @@ ansible-vault encrypt group_vars/postgresql_primary/vault.yml
 `tasks/assert-required-vars.yml`): `postgresql_replication_node_id` (на каждом хосте, обязан быть
 уникальным — требование repmgr), `postgresql_replication_repmgr_password`,
 `postgresql_replication_repl_password`, и (если включены бэкапы)
-`postgresql_replication_backup_s3_access_key`/`_secret_key`.
+`postgresql_replication_backup_s3_access_key`/`_secret_key` (`backup_tool: pgbackrest`) либо
+`postgresql_replication_backup_agent_client_password`/`_backup_agent_db_password`
+(`backup_tool: bareos`).
 
 ## Шифрование трафика репликации между ДЦ
 
@@ -109,20 +111,78 @@ promote` напрямую через `tasks_from: promote`, в обход тег
 ## Бэкапы
 
 `postgresql_replication_backup_enabled: true` на хосте с ролью
-`postgresql_replication_backup_source_role` (по умолчанию `dr_replica`, ADR §8) — физический бэкап
-через `pgBackRest`, ежедневно через systemd-таймер, выгрузка в S3-совместимое хранилище встроенным
-S3-driver'ом pgBackRest (не `rclone`, в отличие от `mysql_replication` — у `pgBackRest` уже есть
-нативная интеграция), ретеншн через нативные политики `repo1-retention-full`/`repo1-retention-diff`
-(по умолчанию 2/6).
+`postgresql_replication_backup_source_role` (по умолчанию `dr_replica`, ADR §8) — физический
+бэкап, инструмент выбирается `postgresql_replication_backup_tool`:
 
-Если источник бэкапа — реплика (значение по умолчанию), роль включает
-`archive_mode=always` именно на этом хосте (не `on` — standby в recovery-режиме с `archive_mode=on`
-не архивирует WAL вообще, тонкость PostgreSQL). На остальных узлах `archive_mode` выключен, чтобы
-не копить недоставленные WAL-сегменты там, где `pgBackRest`-стanza не инициализирована.
+- `pgbackrest` (по умолчанию) — ежедневно через systemd-таймер, выгрузка в S3-совместимое
+  хранилище встроенным S3-driver'ом pgBackRest (не `rclone`, в отличие от `mysql_replication` — у
+  `pgBackRest` уже есть нативная интеграция), ретеншн через нативные политики
+  `repo1-retention-full`/`repo1-retention-diff` (по умолчанию 2/6). Метрика успешности пишется в
+  `postgresql_replication_backup_metrics_textfile_path` — путь должен совпадать с
+  textfile-каталогом `node_exporter` из `monitoring_agent` на этом же хосте (композиция на уровне
+  инвентаря/плейбука, не meta-зависимость — ADR §11).
+- `bareos` — делегирует на единый control-plane `backup_server`/`backup_agent`
+  (ROADMAP №48, Фаза 3, `docs/adr/0010-backup-agent-role.md`) вместо `archive-push` в pgBackRest —
+  `archive_command` на хосте только один, оба инструмента взаимоисключающие. Роль создаёт каталог
+  для WAL (`postgresql_replication_bareos_wal_archive_dir`, `archive_command` пишет туда), отдельную
+  непривилегированную DB-роль (`postgresql_replication_backup_agent_db_user`) с точечным
+  `GRANT EXECUTE` на `pg_backup_start`/`pg_backup_stop` (или legacy `pg_start_backup`/
+  `pg_stop_backup` на PostgreSQL <15), и подключает `backup_agent` условной meta-зависимостью
+  (file daemon + сам плагин). **Плагин `bareos-fd-postgresql` не удаляет файлы из
+  `wal_archive_dir` сам** — роль ставит `postgresql-wal-archive-cleanup.timer`, ежедневно удаляющий
+  файлы старше `postgresql_replication_bareos_wal_archive_retention_days` (по умолчанию 7); это
+  простая очистка по возрасту, не привязанная к тому, какие WAL уже реально вошли в завершённый
+  Bareos-бэкап — держите retention заведомо больше расписания бэкапов на `backup_server`. ЧТО
+  бекапить (`FileSet`/`Plugin`-директива) и расписание — на стороне `backup_server`
+  (`backup_server_clients`/`backup_server_filesets`), не здесь (ADR-0010 §2) — интеграция вручную
+  через совпадающие переменные.
 
-Метрика успешности пишется в `postgresql_replication_backup_metrics_textfile_path` — путь должен
-совпадать с textfile-каталогом `node_exporter` из `monitoring_agent` на этом же хосте (композиция
-на уровне инвентаря/плейбука, не meta-зависимость — ADR §11).
+  **Важно:** `CREATE ROLE`/`GRANT` не выполняются на standby (`cannot execute ... in a read-only
+  transaction`), а `backup_source_role` по умолчанию — `dr_replica`, то есть read-only реплика.
+  DB-роль для плагина поэтому создаётся на **primary** (реплицируется на остальные узлы штатной
+  streaming-репликацией — роли/права глобальны для кластера) — `postgresql_replication_backup_
+  enabled: true`/`_backup_tool: bareos`/`_backup_agent_db_password` должны быть заданы и на
+  primary тоже, не только на хосте-источнике бэкапа (`postgresql_replication_backup_agent_client_
+  name`/`_client_password` на primary не нужны — `backup_agent` туда не подключается).
+
+  На хосте-источнике бэкапа (`dr_replica` по умолчанию):
+
+  ```yaml
+  postgresql_replication_backup_enabled: true
+  postgresql_replication_backup_tool: bareos
+  postgresql_replication_backup_agent_client_name: postgresql-dr-replica-fd  # совпадает с name в backup_server_clients
+  postgresql_replication_backup_agent_client_password: "{{ vault_backup_agent_client_password }}"  # совпадает с password там же
+  ```
+
+  На **primary** (для `CREATE ROLE`/`GRANT EXECUTE`):
+
+  ```yaml
+  postgresql_replication_backup_enabled: true
+  postgresql_replication_backup_tool: bareos
+  postgresql_replication_backup_agent_db_password: "{{ vault_backup_agent_db_password }}"  # совпадает с db_password= в Plugin=
+  ```
+
+  На `backup_server` (те же пароли, тот же `name`):
+
+  ```yaml
+  backup_server_clients:
+    - name: postgresql-dr-replica-fd
+      address: <адрес dr_replica>
+      password: "{{ vault_backup_agent_client_password }}"
+      fileset: postgresql-dr-replica-files
+
+  backup_server_filesets:
+    - name: postgresql-dr-replica-files
+      content: |
+        Include {
+          Options { Signature = XXH128 }
+          Plugin = "python3:module_name=bareos-fd-postgresql:wal_archive_dir=/var/lib/postgresql/bareos_wal_archive:db_host=/var/run/postgresql:db_user=bareos_backup:db_password={{ vault_backup_agent_db_password }}"
+        }
+  ```
+
+  `db_host=` (директория unix-сокета, плагин сам достраивает `.s.PGSQL.<port>`) на практике
+  обязателен, несмотря на то, что официально опциональный — без него плагин падает
+  `KeyError: 'db_host'` (найдено реальным прогоном molecule).
 
 ## Пример
 

@@ -1,0 +1,50 @@
+---
+# postgresql_replication_backup_tool: bareos (ROADMAP №48, Фаза 3, docs/adr/0010-backup-agent-
+# role.md). backup_agent (file daemon + bareos-fd-postgresql плагин) подключается условной meta-
+# зависимостью (см. meta/main.yml) — здесь только то, что нужно самому PostgreSQL и плагину со
+# стороны клиента НА ЭТОМ хосте (backup_source_role, по умолчанию dr_replica): pg_hba для DB-роли
+# и очистка wal_archive_dir по возрасту (плагин сам файлы не удаляет — ADR-0010). Сам каталог для
+# WAL создаётся раньше, в tasks/main.yml (до archive_command/рестарта PostgreSQL — иначе первый же
+# WAL-сегмент не архивируется и блокирует все последующие, найдено реальным прогоном molecule).
+# DB-роль и GRANT EXECUTE создаются на primary (tasks/backup-bareos-db-role.yml) — CREATE ROLE не
+# выполняется на standby. ЧТО бекапить (FileSet/Plugin-директива, wal_archive_dir=/db_user=/
+# db_password= inline) решается на backup_server (backup_server_filesets), не здесь (тот же
+# принцип, что ADR-0010 §2).
+
+# bareos-fd работает от root — TCP/socket-подключение плагина идёт не от OS-пользователя postgres,
+# поэтому peer-auth (дефолт Debian/Ubuntu для local) не подходит; пароль передаётся inline через
+# db_password= в Plugin= на стороне backup_server (см. README), тут только сам метод аутентификации.
+- name: Allow backup_agent DB role to connect locally with a password
+  community.postgresql.postgresql_pg_hba:
+    dest: "{{ postgresql_replication_config_dir }}/pg_hba.conf"
+    contype: local
+    databases: all
+    users: "{{ postgresql_replication_backup_agent_db_user }}"
+    method: scram-sha-256
+  notify: Reload PostgreSQL
+
+- name: Force notified handlers (Reload PostgreSQL) to run now
+  ansible.builtin.meta: flush_handlers
+
+- name: Render systemd service/timer for WAL archive cleanup
+  ansible.builtin.template:
+    src: "systemd/{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop:
+    - postgresql-wal-archive-cleanup.service
+    - postgresql-wal-archive-cleanup.timer
+  notify:
+    - Reload systemd daemon
+    - Restart postgresql-wal-archive-cleanup.timer
+
+- name: Force handlers to run now
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable postgresql-wal-archive-cleanup.timer
+  ansible.builtin.systemd:
+    name: postgresql-wal-archive-cleanup.timer
+    enabled: true
+    state: started

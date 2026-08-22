@@ -52,6 +52,23 @@ platforms:
     groups:
       - postgresql_dr_replica
 
+  # ROADMAP №48, Фаза 3 (docs/adr/0010-backup-agent-role.md) — реальный Bareos-путь
+  # (postgresql_replication_backup_tool: bareos на dr_replica, см.
+  # group_vars/postgresql_dr_replica.yml). Box cloud-image/ubuntu-24.04, как у
+  # extensions/molecule/backup_server|backup_agent|mysql_replication — не зависит от MOLECULE_BOX,
+  # параметризующего только PostgreSQL-ВМ.
+  - name: postgresql-backup-server
+    box: cloud-image/ubuntu-24.04
+    memory: 1536
+    cpus: 1
+    interfaces:
+      - auto_config: true
+        network_name: private_network
+        type: static
+        ip: 192.168.58.13
+    groups:
+      - backup_servers
+
 scenario:
   test_sequence:
     - dependency

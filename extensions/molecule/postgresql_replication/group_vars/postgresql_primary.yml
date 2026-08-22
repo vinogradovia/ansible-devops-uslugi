@@ -12,3 +12,21 @@ postgresql_replication_allow_restart: true
 # Общие тестовые пароли на все три хоста сценария — не секреты.
 postgresql_replication_repl_password: molecule-test-repl-password
 postgresql_replication_repmgr_password: molecule-test-repmgr-password
+
+# ROADMAP №48, Фаза 3 (docs/adr/0010-backup-agent-role.md) — CREATE ROLE/GRANT для bareos-бэкапа
+# выполняются на primary (не на dr_replica — standby, read-only), см.
+# roles/postgresql_replication/README.md, "Бэкапы".
+postgresql_replication_backup_enabled: true
+postgresql_replication_backup_tool: bareos
+postgresql_replication_backup_agent_db_password: molecule-test-backup-agent-db-password
+
+# backup_agent_client_name/_password — на первый взгляд не нужны на primary (backup_agent
+# подключается только когда postgresql_replication_role == backup_source_role, т.е. на
+# dr_replica). Но найдено реальным прогоном molecule: verify.yml, сценарий failback (раздел 3,
+# шаг 5 рунбука), вызывает promote.yml с переопределённым postgresql_replication_role: dr_replica
+# на ЭТОМ хосте — тем же приёмом, что и в самом рунбуке. Meta-зависимость на backup_agent видит
+# именно это (переопределённое) значение и реально срабатывает — без учётных данных здесь роль
+# упала бы на "Fail if backup_agent_client_password is not set" посреди failback-теста. Совпадает
+# со вторым клиентом group_vars/backup_servers.yml (postgresql-primary-fd).
+postgresql_replication_backup_agent_client_name: postgresql-primary-fd
+postgresql_replication_backup_agent_client_password: molecule-test-backup-agent-client-password-primary

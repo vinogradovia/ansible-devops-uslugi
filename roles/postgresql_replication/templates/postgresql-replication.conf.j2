@@ -35,7 +35,31 @@ shared_preload_libraries = 'repmgr'
 # работает как primary, standby в recovery-режиме с 'on' архивировать не будет вообще — тонкость
 # PostgreSQL, не совпадающая с интуитивным ожиданием "on значит включено везде".
 archive_mode = {{ 'on' if postgresql_replication_role == 'primary' else 'always' }}
+{% if postgresql_replication_backup_tool == 'bareos' %}
+# ROADMAP №48, Фаза 3 — bareos-fd-postgresql плагин читает WAL из wal_archive_dir=, сам его не
+# архивирует. "test ! -f ... &&" — не перезаписывать уже заархивированный сегмент (тот же приём,
+# что рекомендует официальная документация PostgreSQL для простого copy-archive_command).
+archive_command = 'test ! -f {{ postgresql_replication_bareos_wal_archive_dir }}/%f && cp %p {{ postgresql_replication_bareos_wal_archive_dir }}/%f'
+# Принудительное переключение WAL-сегмента — иначе pg_backup_stop(wait_for_archive=true) плагина
+# может ждать вечно на тихой БД (см. defaults/main.yml, postgresql_replication_bareos_archive_timeout).
+archive_timeout = {{ postgresql_replication_bareos_archive_timeout }}
+{% else %}
 archive_command = 'pgbackrest --stanza={{ postgresql_replication_pgbackrest_stanza }} archive-push %p'
+{% endif %}
+{% elif postgresql_replication_backup_enabled and postgresql_replication_backup_tool == 'bareos' and postgresql_replication_role == 'primary' %}
+# ROADMAP №48, Фаза 3 — найдено реальным прогоном molecule: archive_timeout сам по себе не
+# заставляет реплику архивировать чаще — WAL-сегмент физически переключает только primary,
+# реплика лишь получает уже переключённые сегменты потоковой репликацией и архивирует то, что
+# получила. Если источник бэкапа — реплика (backup_source_role=dr_replica по умолчанию, ADR §8),
+# а primary archive_mode=off, WAL-сегменты на тихой БД (мало/нет записи после снятия бэкапа)
+# никогда не переключаются — pg_backup_stop(wait_for_archive=true) плагина виснет часами в
+# ожидании сегмента, который primary никогда не завершит. Поэтому primary тоже архивирует —
+# archive_command сюда не пишет ничего полезного (никто не читает WAL-архив primary, если
+# backup_source_role != primary), 'true' достаточно, чтобы XLogArchivingActive() включил
+# принудительное переключение по archive_timeout.
+archive_mode = always
+archive_command = 'true'
+archive_timeout = {{ postgresql_replication_bareos_archive_timeout }}
 {% else %}
 archive_mode = off
 {% endif %}

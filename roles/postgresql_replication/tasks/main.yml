@@ -49,6 +49,25 @@
   ansible.builtin.include_tasks:
     file: install-repmgr-pgbackrest.yml
 
+# ROADMAP №48, Фаза 3 — должно случиться ДО рендера archive_command/рестарта PostgreSQL ниже, не
+# после (было в backup-bareos.yml, вместе с pg_hba/cleanup timer). Найдено реальным прогоном
+# molecule: без этого PostgreSQL успевает попробовать заархивировать первый WAL-сегмент в ещё не
+# существующий каталог, cp падает ("No such file or directory"), и, так как WAL архивируется
+# строго по порядку, ВСЕ последующие сегменты зависают за этим первым навсегда — pg_backup_stop()
+# (non-exclusive backup, ждёт архивации) висит бесконечно, хотя каталог к этому моменту уже
+# создан и последующие сегменты архивируются штатно.
+- name: Create WAL archive directory for bareos-fd-postgresql plugin (before archive_command is set below)
+  when:
+    - postgresql_replication_backup_enabled
+    - postgresql_replication_role == postgresql_replication_backup_source_role
+    - postgresql_replication_backup_tool == 'bareos'
+  ansible.builtin.file:
+    path: "{{ postgresql_replication_bareos_wal_archive_dir }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0700'
+
 - name: Configure replication-related settings (wal_level, repmgr preload, pg_hba)
   ansible.builtin.include_tasks:
     file: configure-postgresql.yml
@@ -58,17 +77,40 @@
   ansible.builtin.include_tasks:
     file: replication-user.yml
 
+# ROADMAP №48, Фаза 3 (docs/adr/0010-backup-agent-role.md) — CREATE ROLE/GRANT не выполняются на
+# standby, поэтому DB-роль для bareos-бэкапа создаётся здесь (primary), а не на
+# backup_source_role хосте (см. tasks/backup-bareos.yml ниже). Требует, чтобы
+# postgresql_replication_backup_enabled/_backup_tool были заданы и на primary тоже (см. README).
+- name: Create backup_agent DB role for bareos backups (primary only — CREATE ROLE needs a writable node)
+  when:
+    - postgresql_replication_role == 'primary'
+    - postgresql_replication_backup_enabled
+    - postgresql_replication_backup_tool == 'bareos'
+  ansible.builtin.include_tasks:
+    file: backup-bareos-db-role.yml
+
 - name: Clone from primary and register with repmgr (replicas only)
   when: postgresql_replication_role in ['read_replica', 'dr_replica']
   ansible.builtin.include_tasks:
     file: configure-replica.yml
 
-- name: Configure physical backups (only on the designated backup source)
+- name: Configure physical backups (pgBackRest → S3, only on the designated backup source)
   when:
     - postgresql_replication_backup_enabled
     - postgresql_replication_role == postgresql_replication_backup_source_role
+    - postgresql_replication_backup_tool == 'pgbackrest'
   ansible.builtin.include_tasks:
     file: backup.yml
+
+# ROADMAP №48, Фаза 3 (docs/adr/0010-backup-agent-role.md) — backup_agent подключается условной
+# meta-зависимостью (см. meta/main.yml), здесь только WAL-directory/DB-роль/очистка.
+- name: Configure physical backups (bareos, only on the designated backup source)
+  when:
+    - postgresql_replication_backup_enabled
+    - postgresql_replication_role == postgresql_replication_backup_source_role
+    - postgresql_replication_backup_tool == 'bareos'
+  ansible.builtin.include_tasks:
+    file: backup-bareos.yml
 
 # Ручная операция (ADR §7) — никогда не выполняется в обычном прогоне. Запускается оператором
 # явно: ansible-playbook ... --tags postgresql_replication_promote --limit <dr-replica-host>

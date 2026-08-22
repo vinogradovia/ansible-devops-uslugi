@@ -40,7 +40,14 @@
       register: molecule_primary_preload
       changed_when: false
 
-    - name: Прочитать archive_mode (должен быть off на primary — backup_source_role=dr_replica)
+    # ROADMAP №48, Фаза 3 — этот сценарий тестирует backup_tool: bareos (group_vars/
+    # postgresql_primary.yml, postgresql_dr_replica.yml), где archive_mode на primary — 'always',
+    # а не 'off', даже хотя источник бэкапа (backup_source_role) — dr_replica, не primary: WAL-
+    # сегмент физически переключает только primary, поэтому primary тоже архивирует (в никуда,
+    # archive_command='true') — иначе archive_timeout не работает и pg_backup_stop() плагина на
+    # dr_replica виснет на тихой БД (см. templates/postgresql-replication.conf.j2, найдено
+    # реальным прогоном molecule). Для backup_tool: pgbackrest (default) это по-прежнему 'off'.
+    - name: Прочитать archive_mode (должен быть always на primary при backup_tool bareos)
       become: true
       become_user: postgres
       ansible.builtin.command: >
@@ -53,7 +60,7 @@
         that:
           - molecule_primary_wal_level.stdout | trim == 'replica'
           - "'repmgr' in molecule_primary_preload.stdout"
-          - molecule_primary_archive_mode.stdout | trim == 'off'
+          - molecule_primary_archive_mode.stdout | trim == 'always'
         fail_msg: >-
           wal_level={{ molecule_primary_wal_level.stdout }}
           shared_preload_libraries={{ molecule_primary_preload.stdout }}
@@ -203,6 +210,45 @@
       delay: 2
       changed_when: false
 
+# ROADMAP №48, Фаза 3 (docs/adr/0010-backup-agent-role.md) — реальный Bareos-путь
+# (postgresql_replication_backup_tool: bareos на postgresql-dr-replica), тот же приём, что
+# extensions/molecule/mysql_replication/verify.yml: настоящий job через bconsole, не только
+# "конфиг синтаксически верен". Выполняется здесь, ДО promote/failback-последовательности ниже —
+# та меняет роль/состояние dr_replica, а backup-job рассчитан на её исходную роль (dr_replica).
+- name: Verify (backup_servers)
+  hosts: backup_servers
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Запустить job backup-postgresql-dr-replica-fd через bconsole и дождаться завершения
+      ansible.builtin.shell: |
+        set -o pipefail
+        printf 'run job=backup-postgresql-dr-replica-fd level=Full yes\nwait\nmessages\nquit\n' | bconsole -c /etc/bareos/bconsole.conf
+      args:
+        executable: /bin/bash
+      register: molecule_bconsole_run
+      changed_when: true
+
+    - name: Вывод bconsole должен подтвердить успешное завершение job'а
+      ansible.builtin.assert:
+        that:
+          - "'Backup OK' in molecule_bconsole_run.stdout or 'Termination:            Backup OK' in molecule_bconsole_run.stdout"
+        quiet: true
+        fail_msg: "bconsole run job=backup-postgresql-dr-replica-fd не завершился успешно, вывод: {{ molecule_bconsole_run.stdout }}"
+
+    - name: Найти файлы томов в storage-каталоге
+      ansible.builtin.find:
+        paths: /var/lib/bareos/storage
+        file_type: file
+      register: molecule_storage_volumes
+
+    - name: Storage daemon должен реально записать хотя бы один непустой том с данными PostgreSQL
+      ansible.builtin.assert:
+        that:
+          - molecule_storage_volumes.matched > 0
+          - molecule_storage_volumes.files | map(attribute='size') | max > 0
+        quiet: true
+
 # --- Ручной promote (docs/runbooks/postgresql-failover.md, раздел 2, шаг 3; ADR §7) -------------
 # tasks/promote.yml спрятан в main.yml за тегами [postgresql_replication_promote, never] — обычный
 # ansible-playbook (в т.ч. converge.yml/verify.yml этого сценария) его не выполняет, поэтому здесь
@@ -218,7 +264,12 @@
 - name: Verify (promote — защита от promote primary)
   hosts: postgresql_primary
   become: true
-  gather_facts: false
+  # gather_facts: true — include_role ниже подключает всю роль postgresql_replication, в т.ч. её
+  # meta-зависимость на backup_agent (backup_tool: bareos в этом сценарии), чьи defaults читают
+  # ansible_distribution — без фактов падает "'ansible_distribution' is undefined" даже когда
+  # backup_agent сам по себе не должен ничего делать на этом хосте (найдено реальным прогоном
+  # molecule, ROADMAP №48 Фаза 3).
+  gather_facts: true
   tasks:
     # ignore_errors/register на include_role не перехватывают ошибку из ВЛОЖЕННОЙ задачи (известное
     # ограничение динамических include в Ansible — сам include не падает, падает конкретная задача
@@ -273,7 +324,9 @@
 - name: Verify (promote — реальный promote DR-реплики)
   hosts: postgresql_dr_replica
   become: true
-  gather_facts: false
+  # gather_facts: true — этот хост является backup_source_role (dr_replica), meta-зависимость на
+  # backup_agent реально выполняется, её задачи (install-repo.yml) используют ansible_distribution.
+  gather_facts: true
   tasks:
     - name: Promote DR-реплику в writable-режим (repmgr standby promote)
       ansible.builtin.include_role:
@@ -432,7 +485,11 @@
 - name: "Verify (failback — промоутить старого primary обратно в writer, раздел 3, шаг 5.2)"
   hosts: postgresql_primary
   become: true
-  gather_facts: false
+  # gather_facts: true — postgresql_replication_role ниже переопределён в dr_replica, поэтому
+  # backup_agent-зависимость реально срабатывает для этого хоста тоже (см. комментарий выше по
+  # тексту и group_vars/postgresql_primary.yml — там заведены свои backup_agent_client_name/
+  # _password именно на этот случай).
+  gather_facts: true
   vars:
     # tasks/promote.yml проверяет ассертом *статическую* postgresql_replication_role — у этого
     # хоста в group_vars она навсегда primary, хотя после rejoin выше он технически standby.
@@ -482,7 +539,9 @@
 - name: "Verify (failback — переклонировать бывшую DR-реплику обратно в standby, раздел 3, шаг 6)"
   hosts: postgresql_dr_replica
   become: true
-  gather_facts: false
+  # gather_facts: true — этот хост снова dr_replica (backup_source_role), backup_agent-зависимость
+  # снова реально срабатывает (см. комментарии по тексту выше).
+  gather_facts: true
   vars:
     # configure-replica.yml вызывается здесь напрямую (tasks_from), в обход main.yml — поэтому
     # detect-existing-instance.yml не отрабатывает и postgresql_replication_target_version не

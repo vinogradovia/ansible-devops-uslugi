@@ -1,0 +1,65 @@
+---
+# Часть postgresql_replication_backup_tool: bareos (ROADMAP №48, Фаза 3), выполняемая ТОЛЬКО на
+# primary — найдено реальным прогоном molecule: CREATE ROLE/GRANT не проходят на standby
+# ("cannot execute CREATE ROLE in a read-only transaction"), а postgresql_replication_
+# backup_source_role по умолчанию dr_replica — то есть just read-only реплика. Роль и права
+# создаются на primary и реплицируются на все узлы штатной streaming-репликацией (роли/права —
+# часть глобального каталога, не конкретной БД), поэтому на самой dr_replica ничего создавать не
+# нужно — только использовать (WAL-каталог/pg_hba/очистка, см. backup-bareos.yml).
+#
+# Требует, чтобы postgresql_replication_backup_enabled/_backup_tool/_backup_agent_db_user/
+# _backup_agent_db_password были заданы и на primary тоже (см. tasks/assert-required-vars.yml,
+# README.md) — единственное место роли, где конфигурация бэкапа должна дублироваться на хосте, не
+# являющемся backup_source_role.
+
+- name: Create backup_agent DB role (no SUPERUSER — point GRANT EXECUTE/pg_read_all_settings below)
+  become: true
+  become_user: postgres
+  community.postgresql.postgresql_user:
+    login_unix_socket: /var/run/postgresql
+    name: "{{ postgresql_replication_backup_agent_db_user }}"
+    password: "{{ postgresql_replication_backup_agent_db_password }}"
+    role_attr_flags: LOGIN
+    state: present
+
+# Найдено реальным прогоном molecule: плагин читает data_directory/archive_mode/archive_command/
+# ... через SHOW (см. bareos-fd-postgresql.py, cluster_configuration_parameters) — data_directory
+# конкретно требует superuser либо членства в pg_read_all_settings (встроенная роль PostgreSQL),
+# иначе "used role misses privileges to read configuration data_directory value".
+- name: Grant pg_read_all_settings to backup_agent DB role (needed to SHOW data_directory/archive_mode/...)
+  become: true
+  become_user: postgres
+  community.postgresql.postgresql_membership:
+    login_unix_socket: /var/run/postgresql
+    group: pg_read_all_settings
+    target_roles: "{{ postgresql_replication_backup_agent_db_user }}"
+    state: present
+
+# Сигнатуры pg_backup_start/pg_backup_stop сменились в PostgreSQL 15 (non-exclusive backup mode
+# стал единственным) — ветвление по postgresql_replication_effective_version (роль уже знает
+# фактическую версию, см. defaults/main.yml, "Discovery версии").
+- name: Grant EXECUTE on pg_backup_start/pg_backup_stop (PostgreSQL 15+) to backup_agent DB role
+  when: postgresql_replication_effective_version | int >= 15
+  become: true
+  become_user: postgres
+  community.postgresql.postgresql_privs:
+    login_unix_socket: /var/run/postgresql
+    login_db: postgres
+    type: function
+    schema: pg_catalog
+    objs: "pg_backup_start(text:boolean),pg_backup_stop(boolean)"
+    privs: EXECUTE
+    role: "{{ postgresql_replication_backup_agent_db_user }}"
+
+- name: Grant EXECUTE on pg_start_backup/pg_stop_backup (legacy, PostgreSQL <15) to backup_agent DB role
+  when: postgresql_replication_effective_version | int < 15
+  become: true
+  become_user: postgres
+  community.postgresql.postgresql_privs:
+    login_unix_socket: /var/run/postgresql
+    login_db: postgres
+    type: function
+    schema: pg_catalog
+    objs: "pg_start_backup(text:boolean:boolean),pg_stop_backup(boolean:boolean)"
+    privs: EXECUTE
+    role: "{{ postgresql_replication_backup_agent_db_user }}"

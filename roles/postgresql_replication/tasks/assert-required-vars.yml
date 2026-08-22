@@ -49,6 +49,7 @@
   when:
     - postgresql_replication_backup_enabled
     - postgresql_replication_role == postgresql_replication_backup_source_role
+    - postgresql_replication_backup_tool != 'bareos'
   ansible.builtin.assert:
     that:
       - postgresql_replication_backup_s3_endpoint | length > 0
@@ -58,3 +59,32 @@
     fail_msg: >-
       postgresql_replication_backup_enabled=true requires S3 endpoint/bucket/credentials
       (Vault, see ADR §9).
+
+- name: Assert backup_agent client password is set (bareos backup tool, backup source host)
+  when:
+    - postgresql_replication_backup_enabled
+    - postgresql_replication_role == postgresql_replication_backup_source_role
+    - postgresql_replication_backup_tool == 'bareos'
+  ansible.builtin.assert:
+    that:
+      - postgresql_replication_backup_agent_client_password | length > 0
+    fail_msg: >-
+      postgresql_replication_backup_tool == 'bareos' requires
+      postgresql_replication_backup_agent_client_password (must match the password field of the
+      corresponding backup_server_clients entry) — no default (ROADMAP №48, Фаза 3,
+      roles/backup_agent/README.md).
+
+# DB-роль создаётся на primary, не на backup_source_role хосте (CREATE ROLE не работает на
+# standby, см. tasks/backup-bareos-db-role.yml) — поэтому этот ассерт на primary, не там.
+- name: Assert backup_agent DB role password is set (bareos backup tool, primary)
+  when:
+    - postgresql_replication_role == 'primary'
+    - postgresql_replication_backup_enabled
+    - postgresql_replication_backup_tool == 'bareos'
+  ansible.builtin.assert:
+    that:
+      - postgresql_replication_backup_agent_db_password | length > 0
+    fail_msg: >-
+      postgresql_replication_backup_tool == 'bareos' requires
+      postgresql_replication_backup_agent_db_password on primary (CREATE ROLE runs there, see
+      tasks/backup-bareos-db-role.yml) — no default (ROADMAP №48, Фаза 3).

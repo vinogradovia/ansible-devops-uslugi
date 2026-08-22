@@ -1,0 +1,9 @@
+[Unit]
+Description=Daily cleanup of stale WAL segments in bareos wal_archive_dir
+
+[Timer]
+OnCalendar=*-*-* {{ postgresql_replication_backup_time }}
+Persistent=true
+
+[Install]
+WantedBy=timers.target

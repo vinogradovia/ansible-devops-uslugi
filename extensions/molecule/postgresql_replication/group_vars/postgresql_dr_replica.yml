@@ -5,8 +5,13 @@ postgresql_replication_primary_host: 192.168.58.10
 postgresql_replication_repl_password: molecule-test-repl-password
 postgresql_replication_repmgr_password: molecule-test-repmgr-password
 
-# Бэкапы (pgBackRest + S3) намеренно выключены в этом сценарии — требуют реального
-# S3-совместимого эндпоинта, вне scope молекулы (тот же принцип, что и в mysql_replication, ADR
-# §10 покрывает только репликацию). Ручная проверка бэкапов — см.
-# roles/postgresql_replication/README.md.
-postgresql_replication_backup_enabled: false
+# Бэкапы: реальный путь bareos (ROADMAP №48, Фаза 3, docs/adr/0010-backup-agent-role.md) —
+# единственный практично проверяемый в molecule без внешнего S3-эндпоинта (pgBackRest+S3 путь
+# остаётся вне scope этого сценария). backup_agent подключается условной meta-зависимостью роли
+# (см. roles/postgresql_replication/meta/main.yml) — эта ВМ становится реальным клиентом
+# backup_servers-группы (postgresql-backup-server, см. molecule.yml/group_vars/backup_servers.yml).
+postgresql_replication_backup_enabled: true
+postgresql_replication_backup_tool: bareos
+postgresql_replication_backup_agent_client_name: postgresql-dr-replica-fd
+postgresql_replication_backup_agent_client_password: molecule-test-backup-agent-client-password
+postgresql_replication_backup_agent_db_password: molecule-test-backup-agent-db-password

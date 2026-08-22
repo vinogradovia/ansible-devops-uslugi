@@ -1,0 +1,44 @@
+---
+# ROADMAP №48, Фаза 3 (docs/adr/0010-backup-agent-role.md) — backup_server для реального
+# Bareos-пути postgresql_replication_backup_tool: bareos на postgresql-dr-replica (см.
+# group_vars/postgresql_dr_replica.yml). Тот же паттерн, что extensions/molecule/mysql_replication/
+# group_vars/backup_servers.yml.
+
+backup_server_director_password: molecule-test-director-password
+backup_server_storage_password: molecule-test-storage-password
+backup_server_catalog_db_password: molecule-test-catalog-password
+
+# Self-backup выключен — сценарий сфокусирован на одном реальном job'е postgresql-dr-replica-fd.
+backup_server_self_backup_enabled: false
+
+backup_server_clients:
+  - name: postgresql-dr-replica-fd
+    address: 192.168.58.12
+    password: molecule-test-backup-agent-client-password
+    fileset: postgresql-dr-replica-files
+  # Второй клиент — на случай failback (verify.yml, "Verify (failback — промоутить старого
+  # primary обратно в writer..."): promote.yml там вызывается с переопределённым
+  # postgresql_replication_role: dr_replica (тот же приём, что и в рунбуке, раздел 3, шаг 5), из-за
+  # чего meta-зависимость backup_agent реально срабатывает и для хоста postgresql-primary тоже —
+  # найдено реальным прогоном molecule. В производственной топологии это отражает реальность:
+  # любой узел, способный временно стать backup_source_role во время failover/failback, должен
+  # быть заранее зарегистрирован клиентом bareos, а не только текущий dr_replica.
+  - name: postgresql-primary-fd
+    address: 192.168.58.10
+    password: molecule-test-backup-agent-client-password-primary
+    fileset: postgresql-dr-replica-files
+
+# bareos-fd-postgresql — плагин ставится backup_agent через условную meta-зависимость
+# postgresql_replication (backup_agent_install_postgresql_plugin: true); wal_archive_dir/DB-роль
+# готовит сама postgresql_replication (tasks/backup-bareos.yml). db_password передаётся inline —
+# должен совпадать с postgresql_replication_backup_agent_db_password на dr_replica. db_host=
+# обязателен на практике (найдено реальным прогоном molecule — без него плагин падает
+# "KeyError: 'db_host'", несмотря на то, что официально опция необязательная); указывает на
+# unix-socket директорию (плагин сам достраивает .s.PGSQL.<port>, начинается с "/").
+backup_server_filesets:
+  - name: postgresql-dr-replica-files
+    content: |
+      Include {
+        Options { Signature = XXH128 }
+        Plugin = "python3:module_name=bareos-fd-postgresql:wal_archive_dir=/var/lib/postgresql/bareos_wal_archive:db_host=/var/run/postgresql:db_user=bareos_backup:db_password=molecule-test-backup-agent-db-password"
+      }

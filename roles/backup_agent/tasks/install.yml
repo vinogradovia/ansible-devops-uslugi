@@ -10,10 +10,25 @@
 # Пакеты подтверждены реальным листингом Packages репозитория download.bareos.org (тот же, что
 # roles/backup_server) — устанавливаются опционально, по тому, что оператор реально планирует
 # бекапить этим агентом через backup_server_filesets (Plugin = ... на стороне backup_server).
-- name: Установить плагин bareos-fd-postgresql
+#
+# pg8000 — найдено реальным прогоном molecule (ROADMAP №48, Фаза 3): плагин использует pg8000
+# (не psycopg2) для подключения к PostgreSQL и требует версию >= 1.16, а пакет python3-pg8000
+# из apt Debian 12/Ubuntu 24.04 старше (1.10.6) — job падает "pg8000 module version (1.10.6) is
+# lower than required version 1.16". Ставим через pip (--break-system-packages — PEP 668 на
+# Debian 12+/Ubuntu 24.04+), а не apt.
+- name: Установить плагин bareos-fd-postgresql (+ python3-pip для актуального pg8000)
   ansible.builtin.apt:
-    name: bareos-filedaemon-postgresql-python-plugin
+    name:
+      - bareos-filedaemon-postgresql-python-plugin
+      - python3-pip
     state: present
+  when: backup_agent_install_postgresql_plugin
+
+- name: Установить/обновить pg8000 через pip (>= 1.16, требование плагина)
+  ansible.builtin.pip:
+    name: pg8000>=1.16
+    state: present
+    extra_args: --break-system-packages
   when: backup_agent_install_postgresql_plugin
 
 - name: Установить плагин bareos-fd-percona-xtrabackup

@@ -31,3 +31,8 @@
   ansible.builtin.systemd:
     name: postgresql-backup.timer
     state: restarted
+
+- name: Restart postgresql-wal-archive-cleanup.timer
+  ansible.builtin.systemd:
+    name: postgresql-wal-archive-cleanup.timer
+    state: restarted
