@@ -16,7 +16,7 @@
 | [`reverse_proxy_npm`](../roles/reverse_proxy_npm/README.md) | Nginx Proxy Manager — GUI/REST API вместо IaC | ✅ | [0001](adr/0001-reverse-proxy-npm-role.md) | — | `reverse_proxy_npm` | готово |
 | [`nginx_multidomain`](../roles/nginx_multidomain/README.md) | nginx для shared hosting (multi-domain YAML-конфиг) | ✅ | [0003](adr/0003-ginx-multidomain-role.md) | — | `nginx_multidomain` | реализована частично (letsencrypt/basic_auth/json-логи — см. ADR §8–9) |
 | [`infra_dns`](../roles/infra_dns/README.md) | bind9 — forward/reverse-зоны из inventory | ✅ | — | — | `infra_dns` | готово |
-| [`mysql_replication`](../roles/mysql_replication/README.md) | MySQL HA: GTID-репликация "звездой", бэкапы в S3, ручной promote | ✅ | [0004](adr/0004-mysql-ha-replication-role.md) | [mysql-failover.md](runbooks/mysql-failover.md) | `mysql_replication` | готово |
+| [`mysql_replication`](../roles/mysql_replication/README.md) | MySQL HA: GTID-репликация "звездой", бэкапы в S3 или Bareos, ручной promote | ✅ | [0004](adr/0004-mysql-ha-replication-role.md), [0010](adr/0010-backup-agent-role.md) | [mysql-failover.md](runbooks/mysql-failover.md) | `mysql_replication` | готово |
 | [`proxysql`](../roles/proxysql/README.md) | Единая точка подключения к MySQL (writer/reader hostgroups) | ✅ | [0004 §6](adr/0004-mysql-ha-replication-role.md) | [mysql-failover.md](runbooks/mysql-failover.md) | `proxysql` | готово |
 | [`postgresql_replication`](../roles/postgresql_replication/README.md) | PostgreSQL HA: streaming-репликация под repmgr, бэкапы pgBackRest в S3 | ✅ | [0005](adr/0005-postgresql-ha-replication-role.md) | [postgresql-failover.md](runbooks/postgresql-failover.md) | `postgresql_replication` | готово |
 | [`odyssey`](../roles/odyssey/README.md) | Единая точка подключения к PostgreSQL (Yandex Odyssey) | ✅ | [0005 §6](adr/0005-postgresql-ha-replication-role.md) | [postgresql-failover.md](runbooks/postgresql-failover.md) | `odyssey` | готово |
@@ -25,7 +25,17 @@
 | [`fail2ban`](../roles/fail2ban/README.md) | Fail2Ban — jail'ы под интеграции коллекции (nginx, NPM и др.) | ✅ | — | — | `fail2ban` | готово |
 | [`fail2ban_ui`](../roles/fail2ban_ui/README.md) | Веб-панель Fail2Ban (обёртка над swissmakers/fail2ban-ui) | ✅ | — | — | `fail2ban_ui` | готово |
 | [`infra_panel`](../roles/infra_panel/README.md) | homer — дашборд-стартовая страница платформы | ✅ | [0008](adr/0008-infra-panel-role.md) | — | `infra_panel` | готово (docker), частично (k3s — см. ADR §2) |
-| [`freeipa`](../roles/freeipa/README.md) | FreeIPA — LDAP + Kerberos KDC + CA, центральный каталог платформы | ✅ | — (новая роль, ADR ещё не написан) | — | `freeipa` (в разработке, не закоммичено) | новое, документация неполная |
+| [`freeipa`](../roles/freeipa/README.md) | FreeIPA — LDAP + Kerberos KDC + CA, центральный каталог платформы | ✅ | [0011](adr/0011-freeipa-role.md) | — | `freeipa` | готово |
+
+## Архитектура решена, роль не реализована
+
+| Компонент | Назначение | ADR | Закрывает |
+|---|---|---|---|
+| Harbor | Self-hosted OCI registry для Execution Environment | [0012 §1](adr/0012-cicd-platform-architecture.md) | — |
+| Gitea | Self-hosted git + CI (Gitea Actions; раннер `molecule` — вне k3s) | [0012 §4](adr/0012-cicd-platform-architecture.md) | ROADMAP №52 |
+| Semaphore UI | Веб-панель запуска ansible/terraform | [0012 §5](adr/0012-cicd-platform-architecture.md) | ROADMAP №50 |
+| OpenBao | Внешнее хранилище секретов (Vault-совместимый форк — HashiCorp Vault geo-blocked) | [0012 §3](adr/0012-cicd-platform-architecture.md) | — |
+| Authelia (имя роли не выбрано) | OIDC-провайдер поверх `freeipa` (LDAP-федерация), `forwardAuth` для admin-панелей | [0013](adr/0013-unified-auth-architecture.md) | ROADMAP №49 |
 
 ## Что не является ролью коллекции, но относится к документации
 
