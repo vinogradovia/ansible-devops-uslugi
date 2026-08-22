@@ -834,8 +834,12 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
       разворачивает встроенный Traefik асинхронно) и коллизия `helm/helmwave.yml` (общий
       рендер-файл с `roles/monitoring_server`, `K8S_CLUSTER=platform` перезаписывал чужой
       референс) — обе исправлены, см. `platform/cicd/README.md`. Ручные шаги (создание
-      репозитория в Gitea, Task Template в Semaphore на роли `infra_panel`) — задокументированы,
-      не выполнены на живую (следующий шаг перед Фазой 1).
+      репозитория в Gitea, Task Template в Semaphore на роли `infra_panel`) — ~~сделано~~:
+      выполнены на живом стенде через REST API обоих сервисов (организация `platform`, репозиторий
+      `platform/gitops`, Semaphore-проект + Task Template `infra_panel (pilot, ADR-0014 Фаза 0)`),
+      см. `platform/cicd/README.md`. Сам Task Template ни разу не запускался — установка
+      коллекции `devops.uslugi` на runner'е и реальный целевой хост в inventory остаются открытыми
+      (не блокируют переход к Фазе 1). **Фаза 0 закрыта целиком.**
    2. **Фаза 1** — схема `Module` CRD (`spec.role`/`spec.vars`/`spec.inventoryRef`,
       `status.conditions`/`lastAppliedRevision`/`lastSyncTime`/`semaphoreJobID`), без кода
       контроллера — один пример CR вручную через `kubectl apply`, чтобы доказать достаточность

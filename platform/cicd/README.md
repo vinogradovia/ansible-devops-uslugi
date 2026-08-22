@@ -33,21 +33,37 @@ poetry run ansible-playbook -i inventory.yml site.yml
 Требует на control-хосте (не на самой VM): `helm`, `helmwave`, python-пакет `kubernetes`
 (dev-зависимость `pyproject.toml`) — те же требования, что `extensions/molecule/monitoring_server_k3s/`.
 
-## Ручные шаги после первого запуска (не автоматизированы)
+## Ручные шаги после первого запуска
 
-1. Открыть Gitea (`http://gitea.cicd.platform` через IP VM — DNS резолвится только внутри
-   libvirt-сети стенда; либо `kubectl port-forward`/правка `/etc/hosts` для доступа с
-   control-хоста) и создать организацию/репозиторий для `Module`-манифестов и Ansible-inventory.
-   Учётные данные администратора — `helm/values/platform/namespaces/platform/gitea/values.yaml`
-   (`gitea.admin`) — **плейсхолдер, сменить перед реальным использованием**.
-2. Открыть Semaphore (`http://semaphore.cicd.platform`), войти под администратором
-   (`helm/values/platform/namespaces/platform/semaphore/values.yaml`,
-   `SEMAPHORE_ADMIN`/`SEMAPHORE_ADMIN_PASSWORD` — тоже плейсхолдер), создать Git-интеграцию на
-   репозиторий из шага 1 и один Task Template, прогоняющий существующую роль коллекции
-   (кандидат — `infra_panel`, ROADMAP-план). Semaphore runner должен иметь доступ к Ansible +
-   этой коллекции при исполнении job'а (в Фазе 0 — временное решение, `ansible-galaxy collection
-   install` при каждом job'е или аналог; полноценный Execution Environment из Harbor — предмет
-   более поздней фазы, `docs/adr/0012-cicd-platform-architecture.md` §1).
+Выполнены вживую (через REST API Gitea/Semaphore, `curl` с control-хоста через `ssh` на VM —
+прямой сетевой доступ с control-хоста в сеть стенда недоступен):
+
+1. **Gitea** — организация `platform`, приватный репозиторий `platform/gitops` (Module-манифесты
+   + Ansible-inventory, `auto_init`, ветка `main`). Учётные данные администратора —
+   `helm/values/platform/namespaces/platform/gitea/values.yaml` (`gitea.admin`) — **плейсхолдер,
+   сменить перед реальным использованием**.
+2. **Semaphore** — проект `platform` (id=1), Git-интеграция на `platform/gitops` (repository id=1,
+   ssh-key типа `none` — репозиторий приватный, но runner внутри кластера ходит по внутреннему
+   `ClusterIP` без аутентификации), inventory `infra_panel` (id=1, тип `file`, указывает на
+   `inventory/infra_panel.ini` — заведомо placeholder-хост `203.0.113.10`, не реальный таргет),
+   environment `default` (id=1, пустой), Task Template `infra_panel (pilot, ADR-0014 Фаза 0)`
+   (id=1, playbook `playbooks/infra_panel.yml`). Учётные данные администратора —
+   `helm/values/platform/namespaces/platform/semaphore/values.yaml`
+   (`SEMAPHORE_ADMIN`/`SEMAPHORE_ADMIN_PASSWORD`) — тоже плейсхолдер.
+
+   В `platform/gitops` дополнительно закоммичены `playbooks/infra_panel.yml` (тонкая обёртка —
+   `hosts: infra_panel`, `roles: [devops.uslugi.infra_panel]`) и `requirements.yml` с TODO-заглушкой
+   источника коллекции (`git+http://gitea-http.platform.svc.cluster.local:3000/platform/devops-uslugi.git`
+   — репозиторий `platform/devops-uslugi` пока не существует).
+
+   **Шаблон создан, но ни разу не запускался** — намеренно: чтобы Task Template реально выполнился,
+   Semaphore runner должен установить коллекцию `devops.uslugi` (см. `requirements.yml` выше, тот
+   же нерешённый вопрос, что и раньше — временное решение вроде `ansible-galaxy collection install`
+   при каждом job'е или полноценный Execution Environment из Harbor,
+   `docs/adr/0012-cicd-platform-architecture.md` §1) и получить сетевой доступ до реального
+   таргет-хоста (сейчас в inventory — заведомый placeholder). Оба вопроса — предмет отдельного шага
+   перед первым реальным прогоном, не блокируют переход к Фазе 1 (схема `Module` CRD не зависит от
+   того, выполнялся ли уже хоть один Task Template).
 
 ## Проверено реальным прогоном
 
