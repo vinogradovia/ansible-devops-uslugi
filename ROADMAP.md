@@ -255,6 +255,22 @@
     `mysql_replication` не подтвердился при проверке: там нет repmgr/node registry вообще
     (репликация — нативный MySQL GTID без понятия `node_id`), сверять нечего.
 
+54. **`postgresql_replication`: `read_replica` не переподключается к новому primary после
+    failback — `repmgr cluster show` показывает disconnected upstream.** Найдено при валидации
+    Фазы 3 (bareos, №48, ниже) реальным прогоном `extensions/molecule/postgresql_replication` —
+    первый раз verify дошёл настолько далеко в promote/failback-последовательности (раньше
+    зависал на bareos-джобе, см. №48). После полного цикла stop-primary → promote dr_replica →
+    rejoin старого primary как standby, задача «Repmgr cluster show после rejoin» падает:
+    `postgresql-read-replica` (ID 2) — `not attached to its upstream node "postgresql-primary"`,
+    `! postgresql-primary` в connection string. Топология статических IP (роль хоста меняется,
+    адрес — нет, ADR §5): когда исходный primary остановлен, физическая streaming-связь
+    `read_replica` с ним рвётся; ни `docs/runbooks/postgresql-failover.md`, ни verify.yml не
+    содержат явного шага «переподключить/переклонировать read_replica к новому primary» — только
+    rejoin для бывшего primary. **Корневая причина не подтверждена окончательно** (правдоподобно:
+    отсутствующий шаг `repmgr standby follow`/reclone для read_replica; не исключена и таймингова
+    гонка, не связанная с топологией) — это первый прогон, дошедший до этой точки, требует
+    отдельного расследования прежде чем чинить.
+
 ---
 
 ## P3 — Мёртвый код и репозиторный мусор
@@ -656,10 +672,31 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
       существующей переменной, переиспользует уже существующую установку `percona-xtrabackup-80`/
       `mariadb-backup`, вынесенную в общий `tasks/install-backup-tool.yml`, без rclone/S3/
       systemd-timer-части).
-    - **Фаза 3** — `postgresql_replication_backup_tool: pgbackrest|bareos` (новая переменная,
-      дефолт `pgbackrest`). Взаимоисключающий выбор — `bareos`-плагин сам архивирует WAL в
-      `wal_archive_dir` через `archive_command`, занятый сейчас pgBackRest. Не реализовано, самая
-      большая неопределённость плана (WAL archiving с нуля, non-exclusive backup mode плагина).
+    - ~~**Фаза 3**~~ — **сделано**: `postgresql_replication_backup_tool: pgbackrest|bareos`
+      (новая переменная, дефолт `pgbackrest` — обратная совместимость). Взаимоисключающий выбор —
+      `bareos`-плагин (`bareos-fd-postgresql`) сам архивирует WAL в `wal_archive_dir` через
+      `archive_command`, занятый pgBackRest на pgbackrest-пути. DB-роль для плагина
+      (`GRANT EXECUTE` на `pg_backup_start`/`pg_backup_stop`, PostgreSQL 15+, либо legacy
+      `pg_start_backup`/`pg_stop_backup`) создаётся на primary — `CREATE ROLE` не проходит на
+      standby, а `backup_source_role` по умолчанию `dr_replica` (read-only). Две реальные находки,
+      обе не видны по коду, только реальным прогоном molecule:
+      1. `pg_backup_stop(wait_for_archive=true)` виснет бесконечно на тихой БД (мало/нет записи
+         после снятия бэкапа) — WAL-сегмент никогда не заполняется естественным трафиком.
+         Исправлено `postgresql_replication_bareos_archive_timeout` (по умолчанию 60с,
+         принудительное переключение сегмента).
+      2. `archive_timeout` сам по себе не помогает, если backup_source_role — реплика (дефолт):
+         сегмент физически переключает только primary, реплика лишь архивирует уже полученное
+         streaming-репликацией. Primary должен архивировать тоже (пусть и в никуда,
+         `archive_command = 'true'`), просто чтобы `archive_timeout` вообще срабатывал —
+         исправлено безусловным `archive_mode = always` на primary при `backup_tool: bareos`,
+         независимо от того, primary ли сам `backup_source_role`
+         (`templates/postgresql-replication.conf.j2`).
+      Molecule (`extensions/molecule/postgresql_replication/`, 4-я ВМ
+      `postgresql-backup-server`, реальный `bconsole run job=backup-postgresql-dr-replica-fd`,
+      `Termination: Backup OK`) — converge/idempotence (`changed=0`, 4 хоста) и bareos-специфичные
+      verify-проверки полностью зелёные. Полный сквозной прогон verify (включая
+      promote/failback-последовательность) уткнулся в отдельную, не связанную с bareos находку
+      (№54 выше) — Фаза 3 считается валидированной в границах своей собственной функциональности.
     - Обе фазы — условная `meta`-зависимость на `backup_agent` (`when: ..._backup_tool ==
       'bareos'`), тем же паттерном, что `docker` (ADR-0002 §2), а не композиция на уровне
       плейбука, как `monitoring_agent`/`infra_dns` (ADR-0004 §11) — обоснование см.
@@ -677,48 +714,28 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
     `bconsole run job=backup-client-a-fd`/`backup-client-b-fd`/`BackupCatalog` — все три
     `Termination: Backup OK`, тома реально на диске (`Full-0001`, `Incremental-0002`).
 
-49. **Единая система авторизации для сервисов коллекции (OAuth — приоритет, LDAP — альтернатива).**
-    Сейчас авторизация в разных ролях реализована независимо и минимально: basic-auth с
-    htpasswd-хэшем, генерируемым/инлайнящимся отдельно в каждой роли (`reverse_proxy_traefik`
-    dashboard, `infra_panel`, `reverse_proxy_npm` admin UI) — нет ни единого набора
-    пользователей/групп, ни SSO между сервисами (Grafana, Bareos webui, infra-panel, NPM admin,
-    Traefik dashboard). Роль `freeipa` (**сделано**: standalone-сервер LDAP/Kerberos-каталог —
-    `ipa-server-install`, без репликации и без управления данными каталога, см.
-    `docs/adr/0011-freeipa-role.md`) — первый шаг именно в эту сторону, но как
-    **альтернативный**, не приоритетный механизм. Molecule-сценарий (`extensions/molecule/freeipa/`)
-    линтуется и синтаксически верен, но не верифицирован реальным прогоном — блокер на стороне
-    хоста/бокса (см. комментарий в `extensions/molecule/freeipa/molecule.yml`), не роли.
+49. ~~**Единая система авторизации для сервисов коллекции (OAuth — приоритет, LDAP — альтернатива).**~~
+    — **архитектура решена** (`docs/adr/0013-unified-auth-architecture.md`): каталог пользователей
+    остаётся один — уже реализованный `freeipa` (LDAP, ADR-0011) — OIDC не заводит отдельную базу,
+    а федерируется с ним через LDAP-бэкенд (ADR §1). Провайдер — **Authelia** (не Keycloak,
+    лёгкий Go-бинарник, нативный `forwardAuth` для Traefik, ADR §2). Роль — отдельная, по паттерну
+    `_server` (имя не выбрано), живёт на платформенной инфраструктуре
+    `docs/adr/0012-cicd-platform-architecture.md` §6, рядом с Harbor/Gitea/OpenBao/Semaphore
+    (ADR §3). Интеграция потребителей — нативный OIDC там, где сервис его умеет (Grafana первой),
+    `forwardAuth` через Authelia там, где нет (`reverse_proxy_traefik`/`infra_panel`/
+    `reverse_proxy_npm` admin UI); общая переменная `*_auth_method: basic|ldap|oauth` по образцу
+    `*_backup_tool` (№48, ADR §4). Роль не реализована — следующий шаг.
 
-    Приоритет — OAuth2/OIDC (единый identity provider, современный протокол; у большинства
-    сервисов стека — Grafana, Traefik `forwardAuth`, NPM — есть нативная поддержка OIDC без
-    доп. прокси); LDAP (через `freeipa`) — как fallback для сервисов, которые OIDC не умеют
-    (basic-auth-only админки вроде `reverse_proxy_traefik`/`infra_panel` dashboard).
-
-    Не проработано архитектурно: какой OIDC-provider ставить самим (self-hosted — например,
-    Keycloak/Authelia — или полагаться на внешний); нужна ли отдельная роль
-    (`oauth_provider`/`sso`?) по паттерну `_server`/`_agent`; как роли-потребители (Grafana,
-    Traefik, NPM, infra_panel) переключаются между basic-auth/LDAP/OAuth — общая переменная
-    `*_auth_method` по образцу `*_backup_tool` (№48) или отдельная интеграционная роль. Требует
-    отдельного ADR перед реализацией — сейчас зафиксирована только идея и приоритет протокола.
-
-50. **Компонент запуска ansible/terraform (CI/CD-панель), например Semaphore UI.**
-    Сейчас в коллекции нет собственного компонента для запуска плейбуков/terraform-стендов —
-    только ручной `ansible-playbook`/`terraform apply` с control-хоста оператора (см.
-    `demo/full-platform/`, `demo/*` вообще). Идея — веб-панель (например,
-    [Semaphore UI](https://semaphoreui.com/), open-source, поддерживает и Ansible, и
-    Terraform/OpenTofu из коробки) как ещё один сервис платформы, по аналогии с уже существующими
-    `_server`-ролями (`monitoring_server`, `backup_server`) — контейнер/compose-стек + Postgres
-    для своего состояния (задачи, история запусков, инвентари), публикация через
-    `reverse_proxy_traefik` (тот же паттерн, что `infra_panel`/Grafana), ссылка в
-    `infra_panel_extra_services`.
-
-    Не проработано архитектурно: имя роли (`semaphore_ui`?) и её место в списке ролей коллекции;
-    как компонент получает доступ к репозиторию коллекции и inventory (git-интеграция Semaphore
-    сама тянет репо, или монтировать локальный чекаут); нужна ли интеграция с №49 (единая
-    авторизация) для входа в панель, или пока отдельный basic-auth/локальные пользователи Semaphore;
-    как хранить секреты для запускаемых плейбуков (ansible-vault пароль, terraform-переменные) —
-    встроенное хранилище Semaphore или внешний vault. Требует отдельного ADR перед реализацией —
-    сейчас зафиксирована только идея и выбор кандидата (Semaphore UI).
+50. ~~**Компонент запуска ansible/terraform (CI/CD-панель), например Semaphore UI.**~~ —
+    **архитектура решена** (`docs/adr/0012-cicd-platform-architecture.md` §5): панель — Semaphore
+    UI, git-интеграция тянет репозиторий напрямую из self-hosted Gitea (№52), task templates
+    исполняются через общий Execution Environment из Harbor (тот же ADR §1) — не отдельный
+    рантайм. Авторизация — без SSO на старте (basic-auth/локальные пользователи Semaphore,
+    fail-fast-на-дефолтном-пароле, как у `reverse_proxy_traefik`/`infra_panel`), интеграция
+    с №49 — явный follow-up, не блокирует реализацию. Секреты — внешний OpenBao (ADR §3), не
+    встроенное хранилище Semaphore. Размещение — новая персистентная платформенная
+    инфраструктура, не `demo/full-platform` (ADR §6). Роль (`semaphore_ui`?) не реализована —
+    следующий шаг.
 
 51. **Компонент публикации документации платформы внутри стенда.**
     Сейчас документация коллекции — README-файлы ролей, ADR (`docs/adr/`), сам ROADMAP — живёт
@@ -738,23 +755,15 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
     admin-панелей типа №50. Требует отдельного ADR перед реализацией — сейчас зафиксирована
     только идея.
 
-52. **Легковесный self-hosted git с CI/CD в стиле Gitea (кандидаты: Gitea, Forgejo).**
-    Сейчас у коллекции/стендов нет собственного git-сервера — репозиторий живёт на внешнем
-    хостинге (GitHub и т.п.), внутри платформы негде хранить/просматривать код операторам без
-    доступа наружу. Идея — легковесный git-сервис (Gitea или его community-форк Forgejo, оба —
-    один бинарник/контейнер, SQLite или Postgres, штатные CI/CD-раннеры — Gitea Actions, синтаксис
-    workflow совместим с GitHub Actions) как ещё один сервис платформы, тем же паттерном
-    публикации, что и остальные (`reverse_proxy_traefik`, ссылка в `infra_panel_extra_services`).
-
-    Пересекается по смыслу с №50 (Semaphore UI — панель запуска ansible/terraform): если ставить
-    оба, нужно решить разделение ответственности — Gitea/Forgejo как хранилище кода + CI-раннер
-    для сборки/тестов, Semaphore как отдельная CD-панель конкретно для ansible/terraform, или
-    Gitea Actions полностью закрывает и CI, и CD (тогда №50 избыточен). Не проработано
-    архитектурно: Gitea vs Forgejo (лицензия/сообщество — Forgejo форкнулась из Gitea в 2022 на
-    фоне спора о смене владения проектом, стоит сверить текущий статус на момент реализации);
-    нужны ли self-hosted раннеры отдельным compose-сервисом (`act_runner`) или встроенных
-    достаточно; auth — своя БД пользователей Gitea/Forgejo или интеграция с №49. Требует
-    отдельного ADR перед реализацией — сейчас зафиксирована только идея.
+52. ~~**Легковесный self-hosted git с CI/CD в стиле Gitea (кандидаты: Gitea, Forgejo).**~~ —
+    **архитектура решена** (`docs/adr/0012-cicd-platform-architecture.md` §4): выбор — Gitea (не
+    Forgejo). Разделение ответственности с №50: Gitea Actions — CI (lint, `molecule test`), а не
+    полная замена Semaphore — Semaphore остаётся отдельной CD-панелью специально для
+    ansible/terraform (см. №50). Раннер для `molecule` (нужен `/dev/kvm`/nested-виртуализация)
+    сознательно вынесен за пределы k3s — systemd-сервис на хосте с реальным доступом к libvirt,
+    не под k8s (privileged pod/hostPath/node affinity ради одного заведомо непереносимого раннера
+    не даёт выигрыша). Сам сервер Gitea может жить в k3s. Роль (`gitea`?) не реализована —
+    следующий шаг.
 
 53. **Компонент DevSecOps (агрегация уязвимостей), в стиле DefectDojo.**
     Сейчас в коллекции нет ни одного компонента, агрегирующего результаты security-сканирования
@@ -813,3 +822,35 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
 6. **Чистка мусора (P3)** — низкий риск, можно делать параллельно отдельными мелкими PR в любой
    момент. Основной объём (роль `nginx` и её дубликаты документации/scratch-тестов) уже снят
    вместе с решением P5-32.
+7. **Платформенный контроллер (ADR-0014)** — архитектура решена, план реализации по стадиям
+   (зависимости между стадиями см. в `docs/adr/0014-platform-controller-architecture.md`):
+   1. **Фаза 0** (пререквизит из ADR-0012, не часть ADR-0014 самого по себе) — минимальный срез:
+      K3s (одна нода) + Gitea (self-hosted git, источник манифестов) + Semaphore UI с одним
+      рабочим Task Template на уже готовой роли (`infra_panel`) — без ожидания Harbor/OpenBao/
+      Authelia, которые независимы и не блокируют это. Критерий готовности: оператор вручную
+      запускает Task Template из Semaphore UI, роль применяется, джоб виден в истории.
+   2. **Фаза 1** — схема `Module` CRD (`spec.role`/`spec.vars`/`spec.inventoryRef`,
+      `status.conditions`/`lastAppliedRevision`/`lastSyncTime`/`semaphoreJobID`), без кода
+      контроллера — один пример CR вручную через `kubectl apply`, чтобы доказать достаточность
+      схемы.
+   3. **Фаза 2** — GitOps-синхронизация: **Flux** (выбран вместо ArgoCD — CRD-first, без
+      второго web UI, легче для одной ноды; `docs/overview.md` уже отражает этот выбор через
+      ADR-0014). Коммит `Module`-манифеста в Gitea должен без ручных команд отражаться в
+      `kubectl get module`.
+   4. **Фаза 3** — контроллер MVP (`platform-controller/`, новый top-level каталог этого же
+      репозитория — единая история версий с ролями, свой `go.mod`, независимый от poetry/
+      ansible-lint тулчейна остального репозитория): событийный reconcile (create/update →
+      вызов Semaphore API → запись `status`), ещё БЕЗ непрерывного drift-loop — снижает риск
+      первого прогона, не отменяет итоговое решение ADR §3.
+   5. **Фаза 4** — непрерывный reconcile (`RequeueAfter` + exponential backoff на ошибках) —
+      закрывает ADR §3 полностью. Регрессионная проверка: ручной Semaphore-прогон с другими
+      vars (аварийный путь, ADR §2) должен откатиться автоматически на следующем цикле —
+      практическое подтверждение того, что непрерывный reconcile безопасен именно потому, что
+      идемпотентность ролей коллекции уже жёсткое требование (`CLAUDE.md`, `idempotence:
+      changed=0` в каждом molecule-сценарии).
+   6. **Фаза 5** — первый реальный пилотный модуль (`infra_panel`/`monitoring_agent` — не
+      HA-БД роли: у них ручной promote/failover, плохо сочетающийся с автоматическим reconcile
+      на раннем этапе) со сквозной проверкой всей цепочки на demo-стенде.
+   7. **Фаза 6** — расширение охвата на остальные роли/подсистемы — не детализируется заранее,
+      требует сначала решить оставшийся открытый вопрос ADR-0014 «модуль↔роль 1:1 или модуль
+      объединяет несколько ролей одним логическим сервисом» по результатам Фазы 5.
