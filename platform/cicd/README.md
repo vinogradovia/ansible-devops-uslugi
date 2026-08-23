@@ -45,29 +45,39 @@ poetry run ansible-playbook -i inventory.yml site.yml
 2. **Semaphore** — проект `platform` (id=1), Git-интеграция на `platform/gitops` (repository id=1,
    ssh-key типа `login_password` — репозиторий приватный, ключ типа `none` не давал креденшлов
    для клонирования, см. `platform-controller/README.md`, «Фаза 4»/«Фаза 5»), inventory
-   `infra_panel` (id=1, тип `file`, указывает на `inventory/infra_panel.ini` — заведомо
-   placeholder-хост `203.0.113.10`, не реальный таргет — **всё ещё не решено**, см. ниже),
+   `infra_panel` (id=1, тип `file`, указывает на `inventory/infra_panel.ini` с реальным целевым
+   хостом — `platform/cicd/terraform/infra-panel-target.tf`, отдельная VM, см. ниже),
    environment `default` (id=1), Task Template `infra_panel (pilot, ADR-0014 Фаза 0)` (id=1,
    playbook `playbooks/infra_panel.yml`). Учётные данные администратора —
    `helm/values/platform/namespaces/platform/semaphore/values.yaml`
    (`SEMAPHORE_ADMIN`/`SEMAPHORE_ADMIN_PASSWORD`) — тоже плейсхолдер.
 
    В `platform/gitops` дополнительно закоммичены `playbooks/infra_panel.yml` (тонкая обёртка —
-   `hosts: infra_panel`, `roles: [devops.uslugi.infra_panel]`) и `requirements.yml`, указывающий
-   на реальный источник коллекции `devops.uslugi` — приватное зеркало `platform/devops-uslugi` в
-   этом же Gitea (запушено пользователем вручную из корня коллекции — агенту это действие
-   недоступно, инструментарий безопасности расценивает `git push` всего репозитория/точечное
-   копирование через API как передачу содержимого доверенного репозитория и блокирует это
-   независимо от согласия пользователя). Креды для клонирования зеркала — не в git (коммитить
-   пароль в `requirements.yml` тоже заблокировано), а в Semaphore Environment (`env`, не `json`):
+   `hosts: infra_panel`, `become: true`, `roles: [devops.uslugi.infra_panel]`) и
+   `requirements.yml`, указывающий на реальный источник коллекции `devops.uslugi` — приватное
+   зеркало `platform/devops-uslugi` в этом же Gitea (запушено пользователем вручную из корня
+   коллекции — агенту это действие недоступно, инструментарий безопасности расценивает
+   `git push` всего репозитория/точечное копирование через API как передачу содержимого
+   доверенного репозитория и блокирует это независимо от согласия пользователя). Креды для
+   клонирования зеркала — не в git (коммитить пароль в `requirements.yml` тоже заблокировано), а
+   в Semaphore Environment (`env`, не `json`):
    `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_0=http.extraHeader`/`GIT_CONFIG_VALUE_0=Authorization: Basic
    ...` — секрет живёт только в БД Semaphore.
 
-   **Task Template реально выполнялся** — `devops.uslugi:1.0.0 was installed successfully`,
-   `ansible-playbook` доходит до `PLAY [infra_panel]`. Падает на следующем шаге: `placeholder-host`
-   (`203.0.113.10`) не существует — `UNREACHABLE`, `ssh` таймаут. Это последний нерешённый вопрос
-   перед сквозной проверкой `infra_panel` — нужен реальный целевой хост в inventory, не
-   заведённый в рамках этой сессии.
+   **Task Template реально выполняется полностью успешно** (`status: success`) — Docker Engine
+   реально устанавливается на целевой VM, контейнер `infra-panel` (homer) реально поднимается и
+   `healthy`. Подробности сквозного прогона (git → Flux → Module → контроллер → Semaphore →
+   реальная инфраструктура) — `platform-controller/README.md`, «Фаза 5».
+
+3. **Реальный целевой хост** (`platform/cicd/terraform/infra-panel-target.tf`) — отдельная VM
+   (1 vCPU/1GB/15GB, Debian 12), сознательно НЕ добавлена в общий `local.vms` (`vms.tf`) —
+   реальным `tofu plan` обнаружено, что любое изменение в shared-ресурсах (сеть, cloudinit-
+   шаблон) заставляет Terraform пересоздать их для уже работающей `cicd` — риск для живого
+   Gitea/Semaphore/Flux. Полностью отдельные ресурсы в `infra-panel-target.tf`. IP — обычный
+   DHCP (статический IP через cloud-init `network_config` не заработал — сеть гостя не
+   поднялась вообще, недиагностируемо без консоли гостя в этом окружении). Выделенный SSH-ключ
+   (`tests/.ssh-pub-keys/id_ed25519_semaphore_infra_panel_target.pub`, приватная часть —
+   Semaphore Key, не в git).
 
 ## Проверено реальным прогоном
 
