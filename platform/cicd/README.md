@@ -43,27 +43,31 @@ poetry run ansible-playbook -i inventory.yml site.yml
    `helm/values/platform/namespaces/platform/gitea/values.yaml` (`gitea.admin`) — **плейсхолдер,
    сменить перед реальным использованием**.
 2. **Semaphore** — проект `platform` (id=1), Git-интеграция на `platform/gitops` (repository id=1,
-   ssh-key типа `none` — репозиторий приватный, но runner внутри кластера ходит по внутреннему
-   `ClusterIP` без аутентификации), inventory `infra_panel` (id=1, тип `file`, указывает на
-   `inventory/infra_panel.ini` — заведомо placeholder-хост `203.0.113.10`, не реальный таргет),
-   environment `default` (id=1, пустой), Task Template `infra_panel (pilot, ADR-0014 Фаза 0)`
-   (id=1, playbook `playbooks/infra_panel.yml`). Учётные данные администратора —
+   ssh-key типа `login_password` — репозиторий приватный, ключ типа `none` не давал креденшлов
+   для клонирования, см. `platform-controller/README.md`, «Фаза 4»/«Фаза 5»), inventory
+   `infra_panel` (id=1, тип `file`, указывает на `inventory/infra_panel.ini` — заведомо
+   placeholder-хост `203.0.113.10`, не реальный таргет — **всё ещё не решено**, см. ниже),
+   environment `default` (id=1), Task Template `infra_panel (pilot, ADR-0014 Фаза 0)` (id=1,
+   playbook `playbooks/infra_panel.yml`). Учётные данные администратора —
    `helm/values/platform/namespaces/platform/semaphore/values.yaml`
    (`SEMAPHORE_ADMIN`/`SEMAPHORE_ADMIN_PASSWORD`) — тоже плейсхолдер.
 
    В `platform/gitops` дополнительно закоммичены `playbooks/infra_panel.yml` (тонкая обёртка —
-   `hosts: infra_panel`, `roles: [devops.uslugi.infra_panel]`) и `requirements.yml` с TODO-заглушкой
-   источника коллекции (`git+http://gitea-http.platform.svc.cluster.local:3000/platform/devops-uslugi.git`
-   — репозиторий `platform/devops-uslugi` пока не существует).
+   `hosts: infra_panel`, `roles: [devops.uslugi.infra_panel]`) и `requirements.yml`, указывающий
+   на реальный источник коллекции `devops.uslugi` — приватное зеркало `platform/devops-uslugi` в
+   этом же Gitea (запушено пользователем вручную из корня коллекции — агенту это действие
+   недоступно, инструментарий безопасности расценивает `git push` всего репозитория/точечное
+   копирование через API как передачу содержимого доверенного репозитория и блокирует это
+   независимо от согласия пользователя). Креды для клонирования зеркала — не в git (коммитить
+   пароль в `requirements.yml` тоже заблокировано), а в Semaphore Environment (`env`, не `json`):
+   `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_0=http.extraHeader`/`GIT_CONFIG_VALUE_0=Authorization: Basic
+   ...` — секрет живёт только в БД Semaphore.
 
-   **Шаблон создан, но ни разу не запускался** — намеренно: чтобы Task Template реально выполнился,
-   Semaphore runner должен установить коллекцию `devops.uslugi` (см. `requirements.yml` выше, тот
-   же нерешённый вопрос, что и раньше — временное решение вроде `ansible-galaxy collection install`
-   при каждом job'е или полноценный Execution Environment из Harbor,
-   `docs/adr/0012-cicd-platform-architecture.md` §1) и получить сетевой доступ до реального
-   таргет-хоста (сейчас в inventory — заведомый placeholder). Оба вопроса — предмет отдельного шага
-   перед первым реальным прогоном, не блокируют переход к Фазе 1 (схема `Module` CRD не зависит от
-   того, выполнялся ли уже хоть один Task Template).
+   **Task Template реально выполнялся** — `devops.uslugi:1.0.0 was installed successfully`,
+   `ansible-playbook` доходит до `PLAY [infra_panel]`. Падает на следующем шаге: `placeholder-host`
+   (`203.0.113.10`) не существует — `UNREACHABLE`, `ssh` таймаут. Это последний нерешённый вопрос
+   перед сквозной проверкой `infra_panel` — нужен реальный целевой хост в inventory, не
+   заведённый в рамках этой сессии.
 
 ## Проверено реальным прогоном
 
@@ -93,8 +97,6 @@ poetry run ansible-playbook -i inventory.yml site.yml
 
 Не проверено на этом прогоне (не входило в scope Фазы 0, следующие шаги):
 
-- Ручные шаги ниже (создание репозитория в Gitea, Task Template в Semaphore) — не выполнялись
-  «на живую», только задокументированы как процедура.
 - Секреты (admin-пароли Gitea/Semaphore, cookie/access-key Semaphore) — плейсхолдеры прямо в
   values-файлах, не во внешнем хранилище. OpenBao (`docs/adr/0012-cicd-platform-architecture.md`
   §3) для секретов — не блокирует Фазу 0, но следующий обязательный шаг перед реальным
