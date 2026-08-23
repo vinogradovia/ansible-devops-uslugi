@@ -17,6 +17,21 @@
 # сменить (и переместить в OpenBao, когда он появится, ADR-0012 §3) перед реальным
 # использованием — в отличие от demo/*/ansible/group_vars (ADR-0006 §9, осознанное упрощение для
 # одноразового стенда), этот стенд персистентный.
+#
+# imageTag v2.10.30 (Фаза 0) содержал апстрим-баг клонирования git-репозиториев по HTTP —
+# "fatal: bad boolean environment value '0\n' for 'GIT_TERMINAL_PROMPT'" (semaphoreui/semaphore
+# issue #3344/#982, исправлено PR #3343 "No newline after GIT_TERMINAL_PROMPT when constructing
+# env vars"), из-за чего ЛЮБОЙ Task Template падал уже на этапе git clone, до запуска самого
+# ansible-playbook — найдено реальным прогоном при отладке Фазы 3/4
+# (platform-controller/README.md): даже тривиальный playbook без внешних зависимостей падал
+# идентично. Обновлено на v2.19.8 (актуальная стабильная на момент находки).
+#
+# BoltDB (dialect "bolt") убран апстримом в этом промежутке версий ("BoltDB removed —
+# SQLite/MySQL/Postgres only", semaphoreui.com changelog) — заменено на sqlite (dialect
+# "sqlite", путь к файлу — SEMAPHORE_DB_HOST, а не SEMAPHORE_DB_PATH). Данные пилотного прогона
+# (Фазы 0-4) при этом не мигрированы — старый bolt-файл на PVC просто не читается новой версией,
+# для пилота это приемлемо (тестовые Project/Template/Task заводились по новой на sqlite), но
+# заметьте при повторении: это потеря данных, а не просто смена драйвера.
 
 pvcs:
   data:
@@ -30,12 +45,12 @@ deployments:
     containers:
       - name: semaphore
         image: semaphoreui/semaphore
-        imageTag: v2.10.30
+        imageTag: v2.19.8
         env:
           - name: SEMAPHORE_DB_DIALECT
-            value: bolt
-          - name: SEMAPHORE_DB_PATH
-            value: /var/lib/semaphore/database.boltdb
+            value: sqlite
+          - name: SEMAPHORE_DB_HOST
+            value: /var/lib/semaphore/database.db
           - name: SEMAPHORE_ADMIN
             value: admin
           - name: SEMAPHORE_ADMIN_EMAIL
