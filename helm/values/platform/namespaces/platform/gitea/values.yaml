@@ -5,14 +5,24 @@
 # Проверено реальным прогоном (platform/cicd/README.md, «Проверено реальным прогоном»): под
 # Running, PVC Bound, HTTP 200 через встроенный k3s Traefik.
 #
-# admin.password — ПЛЕЙСХОЛДЕР, обязательно сменить перед реальным использованием (в отличие от
-# demo/*/ansible/group_vars, где plaintext-секреты — осознанное упрощение для одноразового стенда,
-# ADR-0006 §9, этот стенд персистентный — секреты здесь временные до появления OpenBao,
-# ADR-0012 §3, не постоянная практика).
+# admin.password — читается из OpenBao (docs/adr/0016-openbao-secrets-pki.md) через gomplate
+# datasource vault://, а не задан прямым текстом — сгенерирован один раз
+# platform/cicd/ansible/site.yml при первом прогоне, при повторных прогонах не меняется. ВНИМАНИЕ:
+# этот файл целиком — gomplate-шаблон с делимитерами "квадратная скобка дважды" вместо Jinja-фигурных
+# (см. helm/helmwave.yml.tpl, delimiter_left/right для values-файлов релизов), рендерится
+# helmwave/gomplate, не ansible — не используйте парные квадратные скобки нигде в этом файле, даже
+# в комментариях (gomplate шаблонизирует файл целиком, включая комментарии).
+#
+# defineDatasource/ds, не двухаргументный datasource("имя", "путь") — helmwave не регистрирует
+# алиасы датасорсов через CLI-флаг (в отличие от чистого gomplate-бинаря), их нужно объявить
+# прямо в шаблоне (docs.helmwave.app, «HashiCorp Vault»). Путь — "secret/data/gitea" (не
+# "secret/gitea") — обязательный префикс "data/" для KV v2 engine, тот же путь на низком уровне
+# API, что platform/cicd/ansible/site.yml использует в /v1/secret/data/gitea.
+[[ defineDatasource "vault" "vault:///secret/data/gitea" ]]
 gitea:
   admin:
     username: gitea_admin
-    password: "PleAse_Change_ME!"
+    password: '[[ (ds "vault").data.admin_password ]]'
     email: gitea_admin@cicd.platform
   config:
     database:
@@ -48,8 +58,8 @@ service:
 
 # Штатный k3s Traefik как ingress controller (не reverse_proxy_traefik этой коллекции — тот
 # работает в Docker на других стендах, это другой физический инстанс внутри k8s-кластера).
-# HTTP на Фазе 0 — TLS/внешний доступ через Authelia/публичный домен — предмет более поздней
-# фазы (ADR-0013), не блокирует локальную проверку.
+# TLS — сертификат из внутреннего PKI CA OpenBao (docs/adr/0016-openbao-secrets-pki.md §4),
+# Secret gitea-tls создан platform/cicd/ansible/site.yml (pki/issue/cicd-platform).
 ingress:
   enabled: true
   className: traefik
@@ -58,3 +68,7 @@ ingress:
       paths:
         - path: /
           pathType: Prefix
+  tls:
+    - secretName: gitea-tls
+      hosts:
+        - gitea.cicd.platform

@@ -13,10 +13,13 @@
 # уровне плейбука (platform/cicd/ansible/site.yml ждёт CRD перед helmwave up), не здесь.
 #
 # БД — bolt (встроенная, файл на persistent volume) — минимальная схема для Фазы 0, без
-# отдельного Postgres. Admin-пароль и cookie/access-key секреты ниже — ПЛЕЙСХОЛДЕРЫ, обязательно
-# сменить (и переместить в OpenBao, когда он появится, ADR-0012 §3) перед реальным
-# использованием — в отличие от demo/*/ansible/group_vars (ADR-0006 §9, осознанное упрощение для
-# одноразового стенда), этот стенд персистентный.
+# отдельного Postgres. Admin-пароль и cookie/access-key секреты ниже читаются из OpenBao
+# (docs/adr/0016-openbao-secrets-pki.md) через gomplate datasource vault:// — сгенерированы один
+# раз platform/cicd/ansible/site.yml при первом прогоне, не меняются при повторных. ВНИМАНИЕ: этот
+# файл целиком — gomplate-шаблон с делимитерами "квадратная скобка дважды" вместо Jinja-фигурных
+# (см. helm/helmwave.yml.tpl, delimiter_left/right для values-файлов релизов), рендерится
+# helmwave/gomplate, не ansible — не используйте парные квадратные скобки нигде в этом файле, даже
+# в комментариях (gomplate шаблонизирует файл целиком, включая комментарии).
 #
 # imageTag v2.10.30 (Фаза 0) содержал апстрим-баг клонирования git-репозиториев по HTTP —
 # "fatal: bad boolean environment value '0\n' for 'GIT_TERMINAL_PROMPT'" (semaphoreui/semaphore
@@ -32,6 +35,13 @@
 # (Фазы 0-4) при этом не мигрированы — старый bolt-файл на PVC просто не читается новой версией,
 # для пилота это приемлемо (тестовые Project/Template/Task заводились по новой на sqlite), но
 # заметьте при повторении: это потеря данных, а не просто смена драйвера.
+#
+# defineDatasource/ds, не двухаргументный datasource("имя", "путь") — helmwave не регистрирует
+# алиасы датасорсов через CLI-флаг (в отличие от чистого gomplate-бинаря), их нужно объявить
+# прямо в шаблоне (docs.helmwave.app, «HashiCorp Vault»). Путь — "secret/data/semaphore" (не
+# "secret/semaphore") — обязательный префикс "data/" для KV v2 engine, тот же путь на низком
+# уровне API, что platform/cicd/ansible/site.yml использует в /v1/secret/data/semaphore.
+[[ defineDatasource "vault" "vault:///secret/data/semaphore" ]]
 
 pvcs:
   data:
@@ -57,19 +67,16 @@ deployments:
             value: admin@cicd.platform
           - name: SEMAPHORE_ADMIN_NAME
             value: Administrator
-          # ПЛЕЙСХОЛДЕР, сменить перед реальным использованием (тот же принцип, что
-          # gitea.admin.password в ../gitea/values.yaml).
           - name: SEMAPHORE_ADMIN_PASSWORD
-            value: "PleAse_Change_ME!"
-          # Сгенерированы один раз для Фазы 0 (openssl rand -base64 32) — Semaphore требует
-          # непустые валидные base64-значения при первом старте. РЕГЕНЕРИРОВАТЬ перед реальным
-          # использованием — это demo-значения, закоммиченные в открытом виде, не секрет.
+            value: '[[ (ds "vault").data.admin_password ]]'
+          # Semaphore требует непустые валидные base64-значения при первом старте — сгенерированы
+          # platform/cicd/ansible/site.yml один раз, хранятся в OpenBao (secret/semaphore).
           - name: SEMAPHORE_COOKIE_HASH
-            value: "qSNbSZN8lFbXiSEed0rUgzEogPkyfs+xcqcTqNqqao0="
+            value: '[[ (ds "vault").data.cookie_hash ]]'
           - name: SEMAPHORE_COOKIE_ENCRYPTION
-            value: "GMVmi8UjPuCIcZsEi3mWhlw01m8Lu8lPcNGPq8PURIA="
+            value: '[[ (ds "vault").data.cookie_encryption ]]'
           - name: SEMAPHORE_ACCESS_KEY_ENCRYPTION
-            value: "TKAvMupcIvklSh0XL9ajVpzESAd+G+zsVVX7VH+p7JM="
+            value: '[[ (ds "vault").data.access_key_encryption ]]'
         ports:
           - name: http
             containerPort: 3000
@@ -89,6 +96,10 @@ services:
 # Semaphore аутентифицирует пользователей сам (встроенный логин, в отличие от homer — статической
 # страницы без какой-либо аутентификации) — дополнительный basicAuth middleware здесь избыточен,
 # в отличие от homer/values.yaml, где он обязателен.
+#
+# tls.secretName — сертификат из внутреннего PKI CA OpenBao (docs/adr/0016-openbao-secrets-pki.md
+# §4), Secret semaphore-tls создан platform/cicd/ansible/site.yml (pki/issue/cicd-platform),
+# вместо дефолтного самоподписанного `TRAEFIK DEFAULT CERT` (пустой tls: {} раньше).
 ingressroutes:
   semaphore:
     entryPoints:
@@ -98,4 +109,5 @@ ingressroutes:
         services:
           semaphore-semaphore:
             port: 3000
-    tls: {}
+    tls:
+      secretName: semaphore-tls
