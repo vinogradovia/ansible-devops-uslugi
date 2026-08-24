@@ -188,8 +188,41 @@ CA OpenBao (`CN=cicd.platform`) вместо дефолтного `TRAEFIK DEFAU
    ВСЕХ потребителей (в т.ч. `kubectl get gitrepository`), а не только тех, что были целью самой
    миграции.
 
-Не проработано (см. также `docs/adr/0016-openbao-secrets-pki.md`, «Не проработано»): `VAULT_TOKEN`
-для gomplate — root token напрямую, не scoped-политика; TLS API самого OpenBao (не путать с
-выпускаемыми им клиентскими сертификатами) — `tls_disable=1`, открытый HTTP внутри приватной сети;
-нет автоматической ротации/renewal сертификатов; интеграция с `reverse_proxy_traefik`/docker-based
-Traefik пилотных Module (`infra-panel-target`) — отдельная задача (Фаза 6 в широком смысле).
+### Хвосты ADR-0016: scoped render-token, авто-ренью TLS, TLS для API самого OpenBao
+
+Второй заход по «Не проработано» первой редакции — все три пункта закрыты и проверены живым
+прогоном: `VAULT_TOKEN` для gomplate теперь scoped-токен (policy `cicd-platform-render`, только
+read `secret/gitea`|`secret/semaphore`), `gitea-tls`/`semaphore-tls` перевыпускаются
+автоматически по epoch-аннотации `renew-after-epoch` (60 из 90 дней TTL), API самого OpenBao
+теперь слушает `https://` (bootstrap self-signed сертификат, не из своего PKI engine — см.
+`docs/adr/0016-openbao-secrets-pki.md` §5).
+
+Три новых реальных находки этого захода:
+
+8. **StatefulSet чарта `openbao/openbao` — `updateStrategy: OnDelete`.** Смена values
+   (`global.tlsDisable`, `server.ha.raft.config`) обновляет ConfigMap и checksum-аннотацию в
+   шаблоне STS, но НЕ перезапускает уже существующий под сам по себе — апстрим сознательно не
+   делает автоматический rolling restart для raft-кластера. Под молча продолжал слушать
+   старым (http) конфигом, а `ansible.builtin.uri` с новым `https://` адресом падал
+   (`SSL: RECORD_LAYER_FAILURE` — TLS handshake против сервера, говорящего plain HTTP).
+   Исправлено: новая задача в `site.yml` сравнивает `config-checksum` из шаблона STS и из живого
+   пода и удаляет под при расхождении (StatefulSet сам пересоздаёт с PVC, данные raft не
+   теряются) — на каждом прогоне, не только при первом переключении на TLS.
+9. **K8s API требует строковые значения аннотаций, а ansible native-jinja отдаёт число.**
+   `cicd.platform/renew-after-epoch: "{{ (epoch|int) + N }}"`, будучи ЦЕЛИКОМ одним числовым
+   Jinja-выражением, рендерится в Python `int`, а не строку, ДАЖЕ будучи в двойных кавычках в
+   YAML (кавычки — синтаксис YAML, Jinja их не видит) — `kubectl`/`kubernetes.core.k8s` затем
+   пытается записать JSON `number`, API-сервер отвечает `"cannot unmarshal number into ...
+   annotations of type string"`. Исправлено explicit `| string` в конце выражения.
+10. **gomplate-датасорс `vault://` — отдельный HTTP-клиент, не `ansible.builtin.uri`.** После
+    переключения OpenBao на TLS `ca_path`, добавленный во все ansible-задачи, никак не влияет на
+    сам `helmwave`/gomplate — его `vault://` datasource использует свой Go-клиент
+    (`hashicorp/vault/api`) и требует стандартный для Vault/OpenBao CLI env var `VAULT_CACERT`,
+    иначе падает `"x509: certificate signed by unknown authority"`. Исправлено добавлением
+    `VAULT_CACERT` в `environment:` второго `helmwave up` рядом с `VAULT_ADDR`/`VAULT_TOKEN`.
+
+Не проработано (см. также `docs/adr/0016-openbao-secrets-pki.md`, «Не проработано»): нет
+intermediate CA у PKI engine; CI-раннер (Gitea Actions) не читает секреты из OpenBao;
+интеграция с `reverse_proxy_traefik`/docker-based Traefik пилотных Module (`infra-panel-target`)
+— отдельная задача (Фаза 6 в широком смысле); `Module.spec.vars` пилотных Module по-прежнему
+плейнтекст в `platform/gitops`.

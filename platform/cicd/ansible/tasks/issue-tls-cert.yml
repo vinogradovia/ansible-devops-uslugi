@@ -18,8 +18,27 @@
     name: "{{ item.secret }}"
   register: platform_cicd_tls_secret_check
 
+# Авто-ренью (docs/adr/0016-openbao-secrets-pki.md §4) — TTL сертификата 2160h (90 дней),
+# перевыпускаем за 30 дней до истечения (renew-after = момент выпуска + 60 дней), а не только
+# при полном отсутствии Secret. Метка времени — эпоха в аннотации самого Secret (не парсинг PEM
+# notAfter — Secret и так уже читаем, а разбор PEM потребовал бы отдельного модуля/утилиты на
+# control-хосте). Jinja "or" — ленивый (как Python), поэтому обращение к
+# .resources[0].metadata... безопасно при пустом resources: правая часть просто не вычисляется.
+- name: "Определить необходимость (пере)выпуска для {{ item.host }}"
+  ansible.builtin.set_fact:
+    platform_cicd_tls_needs_issue: >-
+      {{
+        platform_cicd_tls_secret_check.resources | length == 0
+        or (
+          (
+            (platform_cicd_tls_secret_check.resources[0].metadata.annotations | default({}))
+            .get('cicd.platform/renew-after-epoch', 0) | int
+          ) <= (ansible_date_time.epoch | int)
+        )
+      }}
+
 - name: "OpenBao: pki/issue/cicd-platform для {{ item.host }}"
-  when: platform_cicd_tls_secret_check.resources | length == 0
+  when: platform_cicd_tls_needs_issue | bool
   delegate_to: localhost
   become: false
   environment:
@@ -27,6 +46,7 @@
     no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
   ansible.builtin.uri:
     url: "{{ platform_cicd_openbao_addr }}/v1/pki/issue/cicd-platform"
+    ca_path: "{{ platform_cicd_openbao_ca_path }}"
     method: POST
     headers:
       X-Vault-Token: "{{ platform_cicd_openbao_root_token }}"
@@ -39,7 +59,7 @@
   no_log: true
 
 - name: "Сохранить сертификат в Secret {{ item.secret }}"
-  when: platform_cicd_tls_secret_check.resources | length == 0
+  when: platform_cicd_tls_needs_issue | bool
   delegate_to: localhost
   become: false
   environment:
@@ -57,6 +77,15 @@
       metadata:
         labels:
           app.kubernetes.io/managed-by: ansible
+        annotations:
+          # + 60 дней от момента выпуска — 30-дневный запас до реального истечения (2160h=90д).
+          # Явный "| string" обязателен — найдено реальным прогоном: k8s API требует строковые
+          # значения аннотаций, а ansible native-jinja отдаёт Python int для шаблона, целиком
+          # состоящего из одного числового выражения, ДАЖЕ если он обёрнут в двойные кавычки в
+          # самом YAML (кавычки — синтаксис YAML, они не переживают Jinja-рендер) — модуль
+          # kubernetes.core.k8s сериализовал бы это как JSON number, а не string, и API-сервер
+          # отвечал бы "cannot unmarshal number into ... annotations of type string".
+          cicd.platform/renew-after-epoch: "{{ ((ansible_date_time.epoch | int) + (60 * 86400)) | string }}"
       type: kubernetes.io/tls
       # Найдено реальным прогоном (Traefik: "unable to generate TLS certificate: tls: failed to
       # find any PEM data") — YAML folded block scalar (">-") схлопывает перенос строки между

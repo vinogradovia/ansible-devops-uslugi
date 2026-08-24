@@ -109,23 +109,69 @@ traefikingressroute.yml` уже поддерживает это поле — п�
 поднятого OpenBao добавил бы ещё один компонент ради стенда, который и так полностью управляется
 одним `ansible-playbook`-прогоном.
 
-**Явно вне scope этого ADR:** автоматическая ротация/renewal сертификатов (TTL выставляется с
-запасом, перевыпуск — ручной), интеграция с `reverse_proxy_traefik`/docker-based Traefik
+**Явно вне scope этого ADR:** интеграция с `reverse_proxy_traefik`/docker-based Traefik
 инстансами пилотных Module (например, `infra-panel-target`, ADR-0014 Фаза 5) — это часть более
 широкого расширения охвата контроллера (ADR-0014 Фаза 6 в широком смысле), отдельная задача.
 
+### 5. Хвосты первой итерации: scoped render-token, авто-ренью TLS, TLS для API самого OpenBao
+
+Три пункта из «Не проработано» первой редакции этого ADR, закрытые вторым заходом:
+
+**Scoped `VAULT_TOKEN`.** Policy `cicd-platform-render` (`sys/policies/acl/cicd-platform-render`,
+`platform/cicd/ansible/site.yml`) даёт только `read` на `secret/data/gitea` и
+`secret/data/semaphore` — ничего из `sys/*`/`pki/*`/write. Токен по этой policy (`ttl: 87600h`,
+`auth/token/create`) выпускается один раз, сохраняется в K8s Secret `openbao-render-token` (тот
+же идемпотентный паттерн, что `openbao-init`) и используется как `VAULT_TOKEN` для второго
+`helmwave up` вместо root token. Root token остаётся только внутри самого ansible-блока
+init/unseal/engines/PKI — наружу, во внешний процесс (`helmwave`), больше не передаётся.
+
+**Авто-ренью TLS-сертификатов.** `tasks/issue-tls-cert.yml` пишет аннотацию
+`cicd.platform/renew-after-epoch` на Secret (`gitea-tls`/`semaphore-tls`) в момент выпуска
+(`issued_at + 60d`, TTL сертификата — 90д, т.е. 30-дневный запас), и на каждом прогоне
+`site.yml` перевыпускает сертификат не только при отсутствии Secret, но и когда этот порог
+пройден. Разбор PEM (`notAfter`) не потребовался — Secret и так уже читается для
+existence-проверки, epoch-аннотация дешевле отдельного парсинга сертификата на control-хосте.
+
+**TLS для API самого OpenBao.** Bootstrap self-signed сертификат (`community.crypto.
+openssl_privatekey`/`openssl_csr`/`x509_certificate`, SAN — cluster-DNS имя и реальный IP ноды),
+сгенерированный на control-хосте и смонтированный в под через Secret `openbao-server-tls` +
+`server.extraVolumes` чарта (`/openbao/userconfig/openbao-server-tls/{tls.crt,tls.key}`) —
+**независимо** от PKI engine самого OpenBao, чтобы избежать курицы-и-яйца (для выпуска
+сертификата из `pki/issue` нужен уже распечатанный OpenBao с включённым PKI, а слушать TLS он
+обязан с первого старта). `global.tlsDisable: false` переключает listener,
+readiness/liveness-пробы (`openbao.scheme` helper чарта) и `BAO_ADDR`/`BAO_API_ADDR` внутри пода
+на https без доработки runtime-кода; `server.configAnnotation: true` заставляет под
+перезапуститься при смене конфига (по умолчанию чарт этого не делает — ConfigMap меняется, но
+процесс перечитывает конфиг только при старте). Все `ansible.builtin.uri`-вызовы к OpenBao
+переключены на `https://` с `ca_path`, указывающим на тот же self-signed файл (используется как
+собственный доверенный якорь — `basicConstraints CA:true` для этого не требуется, он проверяется
+TLS-стеком только для промежуточных звеньев цепочки, не для самого якоря доверия). Отдельно —
+gomplate-датасорс `vault://` внутри `helmwave` использует СВОЙ HTTP-клиент
+(`hashicorp/vault/api`), не `ansible.builtin.uri` — `ca_path` на него не действует; такой же
+доверенный файл передаётся вторым вызовом `helmwave up` через стандартный для Vault/OpenBao CLI
+env var `VAULT_CACERT`.
+
+**Проверено `helm template` перед живым прогоном** (namespace/имена совпадают с реальным
+релизом): корректная https-схема в `BAO_ADDR`/`BAO_API_ADDR`, корректный `volumeMount` для
+`userconfig-openbao-server-tls`, `tls_cert_file`/`tls_key_file` в отрендеренном ConfigMap,
+readinessProbe — `exec: bao status -tls-skip-verify` (не зависит от доверия к сертификату).
+
+**Осознанно не сделано и здесь:** сертификат для самого API OpenBao не переиздаётся из
+собственного PKI engine после его инициализации (был бы более «единый» источник доверия, но
+требует двухфазного переключения листенера и не даёт ощутимой пользы для internal-only API) —
+возможный будущий рефайнмент, не текущая задача.
+
 ## Не проработано (следующие шаги)
 
-- `VAULT_TOKEN` для gomplate — root token OpenBao напрямую, не scoped read-only policy/token.
-  Приемлемо для первой итерации персистентного, но ещё однопользовательского стенда; заменить на
-  ограниченную политику — явный follow-up перед тем, как к стенду получит доступ кто-то ещё.
 - Нет intermediate CA — root CA выпускает leaf-сертификаты напрямую. Приемлемо для
   единственной приватной non-HA платформы; пересмотреть при росте.
-- Нет автоматической ротации/renewal TLS-сертификатов.
 - CI-раннер (Gitea Actions, ADR-0012 §4) не читает секреты из OpenBao — эта интеграция покрывает
   только Helm-values Semaphore/Gitea через Semaphore/helmwave, не сам CI-контур.
 - Интеграция OpenBao PKI с `reverse_proxy_traefik`/docker-Traefik пилотных Module — не сделана
   (ADR-0014 Фаза 6, отдельная задача).
+- `Module.spec.vars` пилотных Module (например, `infra-panel-pilot`) по-прежнему плейнтекст в
+  `platform/gitops` — перенос в OpenBao не сделан (затрагивает platform-controller, отдельная
+  задача).
 - Официальные значения по умолчанию чарта `openbao/openbao` (ресурсы, readinessProbe, размер
   PVC) взяты как есть без тонкой настройки под нагрузку одной K3s-ноды — пересмотреть при первом
   реальном использовании под нагрузкой.

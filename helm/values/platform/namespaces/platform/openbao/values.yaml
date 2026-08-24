@@ -11,14 +11,27 @@
 # localhost в platform/cicd/ansible/site.yml) не имеет маршрута к ClusterIP-адресам сервисов
 # k3s (только к реальному IP ноды, как и kube-apiserver, см. подмену 127.0.0.1 на реальный IP в
 # site.yml) — NodePort даёт стабильный `<node-ip>:30820` для VAULT_ADDR/ansible.builtin.uri.
-# tls_disable = 1 у самого OpenBao listener (дефолт чарта) — трафик control-host↔OpenBao идёт
-# внутри приватной libvirt-сети открытым текстом; TLS, который выпускает PKI engine OpenBao,
-# защищает клиентов Gitea/Semaphore, а не сам API OpenBao. Не проработано — см. ADR.
+#
+# TLS на самом listener'е OpenBao (docs/adr/0016-openbao-secrets-pki.md §5) — bootstrap
+# self-signed сертификат (community.crypto, генерируется в site.yml до первого `helmwave up`,
+# т.к. монтируется в под через Secret openbao-server-tls/server.extraVolumes), НЕ сертификат,
+# выпущенный собственным PKI engine самого OpenBao — на момент старта пода PKI ещё не
+# инициализирован (курица/яйцо: чтобы выпустить сертификат из pki/issue, нужен уже
+# распечатанный OpenBao с включённым PKI, а слушать TLS-порт он должен с самого первого старта).
+# global.tlsDisable: false переключает и listener, и readinessProbe/livenessProbe (helper
+# openbao.scheme), и BAO_ADDR/BAO_API_ADDR внутри пода на https — правки runtime-кода не нужны.
+# configAnnotation: true — иначе смена server.ha.raft.config (ConfigMap) не перезапускает под
+# автоматически (под каждый раз читает конфиг только при старте).
 
 injector:
   enabled: false
 
+global:
+  tlsDisable: false
+
 server:
+  configAnnotation: true
+
   service:
     type: NodePort
     nodePort: 30820
@@ -28,9 +41,34 @@ server:
     size: 2Gi
     storageClass: local-path
 
+  # Secret openbao-server-tls (kubernetes.io/tls) создаётся ansible ДО первого `helmwave up
+  # --tags openbao` (namespace platform создаётся тем же ansible, ещё до релиза чарта) —
+  # монтируется чартом в /openbao/userconfig/openbao-server-tls/{tls.crt,tls.key}.
+  extraVolumes:
+    - type: secret
+      name: openbao-server-tls
+
   ha:
     enabled: true
     replicas: 1
     raft:
       enabled: true
       setNodeId: true
+      # Полная замена дефолтного конфига чарта (только listener отличается — добавлены
+      # tls_cert_file/tls_key_file, убран tls_disable) — остальное 1:1 с upstream-дефолтом
+      # (ui, storage "raft", service_registration "kubernetes").
+      config: |
+        ui = true
+
+        listener "tcp" {
+          address = "[::]:8200"
+          cluster_address = "[::]:8201"
+          tls_cert_file = "/openbao/userconfig/openbao-server-tls/tls.crt"
+          tls_key_file = "/openbao/userconfig/openbao-server-tls/tls.key"
+        }
+
+        storage "raft" {
+          path = "/openbao/data"
+        }
+
+        service_registration "kubernetes" {}
