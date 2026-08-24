@@ -127,7 +127,7 @@ CA OpenBao (`CN=cicd.platform`) вместо дефолтного `TRAEFIK DEFAU
 `ansible-playbook` полностью идемпотентен — все init/unseal/secrets/PKI/TLS-задачи `skipping`,
 `changed=3` (только always-changed `lineinfile`/`helmwave up`, без пере-генерации секретов).
 
-Пять реальных находок, все исправлены в `site.yml`/`tasks/issue-tls-cert.yml`/values:
+Семь реальных находок, все исправлены в `site.yml`/`tasks/issue-tls-cert.yml`/values:
 
 1. **Control-хост не имеет маршрута к ClusterIP k3s-сервисов.** Тот же found, что уже
    зафиксирован для kube-apiserver (подмена `127.0.0.1` на реальный IP) — OpenBao опубликован
@@ -173,6 +173,20 @@ CA OpenBao (`CN=cicd.platform`) вместо дефолтного `TRAEFIK DEFAU
    потеряны (тот же принцип, что уже был принят при миграции bolt→sqlite, см. выше) — приемлемо
    для пилотного стенда, следующий раз пароль будет реально «прижившимся» через `vault://` без
    дополнительных действий, если он не меняется.
+7. **Секрет `gitops-git-auth` (flux-system) не был синхронизирован с новым admin_password и
+   молча сломал GitOps на часы.** `platform/cicd/flux/git-credentials-secret.yaml` был заведён
+   вручную ДО OpenBao с плейсхолдером `"PleAse_Change_ME!"` (`kubectl apply -f`, см.
+   `platform/cicd/flux/README.md`) — при переезде `gitea.admin.password` на OpenBao (находка №5
+   выше) этот отдельный Secret никто не тронул. `GitRepository gitops` ушёл в `READY: False
+   (authentication required)` и оставался в этом состоянии часами незамеченным — verify-шаги этой
+   фазы проверяли логин в Gitea/Semaphore напрямую, но не статус `GitRepository`. Исправлено:
+   файл `git-credentials-secret.yaml` удалён, `site.yml` теперь безусловно синхронизирует Secret
+   `gitops-git-auth` с текущим `admin_password` из `secret/gitea` на каждом прогоне (задачи «Flux:
+   прочитать текущий admin_password secret/gitea»/«Flux: синхронизировать gitops-git-auth», после
+   второго `helmwave up`, когда namespace `flux-system` уже существует). **Урок на будущее**: при
+   миграции секрета, расшаренного на несколько Secret-объектов/потребителей, проверять статус
+   ВСЕХ потребителей (в т.ч. `kubectl get gitrepository`), а не только тех, что были целью самой
+   миграции.
 
 Не проработано (см. также `docs/adr/0016-openbao-secrets-pki.md`, «Не проработано»): `VAULT_TOKEN`
 для gomplate — root token напрямую, не scoped-политика; TLS API самого OpenBao (не путать с

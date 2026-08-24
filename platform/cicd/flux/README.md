@@ -12,15 +12,23 @@ Flux (source-controller + kustomize-controller — только эти два, �
 
 ## Ресурсы
 
-- `git-credentials-secret.yaml` — basic-auth (admin-аккаунт Gitea, тот же плейсхолдер, что и
-  везде на этом стенде, `platform/cicd/README.md`) для доступа к приватному `platform/gitops`.
+- Secret `gitops-git-auth` (flux-system) — basic-auth (admin-аккаунт Gitea) для доступа к
+  приватному `platform/gitops`. Раньше был отдельным файлом `git-credentials-secret.yaml`
+  (применённым вручную, `kubectl apply -f`, с плейсхолдером-паролем) — найдено реальным
+  прогоном (`docs/adr/0016-openbao-secrets-pki.md`): при переезде `gitea.admin.password` на
+  OpenBao этот вручную-заведённый Secret не синхронизировался, `GitRepository` ушёл в
+  `authentication required` на часы незамеченным. Файл удалён, Secret теперь синхронизируется
+  безусловно на каждом прогоне `platform/cicd/ansible/site.yml` (задачи «Flux: прочитать текущий
+  admin_password secret/gitea»/«Flux: синхронизировать gitops-git-auth») с актуальным
+  admin_password из OpenBao.
 - `gitrepository.yaml` — `GitRepository` `flux-system/gitops`, ветка `main`, интервал 1m.
 - `kustomization.yaml` — Flux `Kustomization` `flux-system/platform-modules`: путь
   `./clusters/platform` в этом `GitRepository`, `prune: true`, `targetNamespace: platform`.
 
-Применены вручную (`kubectl apply -f`, конфигурация самого Flux — не то, что предполагается
-делать через сам Flux, курица/яйцо) на живой стенд `platform/cicd`. Автоматизация этого
-применения через `site.yml` — не сделана, следующий шаг при возврате к этой фазе.
+`gitrepository.yaml`/`kustomization.yaml` применены вручную (`kubectl apply -f`, конфигурация
+самого Flux — не то, что предполагается делать через сам Flux, курица/яйцо) на живой стенд
+`platform/cicd`. Автоматизация этого применения через `site.yml` — не сделана, следующий шаг при
+возврате к этой фазе (Secret `gitops-git-auth` — уже автоматизирован, см. выше).
 
 ## Проверено реальным прогоном
 
@@ -39,10 +47,10 @@ Module CR Фазы 1 (применённого вручную `kubectl apply`) �
 
 ## Не проработано (следующие шаги)
 
-- Применение самих `git-credentials-secret.yaml`/`gitrepository.yaml`/`kustomization.yaml` не
-  автоматизировано через `site.yml` — сделано вручную один раз.
+- Применение `gitrepository.yaml`/`kustomization.yaml` не автоматизировано через `site.yml` —
+  сделано вручную один раз (Secret `gitops-git-auth` — уже автоматизирован).
 - `gitea_admin` (полноправный admin-аккаунт) как креды для `GitRepository` — временное решение,
   как и everywhere на этом стенде; отдельный read-only deploy-токен — задача для более поздней
-  фазы (вместе с переездом секретов в OpenBao, `docs/adr/0012-cicd-platform-architecture.md` §3).
+  фазы.
 - CRD `modules.platform.devops.uslugi` (Фаза 1) сам не под управлением Flux — применён отдельно,
   напрямую `kubectl apply`. Решение, стоит ли заводить CRD туда же под GitOps — не принято.
