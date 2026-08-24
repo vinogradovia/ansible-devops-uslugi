@@ -1,0 +1,36 @@
+# OpenBao (docs/adr/0016-openbao-secrets-pki.md) — секреты (KV v2) и внутренний PKI CA стенда
+# platform/cicd. Официальный чарт openbao/openbao — https://openbao.github.io/openbao-helm.
+#
+# integrated storage (raft), НЕ dev-режим (server.dev.enabled — все данные в памяти, исчезают
+# при каждом рестарте пода, неприемлемо для персистентной инфраструктуры). server.ha.raft с
+# replicas: 1 — единственный способ чарта включить raft integrated storage (исторически
+# унаследовано из upstream Vault Helm chart: "HA-режим" здесь означает "raft backend", а не
+# обязательно несколько реплик) — тот же масштаб, что весь стенд (одна K3s-нода).
+#
+# service.type: NodePort — control-хост (где запускается helmwave/gomplate, delegate_to:
+# localhost в platform/cicd/ansible/site.yml) не имеет маршрута к ClusterIP-адресам сервисов
+# k3s (только к реальному IP ноды, как и kube-apiserver, см. подмену 127.0.0.1 на реальный IP в
+# site.yml) — NodePort даёт стабильный `<node-ip>:30820` для VAULT_ADDR/ansible.builtin.uri.
+# tls_disable = 1 у самого OpenBao listener (дефолт чарта) — трафик control-host↔OpenBao идёт
+# внутри приватной libvirt-сети открытым текстом; TLS, который выпускает PKI engine OpenBao,
+# защищает клиентов Gitea/Semaphore, а не сам API OpenBao. Не проработано — см. ADR.
+
+injector:
+  enabled: false
+
+server:
+  service:
+    type: NodePort
+    nodePort: 30820
+
+  dataStorage:
+    enabled: true
+    size: 2Gi
+    storageClass: local-path
+
+  ha:
+    enabled: true
+    replicas: 1
+    raft:
+      enabled: true
+      setNodeId: true

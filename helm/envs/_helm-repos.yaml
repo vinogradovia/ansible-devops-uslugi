@@ -14,6 +14,9 @@ repositories:
   # §4) — Flux (GitOps-синхронизация Module-манифестов из Gitea в кластер).
   - name: fluxcd-community
     url: https://fluxcd-community.github.io/helm-charts
+  # platform/cicd (docs/adr/0016-openbao-secrets-pki.md) — секреты и внутренний PKI CA стенда.
+  - name: openbao
+    url: https://openbao.github.io/openbao-helm
 
 registries:
   - host: ghcr.io

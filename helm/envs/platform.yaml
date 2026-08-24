@@ -2,14 +2,26 @@
 # platform/cicd (ROADMAP.md, «Предлагаемая последовательность работ», пункт 7, Фаза 0;
 # docs/adr/0012-cicd-platform-architecture.md §4/§5) — Gitea (self-hosted git, источник
 # Module-манифестов) + Semaphore UI (исполнитель Task Template) на одной K3s-ноде. Namespace
-# "platform" для обоих — helmwave options.create_namespace: true (helmwave.yml.tpl) создаёт его
-# сам, отдельная задача в site.yml не нужна (в отличие от roles/monitoring_server, где namespace
-# создаётся явно через kubernetes.core.k8s — там же заводится Grafana-секрет, здесь эквивалента
-# нет, admin-креды идут прямо в values ниже).
+# "platform" для всех релизов ниже — helmwave options.create_namespace: true (helmwave.yml.tpl)
+# создаёт его сам, отдельная задача в site.yml не нужна (в отличие от roles/monitoring_server, где
+# namespace создаётся явно через kubernetes.core.k8s — там же заводится Grafana-секрет, здесь
+# эквивалента нет).
 repositories: []
 registries: []
 
 releases:
+  # docs/adr/0016-openbao-secrets-pki.md — секреты (KV) и внутренний PKI CA стенда. Admin-креды
+  # Gitea/Semaphore ниже читаются gomplate-датасорсом vault:// из этого релиза, а не заданы
+  # прямо в values — поэтому tags: [openbao] и первым в списке: platform/cicd/ansible/site.yml
+  # поднимает его отдельным `helmwave up --tags openbao` (init/unseal/наполнение секретов через
+  # ansible), и только затем — безусловным `helmwave up` разворачивает Gitea/Semaphore/Flux,
+  # которым к этому моменту OpenBao уже отвечает.
+  - name: openbao
+    namespace: platform
+    chart: openbao/openbao
+    tags: [openbao]
+    version: 0.29.2
+
   - name: gitea
     namespace: platform
     chart: gitea-charts/gitea
