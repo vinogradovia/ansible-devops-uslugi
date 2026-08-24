@@ -22,6 +22,9 @@
   when: platform_cicd_tls_secret_check.resources | length == 0
   delegate_to: localhost
   become: false
+  environment:
+    NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+    no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
   ansible.builtin.uri:
     url: "{{ platform_cicd_openbao_addr }}/v1/pki/issue/cicd-platform"
     method: POST
@@ -55,9 +58,14 @@
         labels:
           app.kubernetes.io/managed-by: ansible
       type: kubernetes.io/tls
+      # Найдено реальным прогоном (Traefik: "unable to generate TLS certificate: tls: failed to
+      # find any PEM data") — YAML folded block scalar (">-") схлопывает перенос строки между
+      # двумя Jinja-подстановками в ПРОБЕЛ, а не сохраняет его: "-----END CERTIFICATE----- -----BEGIN
+      # CERTIFICATE-----" на одной строке не парсится как два PEM-блока. Explicit "\n" в
+      # двухкавычечной строке — YAML разворачивает escape-последовательность в реальный перенос
+      # строки на этапе парсинга YAML, ДО Jinja-рендера, поэтому между блоками гарантированно
+      # настоящий \n, а не пробел.
       stringData:
-        tls.crt: >-
-          {{ platform_cicd_tls_issue.json.data.certificate }}
-          {{ platform_cicd_tls_issue.json.data.ca_chain | join('\n') }}
+        tls.crt: "{{ platform_cicd_tls_issue.json.data.certificate }}\n{{ platform_cicd_tls_issue.json.data.ca_chain | join('\n') }}"
         tls.key: "{{ platform_cicd_tls_issue.json.data.private_key }}"
   no_log: true

@@ -107,13 +107,75 @@ poetry run ansible-playbook -i inventory.yml site.yml
 
 Не проверено на этом прогоне (не входило в scope Фазы 0, следующие шаги):
 
-- Секреты (admin-пароли Gitea/Semaphore, cookie/access-key Semaphore) — плейсхолдеры прямо в
-  values-файлах, не во внешнем хранилище. OpenBao (`docs/adr/0012-cicd-platform-architecture.md`
-  §3) для секретов — не блокирует Фазу 0, но следующий обязательный шаг перед реальным
-  использованием.
-- TLS — самоподписанный (дефолтный сертификат встроенного Traefik)/HTTP, полноценный публичный
-  TLS не в scope Фазы 0.
+- ~~Секреты (admin-пароли Gitea/Semaphore, cookie/access-key Semaphore) — плейсхолдеры прямо в
+  values-файлах~~ — **сделано**, см. «OpenBao — секреты и внутренний PKI CA» ниже.
+- ~~TLS — самоподписанный (дефолтный сертификат встроенного Traefik)~~ — **сделано** (внутренний
+  PKI CA), см. ниже.
 - Официального Helm-чарта Semaphore UI не найдено — развёрнут как голый
   Deployment/PVC/Service/IngressRoute через `nxs-universal-chart` (тот же приём, что уже
   применён для `homer`, `helm/envs/k3s-monitoring.yaml`) — работает, но не «из коробки»
   сопровождается апстримом Semaphore.
+
+## OpenBao — секреты и внутренний PKI CA (docs/adr/0016-openbao-secrets-pki.md)
+
+Реализовано и проверено реальным прогоном на живом стенде: секреты Gitea/Semaphore (admin-пароли,
+cookie/access-key Semaphore) читаются gomplate-датасорсом `vault://` из OpenBao вместо плейнтекста
+в git, TLS-сертификаты `gitea.cicd.platform`/`semaphore.cicd.platform` выпускаются внутренним PKI
+CA OpenBao (`CN=cicd.platform`) вместо дефолтного `TRAEFIK DEFAULT CERT`. Реальная проверка:
+`openssl s_client` показывает `issuer=CN=cicd.platform`, логин в Gitea/Semaphore реальным
+сгенерированным паролем (прочитанным из OpenBao) — `200`/`204`. Повторный прогон
+`ansible-playbook` полностью идемпотентен — все init/unseal/secrets/PKI/TLS-задачи `skipping`,
+`changed=3` (только always-changed `lineinfile`/`helmwave up`, без пере-генерации секретов).
+
+Пять реальных находок, все исправлены в `site.yml`/`tasks/issue-tls-cert.yml`/values:
+
+1. **Control-хост не имеет маршрута к ClusterIP k3s-сервисов.** Тот же found, что уже
+   зафиксирован для kube-apiserver (подмена `127.0.0.1` на реальный IP) — OpenBao опубликован
+   через `NodePort` (`server.service.nodePort: 30820`), весь HTTP API адресуется через
+   `<реальный IP ноды>:30820`.
+2. **`.json.keys[0]` коллизирует с Python `dict.keys()`.** Jinja резолвит `.keys` как атрибут
+   (builtin-метод) раньше, чем как JSON-ключ `"keys"` — `sys/init` ответ Vault/OpenBao содержит
+   поле именно с таким именем, отсюда `"builtin_function_or_method object has no element 0"`.
+   Итог первого прогона — **OpenBao успешно инициализировался, но root_token/unseal-ключ не
+   сохранились никуда** (задача упала до записи Secret) — постоянно запечатанный инстанс без
+   восстановимых ключей, пришлось руками удалить pod+PVC `openbao-0` и переинициализировать с
+   нуля (никаких реальных секретов внутри ещё не было — цена такой находки нулевая). Исправлено
+   явной bracket-нотацией `.json['keys'][0]`.
+3. **`register` на то же имя переменной внутри пропущенного `when`-блока затирает валидное
+   значение.** Задача «Перечитать Secret» внутри `when`-block (выполняется только при первой
+   инициализации) регистрировала результат в ТУ ЖЕ переменную, что и предшествующая проверка
+   существования Secret — при пропуске блока (Secret уже есть) Ansible всё равно пишет в
+   `register` skip-результат (`{"skipped": true}`, без `.resources`), затирая валидный результат
+   более ранней проверки. Отсюда `"object of type 'dict' has no attribute 'resources'"` на
+   следующей задаче. Исправлено: отдельное имя переменной + промежуточный `set_fact` с условием
+   `... is defined and ....resources is defined`.
+4. **YAML folded block scalar (`>-`) схлопывает перенос строки между Jinja-подстановками в
+   пробел.** `stringData.tls.crt`, собранный из `{{ certificate }}` и `{{ ca_chain }}` на двух
+   строках `>-`-блока, давал `"-----END CERTIFICATE----- -----BEGIN CERTIFICATE-----"` на одной
+   строке — Traefik: `"unable to generate TLS certificate: tls: failed to find any PEM data"`.
+   Исправлено explicit `"...\n..."` в двухкавычечной строке (YAML разворачивает escape в реальный
+   перенос строки на этапе парсинга, до Jinja-рендера).
+5. **Gitea `strategy: RollingUpdate` + локальный leveldb (`queue.TYPE: level`) на общем PVC —
+   гарантированный deadlock при любом будущем `helm upgrade`.** Новый под стартует ДО остановки
+   старого (дефолт чарта, `maxUnavailable: 0`), оба делят один `PersistentVolumeClaim` и один
+   on-disk leveldb-файл очереди — новый под падает в `CrashLoopBackOff`
+   (`"unable to lock level db ...: resource temporarily unavailable"`), а старый не завершается,
+   пока новый не станет `Ready` — тупик. Исправлено `strategy.type: Recreate` в
+   `helm/values/.../gitea/values.yaml`. Уже застрявший rollout (с прошлого, ещё не
+   Recreate-прогона) пришлось разруливать вручную: временный debug-под с той же PVC для удаления
+   зависшего (stale) `LOCK`-файла leveldb.
+6. **Semaphore не синхронизирует пароль администратора для уже существующего пользователя.** В
+   отличие от Gitea (`"Running update to sync password!"` на каждом старте), bootstrap-скрипт
+   образа `semaphoreui/semaphore` при старте видит существующего пользователя и просто отвечает
+   `"Welcome back, Administrator!"`, НЕ применяя новое значение `SEMAPHORE_ADMIN_PASSWORD` — смена
+   пароля в values не даёт эффекта, пока БД не пересоздана с нуля. Разрешено — PVC `semaphore-data`
+   пересоздан (`kubectl delete pvc` + повторный `helmwave up`), тестовые Project/Task стенда
+   потеряны (тот же принцип, что уже был принят при миграции bolt→sqlite, см. выше) — приемлемо
+   для пилотного стенда, следующий раз пароль будет реально «прижившимся» через `vault://` без
+   дополнительных действий, если он не меняется.
+
+Не проработано (см. также `docs/adr/0016-openbao-secrets-pki.md`, «Не проработано»): `VAULT_TOKEN`
+для gomplate — root token напрямую, не scoped-политика; TLS API самого OpenBao (не путать с
+выпускаемыми им клиентскими сертификатами) — `tls_disable=1`, открытый HTTP внутри приватной сети;
+нет автоматической ротации/renewal сертификатов; интеграция с `reverse_proxy_traefik`/docker-based
+Traefik пилотных Module (`infra-panel-target`) — отдельная задача (Фаза 6 в широком смысле).

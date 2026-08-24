@@ -34,6 +34,16 @@ gitea:
     queue:
       TYPE: level
 
+# strategy.type: Recreate — найдено реальным прогоном (первый helm upgrade Gitea после Фазы 0,
+# смена admin.password/ingress.tls): дефолтный RollingUpdate чарта создаёт новый под ДО остановки
+# старого, а оба пода делят один PVC (gitea-shared-storage, RWO) и один и тот же on-disk
+# leveldb-файл очереди (config.queue.TYPE: level выше) — новый под падает в CrashLoopBackOff
+# ("unable to lock level db at /data/queues/common: resource temporarily unavailable"), а старый
+# не завершается, пока новый не станет Ready — гарантированный deadlock при любом будущем
+# изменении values, не специфично для OpenBao/этого коммита.
+strategy:
+  type: Recreate
+
 # SQLite — минимальная схема для Фазы 0 (нет отдельного требования к консистентности между
 # несколькими подами Gitea, single-node k3s), без bundled Postgres/Redis subchart.
 postgresql:
