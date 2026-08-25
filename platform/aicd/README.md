@@ -234,7 +234,7 @@ read `secret/gitea`|`secret/semaphore`), `gitea-tls`/`semaphore-tls` перев�
 Второй `helmwave up` теперь ограничен `--tags` — обязательные релизы
 (`platform_aicd_core_releases`) плюс включённый набор аддонов
 (`platform_aicd_default_addons`/`_extra_addons`/`_disabled_addons`,
-`platform/aicd/ansible/group_vars/platform_hosts.yml`). Первый и пока единственный аддон —
+`platform/aicd/ansible/group_vars/platform_hosts.yml`). Первый аддон —
 [Radar](https://github.com/skyhook-io/radar) (open-source Kubernetes UI, чарт `skyhook/radar`):
 RBAC-дефолты чарта оставлены как есть (без доступа к Secrets, без Helm-writes), вход — за
 Traefik basic-auth (`Middleware radar-basic-auth`), пароль и TLS — из того же OpenBao/PKI, что
@@ -243,6 +243,21 @@ Traefik basic-auth (`Middleware radar-basic-auth`), пароль и TLS — из
 реальным прогоном: на УЖЕ развёрнутом Radar тот же оверрайд релиз не удаляет (`helmwave up
 --tags` просто исключает его из плана, не трогая существующий helm-релиз) — для реального
 удаления нужен ручной `helmwave down --tags radar` (см. `docs/adr/0017-platform-cicd-default-addons.md`).
+
+Второй аддон — `infra-panel` (homer, дашборд-стартовая страница со ссылками на все веб-UI
+платформы — Gitea/Semaphore/Radar/OpenBao), через `localrepo/universal-chart` (тот же приём, что
+Semaphore), basic-auth/TLS — тем же способом, что Radar. Заодно OpenBao получил Ingress
+(`openbao.aicd.platform`) в дополнение к уже существующему `NodePort` — backend слушает только
+TLS самоподписанным bootstrap-сертификатом, поэтому Traefik ходит в него через `ServersTransport
+openbao-insecure-backend` (`insecureSkipVerify: true`); внешний TLS-сертификат Ingress'а —
+отдельный `openbao-ingress-tls` из того же PKI CA. Basic-auth перед OpenBao не заводится — он
+аутентифицирует сам себя. Проверено реальным прогоном: `infra-panel-infra-panel` под `Running`,
+`401` без credentials/`200` с ними на `infra-panel.aicd.platform`, `/assets/config.yml` содержит
+все 4 ссылки; `openbao.aicd.platform/ui/` — `200`, TLS issuer у обоих — `CN=aicd.platform` (не
+самоподписанный `openbao-server-tls`). Единственная новая находка: `helmwave` требует базовый
+`values/releases_common/<release>.yaml` для **каждого** релиза (даже пустой `---`) — забытый файл
+для нового релиза `infra-panel` уронил второй `helmwave up` с `values file doesn't exist`;
+исправлено добавлением `helm/values/releases_common/infra-panel.yaml`.
 
 Не проработано (см. также `docs/adr/0016-openbao-secrets-pki.md`, «Не проработано»): нет
 intermediate CA у PKI engine; CI-раннер (Gitea Actions) не читает секреты из OpenBao;

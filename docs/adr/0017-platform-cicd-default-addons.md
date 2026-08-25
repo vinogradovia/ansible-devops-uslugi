@@ -85,14 +85,58 @@ check-404-then-generate шаблон, что `secret/gitea`/`secret/semaphore`, 
 `rbac.secrets: true`/`rbac.helm: true`), и вход закрыт тем же способом, что уже проверен на других
 внутренних дашбордах коллекции — не вводится новый паттерн авторизации специально под один сервис.
 
+### 3. infra_panel — второй аддон, Ingress для OpenBao (2026-08-25)
+
+**Решение:** релиз `infra-panel` (дефис — не `infra_panel`, как называется одноимённая роль/
+ADR-0008: подчёркивание сломало бы RFC-1123-имена k8s-объектов, которые `universal-chart`
+генерирует как `<release>-<key>`), тот же приём `localrepo/universal-chart`, что уже применён для
+Semaphore — homer (`b4bz/homer:v26.4.2`) с дашбордом-ссылками на все веб-UI платформы (Gitea,
+Semaphore, Radar, OpenBao). Basic-auth — тот же приём, что уже применён для Radar (`Middleware
+infra-panel-basic-auth` + `Secret infra-panel-basic-auth`, пароль — idempotent-сгенерированный в
+`secret/infra-panel`), а не хардкод в values, как в иллюстративном примере
+`helm/values/k3s-monitoring/namespaces/monitoring/homer/values.yaml`. TLS — `Secret
+infra-panel-tls`, тот же цикл `tasks/issue-tls-cert.yml`, что у остальных сервисов.
+
+**Ingress для OpenBao** — до этого решения UI/API OpenBao был доступен только через `NodePort
+:30820` (для control-хоста, не для конечного пользователя через домен). Чарт `openbao/openbao` не
+отдаёт plain HTTP вообще (`global.tlsDisable: false`), backend слушает только TLS
+самоподписанным bootstrap-сертификатом (`openbao-server-tls`) — Service автоматически проставляет
+`appProtocol: HTTPS`, поэтому Traefik сам решает идти в backend по HTTPS, но не доверяет
+самоподписанному сертификату без явного указания. Решение — `ServersTransport
+openbao-insecure-backend` (`traefik.io/v1alpha1`, `insecureSkipVerify: true`), заводится
+ansible'ом (тем же приёмом, что `Middleware radar-basic-auth`) и подключается **аннотацией на
+Service** (`server.service.annotations`, не на Ingress — так документировано для
+`service.serverstransport` в Traefik). Внешний TLS-сертификат Ingress'а — отдельный секрет
+`openbao-ingress-tls` из того же внутреннего PKI CA, что у остальных сервисов (не тот же
+самоподписанный `openbao-server-tls`, который остаётся исключительно внутренним bootstrap-
+сертификатом самого listener'а).
+
+Basic-auth перед OpenBao **не заводится** — OpenBao аутентифицирует сам себя (root token/policy),
+тот же принцип, что уже применён к Gitea/Semaphore (задокументировано их же values-комментарием).
+
+**Обоснование:** тот же принцип, что уже закреплён в §2 для Radar — не изобретается новый
+паттерн авторизации/TLS специально под один сервис, переиспользуются уже проверенные примитивы
+коллекции (Middleware+htpasswd, PKI CA, теперь ещё и `ServersTransport` — тот же CRD, что уже
+поддержан `universal-chart` и упомянут в `helm/values/k3s-monitoring/.../vm/values.yaml` в другом
+контексте).
+
+**Проверено реальным прогоном** на обоих окружениях: под `infra-panel-infra-panel` `Running`,
+`401` без basic-auth-credentials/`200` с ними, `/assets/config.yml` содержит все 4 ссылки;
+`openbao.<domain>/ui/` — `200`, TLS issuer у обоих — внутренний CA (не самоподписанный
+`openbao-server-tls`). Единственная реальная находка: `helm/helmwave.yml.tpl` требует базовый
+`values/releases_common/<release>.yaml` для **каждого** релиза (`strict: true`, в отличие от
+per-`K8S_CLUSTER`-оверрайда) — забытый файл для нового релиза уронил второй `helmwave up` с
+`values file doesn't exist`; исправлено добавлением (пустого, `---`) `helm/values/releases_common/
+infra-panel.yaml`, по образцу уже существующих `radar.yaml`/`semaphore.yaml`/`gitea.yaml`.
+
 ## Второе окружение (2026-08-25)
 
-Механизм из §1 (и стандартный набор аддонов из §2) переиспользован без изменений во втором,
+Механизм из §1 (и стандартный набор аддонов из §2/§3) переиспользован без изменений во втором,
 независимом окружении платформы — `platform/aicd-devops-labs-ru` (Proxmox вместо libvirt, домен
 `aicd.devops-labs.ru` вместо `aicd.platform`, свой var-префикс
 `platform_aicd_devops_labs_ru_*`, свой `K8S_CLUSTER=platform-devops-labs-ru` у helmwave — см.
-`platform/aicd-devops-labs-ru/README.md`). Radar включён в стандартный набор и там же — решения
-этого ADR не привязаны к конкретному стенду.
+`platform/aicd-devops-labs-ru/README.md`). Radar и infra-panel включены в стандартный набор и там
+же, без расхождений между стендами — решения этого ADR не привязаны к конкретному стенду.
 
 ## Не проработано
 

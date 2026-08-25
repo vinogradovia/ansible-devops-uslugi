@@ -22,6 +22,8 @@ libvirt, под доменом `aicd.devops-labs.ru` вместо `aicd.platform
   10.10.10.249 gitea.aicd.devops-labs.ru
   10.10.10.249 semaphore.aicd.devops-labs.ru
   10.10.10.249 radar.aicd.devops-labs.ru
+  10.10.10.249 infra-panel.aicd.devops-labs.ru
+  10.10.10.249 openbao.aicd.devops-labs.ru
   ```
 - **Var-префикс ansible:** `platform_aicd_devops_labs_ru_*` (по имени каталога, та же
   конвенция, что `platform_aicd_*` у первого стенда).
@@ -123,7 +125,16 @@ privilege escalation prompt` или `Shared connection ... closed`, при то�
 
 Тот же механизм и тот же дефолтный набор, что `platform/aicd`
 (`docs/adr/0017-platform-cicd-default-addons.md`) — `platform_aicd_devops_labs_ru_default_addons`
-по умолчанию включает [Radar](https://github.com/skyhook-io/radar). Переопределение —
+по умолчанию включает [Radar](https://github.com/skyhook-io/radar) и `infra-panel` (дашборд-
+стартовая страница со ссылками на все веб-UI платформы — Gitea/Semaphore/Radar/OpenBao). OpenBao
+дополнительно получил Ingress (`openbao.aicd.devops-labs.ru`) в дополнение к `NodePort` — см.
+ADR-0017 §3 для полного описания (ServersTransport для самоподписанного backend'а, TLS из
+внутреннего PKI CA, без basic-auth перед OpenBao — он аутентифицирует сам себя). Переопределение —
 `platform_aicd_devops_labs_ru_extra_addons`/`_disabled_addons` в
 `ansible/group_vars/platform_hosts.yml` или `-e`. Та же асимметрия `disabled_addons` (не удаляет
 уже установленный релиз, только останавливает его дальнейшее управление) — см. ADR-0017.
+
+Проверено реальным прогоном на этом стенде: `401`/`200` для `infra-panel.aicd.devops-labs.ru`,
+`200` для `openbao.aicd.devops-labs.ru/ui/`, TLS issuer обоих — внутренний PKI CA
+(`CN=aicd.devops-labs.ru`), повторный прогон полностью идемпотентен (`changed=3`, только
+ожидаемые always-changed задачи).
