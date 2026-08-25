@@ -48,3 +48,15 @@ releases:
     namespace: flux-system
     chart: fluxcd-community/flux2
     version: 2.19.0
+
+  # docs/adr/0017-platform-cicd-default-addons.md — первый стандартный аддон k3s-стенда,
+  # набор которых по умолчанию управляется platform_cicd_default_addons/_extra_addons/
+  # _disabled_addons (platform/cicd/ansible/group_vars/platform_hosts.yml) и передаётся в
+  # `helmwave up --tags` вторым вызовом (platform/cicd/ansible/site.yml). Radar
+  # (https://github.com/skyhook-io/radar) — open-source Kubernetes UI: топология, ресурсы,
+  # Helm/GitOps-диагностика. Basic-auth и TLS — не встроены в чарт, заводятся ansible'ом
+  # (site.yml) тем же приёмом, что уже применён для infra_panel/reverse_proxy_traefik.
+  - name: radar
+    namespace: platform
+    chart: skyhook/radar
+    version: 1.11.0

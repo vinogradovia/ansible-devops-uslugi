@@ -17,6 +17,10 @@ repositories:
   # platform/cicd (docs/adr/0016-openbao-secrets-pki.md) — секреты и внутренний PKI CA стенда.
   - name: openbao
     url: https://openbao.github.io/openbao-helm
+  # platform/cicd (docs/adr/0017-platform-cicd-default-addons.md) — Radar, первый стандартный
+  # аддон k3s-стенда (Kubernetes UI/дашборд).
+  - name: skyhook
+    url: https://skyhook-io.github.io/helm-charts
 
 registries:
   - host: ghcr.io

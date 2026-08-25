@@ -1,0 +1,28 @@
+# Radar (https://github.com/skyhook-io/radar) — open-source Kubernetes UI, первый стандартный
+# аддон k3s-стенда platform/cicd (docs/adr/0017-platform-cicd-default-addons.md).
+#
+# RBAC/persistence — дефолты чарта (уже безопасны для установки рядом с OpenBao/секретами
+# платформы: rbac.secrets=false, rbac.helm=false, rbac.podExec=false, rbac.portForward=false,
+# read-only ClusterRole на остальные ресурсы). Явно переопределяем только сеть.
+#
+# auth.mode внутри чарта остаётся "none" (дефолт) — Radar сам никого не аутентифицирует, вход
+# защищён basic-auth на уровне Traefik Middleware (Secret radar-basic-auth, платформенный
+# ansible-код в platform/cicd/ansible/site.yml), тот же приём, что уже применён для
+# infra_panel/reverse_proxy_traefik. Пароль — не хардкод, читается из OpenBao (secret/radar).
+#
+# TLS — Secret radar-tls, выпущен из внутреннего PKI CA OpenBao тем же циклом
+# (tasks/issue-tls-cert.yml), что уже используется для gitea-tls/semaphore-tls.
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: platform-radar-basic-auth@kubernetescrd
+  hosts:
+    - host: radar.cicd.platform
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: radar-tls
+      hosts:
+        - radar.cicd.platform
