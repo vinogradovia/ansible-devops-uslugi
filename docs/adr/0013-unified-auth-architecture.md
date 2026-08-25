@@ -87,6 +87,43 @@ admin UI/self-service) тяжелее и функционально избыто
 опциональный режим, который оператор осознанно включает per-host/per-service. Значит,
 `*_auth_method`, а не безусловная `meta`-зависимость на Authelia.
 
+### 5. Повторная проверка: Authelia остаётся, не Keycloak (2026-08-26)
+
+**Контекст повторной проверки:** после появления ROADMAP №55 (единая авторизация для
+kube-apiserver, кандидат — Dex или аналог) встал вопрос — не проще ли закрыть обе задачи (SSO
+приложений §2/§4 и OIDC для kube-apiserver) одним более функциональным провайдером (Keycloak)
+вместо двух разных компонентов (Authelia + Dex/аналог), федерированных в один и тот же `freeipa`.
+
+**Решение:** выбор Authelia (§2) подтверждён без изменений. Задача №55 по-прежнему решается
+отдельным компонентом (Dex или аналог), а не заменой Authelia на Keycloak.
+
+**Обоснование:**
+- Для сценария §4 (`forwardAuth` перед admin-панелями без OIDC) у Keycloak нет нативного аналога
+  `forwardAuth` — пришлось бы ставить `oauth2-proxy` перед Keycloak для тех же панелей (Traefik
+  dashboard, `infra_panel`, `reverse_proxy_npm` admin UI). Замена не убирает компонент, а
+  добавляет третий поверх уже более тяжёлого Keycloak.
+- Цель "единой авторизации" обеспечивается §1 — единым каталогом `freeipa`, а не единым
+  OIDC-провайдером. Authelia и Dex, федерированные в один и тот же LDAP, не создают
+  рассинхронизации учёток — два протокольных адаптера поверх одного каталога полностью
+  укладываются в принцип §1. Реального выигрыша от единого issuer'а для kube-apiserver и для
+  приложений за reverse-proxy нет: `kubectl` OIDC-логин — отдельный from-browser/device-flow, не
+  разделяет cookie-сессию портала Authelia.
+- Keycloak (JVM + отдельная Postgres-БД, ~1 ГБ RAM базово) противоречит уже устоявшемуся в
+  коллекции принципу предпочитать лёгкие однобинарные инструменты — тот же критерий, что уже
+  применялся к выбору `freeipa` вместо полноценного IAM-стека и изначально к выбору Authelia
+  вместо Keycloak (§2).
+- OIDC-провайдер Authelia — [OpenID Certified](https://www.authelia.com/overview/authorization/openid-connect-1.0/),
+  на 2026-08-26 находится на стадии beta 7 из 8 ([roadmap апстрима](https://www.authelia.com/roadmap/active/openid-connect-1.0-provider/),
+  v4.39), формально ещё не объявлен GA, но поддерживает `groups`-claim и custom scopes/claims —
+  достаточно для кандидата §4 (Grafana `generic_oauth`). Риск, не блокер: апстрим прямо не
+  позиционирует эту реализацию как issuer для сервисов, которым нужны кастомные claims под
+  RBAC, — именно такой сценарий у kube-apiserver, что независимо от веса Keycloak тоже говорит
+  не в пользу Authelia для №55.
+- Для №55 отраслевой консенсус — Keycloak либо Dex, но не Authelia (её OIDC — bolt-on поверх
+  forwardAuth-ядра). Выбор между Keycloak и Dex конкретно для №55 не сделан этим пересмотром —
+  требует отдельного ADR (см. ROADMAP №55). Здесь закрыт только вопрос "менять ли Authelia на
+  Keycloak ради №2/№4", а не выбор провайдера для №55.
+
 ## Не проработано (следующие шаги)
 
 - Имя роли Authelia (§3).
@@ -103,6 +140,9 @@ admin UI/self-service) тяжелее и функционально избыто
 - Доступ к самому kube-apiserver (`kubectl`) этим ADR не покрыт — область действия ограничена
   приложениями за reverse-proxy (§4). Отдельная идея (Dex или аналог как OIDC-issuer перед
   kube-apiserver) зафиксирована в `ROADMAP.md` №55.
+- Статус OIDC-провайдера Authelia (beta 7/8 на 2026-08-26, §5) — проверить перед реализацией §4,
+  не стал ли он GA и не появились ли анонсированные апстримом breaking-изменения в
+  consent-policy.
 
 ## Ссылки
 
@@ -116,3 +156,6 @@ admin UI/self-service) тяжелее и функционально избыто
   §4) и разбора meta-зависимость vs композиция.
 - `docs/adr/0004-mysql-ha-replication-role.md` §11 — критерий meta-зависимость vs композиция,
   применённый в §4.
+- [Authelia OpenID Connect 1.0 Provider — roadmap/статус беты](https://www.authelia.com/roadmap/active/openid-connect-1.0-provider/),
+  [overview/OpenID Certified](https://www.authelia.com/overview/authorization/openid-connect-1.0/) —
+  источники для повторной проверки §5.
