@@ -85,6 +85,15 @@ check-404-then-generate шаблон, что `secret/gitea`/`secret/semaphore`, 
 `rbac.secrets: true`/`rbac.helm: true`), и вход закрыт тем же способом, что уже проверен на других
 внутренних дашбордах коллекции — не вводится новый паттерн авторизации специально под один сервис.
 
+## Второе окружение (2026-08-25)
+
+Механизм из §1 (и стандартный набор аддонов из §2) переиспользован без изменений во втором,
+независимом окружении платформы — `platform/aicd-devops-labs-ru` (Proxmox вместо libvirt, домен
+`aicd.devops-labs.ru` вместо `aicd.platform`, свой var-префикс
+`platform_aicd_devops_labs_ru_*`, свой `K8S_CLUSTER=platform-devops-labs-ru` у helmwave — см.
+`platform/aicd-devops-labs-ru/README.md`). Radar включён в стандартный набор и там же — решения
+этого ADR не привязаны к конкретному стенду.
+
 ## Не проработано
 
 - RBAC-профиль Radar не тюнится тоньше дефолтов чарта (например, `crdGroups` оставлены все

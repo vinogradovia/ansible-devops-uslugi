@@ -1,0 +1,79 @@
+# Gitea (https://gitea.com) — self-hosted git, источник Module-манифестов/inventory для
+# платформенного контроллера (docs/adr/0014-platform-controller-architecture.md §4,
+# docs/adr/0012-cicd-platform-architecture.md §4). Официальный чарт gitea-charts/gitea.
+# Второе окружение платформы (platform/aicd-devops-labs-ru) — те же решения, что
+# helm/values/platform/namespaces/platform/gitea/values.yaml (первый стенд), другой домен.
+#
+# admin.password — читается из OpenBao (docs/adr/0016-openbao-secrets-pki.md) через gomplate
+# datasource vault://, а не задан прямым текстом — сгенерирован один раз
+# platform/aicd-devops-labs-ru/ansible/site.yml при первом прогоне, при повторных прогонах не
+# меняется. ВНИМАНИЕ: этот файл целиком — gomplate-шаблон с делимитерами "квадратная скобка
+# дважды" вместо Jinja-фигурных (см. helm/helmwave.yml.tpl, delimiter_left/right для
+# values-файлов релизов), рендерится helmwave/gomplate, не ansible — не используйте парные
+# квадратные скобки нигде в этом файле, даже в комментариях (gomplate шаблонизирует файл
+# целиком, включая комментарии).
+#
+# defineDatasource/ds, не двухаргументный datasource("имя", "путь") — helmwave не регистрирует
+# алиасы датасорсов через CLI-флаг (в отличие от чистого gomplate-бинаря), их нужно объявить
+# прямо в шаблоне (docs.helmwave.app, «HashiCorp Vault»). Путь — "secret/data/gitea" (не
+# "secret/gitea") — обязательный префикс "data/" для KV v2 engine, тот же путь на низком уровне
+# API, что platform/aicd-devops-labs-ru/ansible/site.yml использует в /v1/secret/data/gitea.
+[[ defineDatasource "vault" "vault:///secret/data/gitea" ]]
+gitea:
+  admin:
+    username: gitea_admin
+    password: '[[ (ds "vault").data.admin_password ]]'
+    email: gitea_admin@aicd.devops-labs.ru
+  config:
+    database:
+      DB_TYPE: sqlite3
+    session:
+      PROVIDER: memory
+    cache:
+      ADAPTER: memory
+    queue:
+      TYPE: level
+
+# strategy.type: Recreate — найдено реальным прогоном на первом стенде (platform/aicd) — дефолтный
+# RollingUpdate чарта создаёт новый под ДО остановки старого, а оба пода делят один PVC и один и
+# тот же on-disk leveldb-файл очереди (config.queue.TYPE: level выше) — гарантированный deadlock.
+strategy:
+  type: Recreate
+
+# SQLite — минимальная схема (нет отдельного требования к консистентности между несколькими
+# подами Gitea, single-node k3s), без bundled Postgres/Redis subchart.
+postgresql:
+  enabled: false
+postgresql-ha:
+  enabled: false
+redis-cluster:
+  enabled: false
+
+persistence:
+  enabled: true
+  size: 10Gi
+  storageClass: local-path
+
+service:
+  http:
+    type: ClusterIP
+    port: 3000
+  ssh:
+    type: ClusterIP
+    port: 22
+
+# Штатный k3s Traefik как ingress controller. TLS — сертификат из внутреннего PKI CA OpenBao
+# (docs/adr/0016-openbao-secrets-pki.md §4), Secret gitea-tls создан
+# platform/aicd-devops-labs-ru/ansible/site.yml (pki/issue/aicd-devops-labs-ru).
+ingress:
+  enabled: true
+  className: traefik
+  hosts:
+    - host: gitea.aicd.devops-labs.ru
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: gitea-tls
+      hosts:
+        - gitea.aicd.devops-labs.ru

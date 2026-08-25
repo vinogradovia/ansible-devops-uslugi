@@ -9,11 +9,15 @@ helm/.claude/
 helm/.helmwave/
 helm/tmp/
 # helm/helmwave.yml — единственный закоммиченный референсный рендер (K8S_CLUSTER=k3s-monitoring).
-# platform/cicd (ROADMAP.md, «Предлагаемая последовательность работ», пункт 7) рендерит СВОЙ
+# platform/aicd (ROADMAP.md, «Предлагаемая последовательность работ», пункт 7) рендерит СВОЙ
 # helmwave.yml под другим именем (--file helmwave.platform.yml) именно чтобы не перезаписывать
 # этот референс при каждом прогоне своего site.yml — рендер под платформенный кластер не
-# коммитится, это транзиентный артефакт запуска, не документация.
+# коммитится, это транзиентный артефакт запуска, не документация. platform/aicd-devops-labs-ru
+# (второе, независимое окружение того же стека) по той же причине рендерит СВОЙ файл под ещё
+# одним именем (--file helmwave.platform-devops-labs-ru.yml) — общего `helm/` каталога с
+# platform/aicd, иначе оба стенда писали бы в один и тот же файл.
 helm/helmwave.platform.yml
+helm/helmwave.platform-devops-labs-ru.yml
 
 # extensions/molecule/default/create.yml пишет сюда per-host дамп hostvars (tmp_dir из
 # extensions/molecule/inventory/hosts.yml) — рабочий артефакт прогона, не фикстура. Раньше уже

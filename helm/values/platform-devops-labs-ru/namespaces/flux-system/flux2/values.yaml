@@ -1,0 +1,18 @@
+# Flux (https://fluxcd.io) — GitOps-синхронизация Module-манифестов из Gitea (ADR-0014 §4).
+# Пилот использует только source-controller (следит за GitRepository) и kustomize-controller
+# (применяет Kustomization) — остальные контроллеры чарта (helm/image-automation/image-reflection/
+# notification, policies) этому стенду не нужны (нет Helm-релизов/образов/уведомлений под
+# управлением Flux) и отключены, чтобы не расходовать ресурсы одной ноды на неиспользуемые поды.
+installCRDs: true
+watchAllNamespaces: true
+
+helmController:
+  create: false
+imageAutomationController:
+  create: false
+imageReflectionController:
+  create: false
+notificationController:
+  create: false
+policies:
+  create: false

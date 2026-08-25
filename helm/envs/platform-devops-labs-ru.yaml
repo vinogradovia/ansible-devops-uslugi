@@ -1,0 +1,44 @@
+---
+# platform/aicd-devops-labs-ru — второе, независимое окружение того же стека, что platform/aicd
+# (ROADMAP.md, «Предлагаемая последовательность работ», пункт 7, Фаза 0;
+# docs/adr/0012-cicd-platform-architecture.md §4/§5): K3s + OpenBao + Gitea + Semaphore UI + Flux
+# + стандартные аддоны (docs/adr/0017-platform-cicd-default-addons.md), на Proxmox вместо
+# libvirt, домен aicd.devops-labs.ru вместо aicd.platform. Тот же набор релизов/версий чартов,
+# что helm/envs/platform.yaml — разница только в values (см.
+# helm/values/platform-devops-labs-ru/namespaces/), которые резолвятся helmwave по
+# K8S_CLUSTER=platform-devops-labs-ru (platform/aicd-devops-labs-ru/ansible/site.yml). Namespace
+# "platform" — helmwave options.create_namespace: true создаёт его сам.
+repositories: []
+registries: []
+
+releases:
+  # docs/adr/0016-openbao-secrets-pki.md — секреты (KV) и внутренний PKI CA стенда. tags:
+  # [openbao] — platform/aicd-devops-labs-ru/ansible/site.yml поднимает его первым отдельным
+  # `helmwave up --tags openbao`, и только затем безусловным `helmwave up` — Gitea/Semaphore/Flux.
+  - name: openbao
+    namespace: platform
+    chart: openbao/openbao
+    tags: [openbao]
+    version: 0.29.2
+
+  - name: gitea
+    namespace: platform
+    chart: gitea-charts/gitea
+    version: 11.0.0
+
+  - name: semaphore
+    namespace: platform
+    chart: localrepo/universal-chart
+    version: 2.8.1
+
+  - name: flux2
+    namespace: flux-system
+    chart: fluxcd-community/flux2
+    version: 2.19.0
+
+  # docs/adr/0017-platform-cicd-default-addons.md — стандартный набор аддонов, тот же, что
+  # platform/aicd (без расхождений между окружениями).
+  - name: radar
+    namespace: platform
+    chart: skyhook/radar
+    version: 1.11.0

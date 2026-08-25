@@ -1,0 +1,86 @@
+# Semaphore UI (https://semaphoreui.com) — исполнитель Task Template
+# (docs/adr/0012-cicd-platform-architecture.md §5, docs/adr/0014-platform-controller-architecture.md
+# §2). Второе окружение платформы (platform/aicd-devops-labs-ru) — те же решения, что
+# helm/values/platform/namespaces/platform/semaphore/values.yaml (первый стенд, там же полное
+# обоснование imageTag/bolt->sqlite миграции), другой домен.
+#
+# Admin-пароль и cookie/access-key секреты ниже читаются из OpenBao
+# (docs/adr/0016-openbao-secrets-pki.md) через gomplate datasource vault:// — сгенерированы один
+# раз platform/aicd-devops-labs-ru/ansible/site.yml при первом прогоне, не меняются при
+# повторных. ВНИМАНИЕ: этот файл целиком — gomplate-шаблон с делимитерами "квадратная скобка
+# дважды" вместо Jinja-фигурных — не используйте парные квадратные скобки нигде в этом файле,
+# даже в комментариях.
+#
+# Путь — "secret/data/semaphore" (не "secret/semaphore") — обязательный префикс "data/" для
+# KV v2 engine, тот же путь на низком уровне API, что
+# platform/aicd-devops-labs-ru/ansible/site.yml использует в /v1/secret/data/semaphore.
+[[ defineDatasource "vault" "vault:///secret/data/semaphore" ]]
+
+pvcs:
+  data:
+    accessModes:
+      - ReadWriteOnce
+    size: 5Gi
+    storageClassName: local-path
+
+deployments:
+  semaphore:
+    containers:
+      - name: semaphore
+        image: semaphoreui/semaphore
+        imageTag: v2.19.8
+        env:
+          - name: SEMAPHORE_DB_DIALECT
+            value: sqlite
+          - name: SEMAPHORE_DB_HOST
+            value: /var/lib/semaphore/database.db
+          - name: SEMAPHORE_ADMIN
+            value: admin
+          - name: SEMAPHORE_ADMIN_EMAIL
+            value: admin@aicd.devops-labs.ru
+          - name: SEMAPHORE_ADMIN_NAME
+            value: Administrator
+          - name: SEMAPHORE_ADMIN_PASSWORD
+            value: '[[ (ds "vault").data.admin_password ]]'
+          # Semaphore требует непустые валидные base64-значения при первом старте —
+          # сгенерированы platform/aicd-devops-labs-ru/ansible/site.yml один раз, хранятся в
+          # OpenBao (secret/semaphore).
+          - name: SEMAPHORE_COOKIE_HASH
+            value: '[[ (ds "vault").data.cookie_hash ]]'
+          - name: SEMAPHORE_COOKIE_ENCRYPTION
+            value: '[[ (ds "vault").data.cookie_encryption ]]'
+          - name: SEMAPHORE_ACCESS_KEY_ENCRYPTION
+            value: '[[ (ds "vault").data.access_key_encryption ]]'
+        ports:
+          - name: http
+            containerPort: 3000
+        volumeMounts:
+          - name: data
+            mountPath: /var/lib/semaphore
+    volumes:
+      - name: data
+        type: pvc
+
+services:
+  semaphore:
+    ports:
+      - name: http
+        port: 3000
+
+# Semaphore аутентифицирует пользователей сам — дополнительный basicAuth middleware здесь
+# избыточен.
+#
+# tls.secretName — сертификат из внутреннего PKI CA OpenBao (docs/adr/0016-openbao-secrets-pki.md
+# §4), Secret semaphore-tls создан platform/aicd-devops-labs-ru/ansible/site.yml
+# (pki/issue/aicd-devops-labs-ru).
+ingressroutes:
+  semaphore:
+    entryPoints:
+      - websecure
+    routes:
+      "Host(`semaphore.aicd.devops-labs.ru`)":
+        services:
+          semaphore-semaphore:
+            port: 3000
+    tls:
+      secretName: semaphore-tls
