@@ -17,6 +17,7 @@ platform_aicd_devops_labs_ru_core_releases:
 # Стандартный набор дополнительных инструментов, ставится по умолчанию.
 platform_aicd_devops_labs_ru_default_addons:
   - radar
+  - infra-panel
 
 # Оверрайды: добавить аддон сверх дефолтного набора / исключить аддон из дефолтного набора.
 platform_aicd_devops_labs_ru_extra_addons: []

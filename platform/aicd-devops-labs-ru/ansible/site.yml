@@ -565,16 +565,49 @@
                 admin_password: "{{ lookup('ansible.builtin.password', '/dev/null', length=24) }}"
             status_code: [200, 204]
 
+        # docs/adr/0017-platform-cicd-default-addons.md §3 — пароль basic-auth для infra-panel
+        # (второй стандартный аддон), тот же идемпотентный приём, что secret/radar выше.
+        - name: "OpenBao: проверить наличие secret/infra-panel"
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/infra-panel"
+            ca_path: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
+            method: GET
+            headers:
+              X-Vault-Token: "{{ platform_aicd_devops_labs_ru_openbao_root_token }}"
+            status_code: [200, 404]
+          register: platform_aicd_devops_labs_ru_openbao_secret_infra_panel
+          no_log: true
+
+        - name: "OpenBao: сгенерировать и записать secret/infra-panel (только при первом прогоне)"
+          when: platform_aicd_devops_labs_ru_openbao_secret_infra_panel.status == 404
+          no_log: true
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/infra-panel"
+            ca_path: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
+            method: POST
+            headers:
+              X-Vault-Token: "{{ platform_aicd_devops_labs_ru_openbao_root_token }}"
+            body_format: json
+            body:
+              data:
+                admin_password: "{{ lookup('ansible.builtin.password', '/dev/null', length=24) }}"
+            status_code: [200, 204]
+
         # TLS-сертификаты — перевыпускаются автоматически при приближении к сроку истечения
         # (docs/adr/0016-openbao-secrets-pki.md §4, аннотация renew-after-epoch в
         # tasks/issue-tls-cert.yml), TTL 2160h (90 дней), renew за 30 дней до истечения.
-        - name: "OpenBao: выпустить/перевыпустить TLS-сертификаты (gitea, semaphore)"
+        # openbao.aicd.devops-labs.ru/openbao-ingress-tls — docs/adr/0017-platform-cicd-default-addons.md
+        # §3, внешний Ingress-сертификат OpenBao (отдельный от внутреннего bootstrap-сертификата
+        # openbao-server-tls самого listener'а).
+        - name: "OpenBao: выпустить/перевыпустить TLS-сертификаты (gitea, semaphore, radar, infra-panel, openbao)"
           no_log: true
           ansible.builtin.include_tasks: tasks/issue-tls-cert.yml
           loop:
             - {host: gitea.aicd.devops-labs.ru, secret: gitea-tls}
             - {host: semaphore.aicd.devops-labs.ru, secret: semaphore-tls}
             - {host: radar.aicd.devops-labs.ru, secret: radar-tls}
+            - {host: infra-panel.aicd.devops-labs.ru, secret: infra-panel-tls}
+            - {host: openbao.aicd.devops-labs.ru, secret: openbao-ingress-tls}
           loop_control:
             label: "{{ item.host }}"
 
@@ -868,6 +901,118 @@
           spec:
             basicAuth:
               secret: radar-basic-auth
+
+    # docs/adr/0017-platform-cicd-default-addons.md §3 — infra-panel (homer) сам никого не
+    # аутентифицирует, тот же приём basic-auth через Traefik Middleware, что уже применён для
+    # Radar выше — 1:1 повтор с заменой имён.
+    - name: "Infra Panel: прочитать текущий admin_password secret/infra-panel (для basic-auth)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      no_log: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+      ansible.builtin.uri:
+        url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/infra-panel"
+        ca_path: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
+        method: GET
+        headers:
+          X-Vault-Token: "{{ platform_aicd_devops_labs_ru_openbao_root_token }}"
+        status_code: [200]
+      register: platform_aicd_devops_labs_ru_openbao_secret_infra_panel_current
+
+    - name: "Infra Panel: посчитать htpasswd для basic-auth (control-хост)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      no_log: true
+      community.general.htpasswd:
+        path: "{{ playbook_dir }}/.kube-tmp/infra-panel-htpasswd"
+        name: admin
+        password: "{{ platform_aicd_devops_labs_ru_openbao_secret_infra_panel_current.json.data.data.admin_password }}"
+        mode: '0600'
+
+    - name: "Infra Panel: прочитать рендернутый htpasswd обратно"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      no_log: true
+      ansible.builtin.set_fact:
+        platform_aicd_devops_labs_ru_infra_panel_htpasswd: "{{ lookup('ansible.builtin.file', playbook_dir + '/.kube-tmp/infra-panel-htpasswd') }}"
+
+    - name: "Infra Panel: сохранить Secret infra-panel-basic-auth"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      no_log: true
+      environment:
+        KUBECONFIG: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+      kubernetes.core.k8s:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        state: present
+        kind: Secret
+        name: infra-panel-basic-auth
+        namespace: platform
+        definition:
+          apiVersion: v1
+          metadata:
+            labels:
+              app.kubernetes.io/managed-by: ansible
+          type: Opaque
+          stringData:
+            users: "{{ platform_aicd_devops_labs_ru_infra_panel_htpasswd }}"
+
+    - name: "Infra Panel: Middleware infra-panel-basic-auth (Traefik)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        KUBECONFIG: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+      kubernetes.core.k8s:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        state: present
+        definition:
+          apiVersion: traefik.io/v1alpha1
+          kind: Middleware
+          metadata:
+            name: infra-panel-basic-auth
+            namespace: platform
+            labels:
+              app.kubernetes.io/managed-by: ansible
+          spec:
+            basicAuth:
+              secret: infra-panel-basic-auth
+
+    # docs/adr/0017-platform-cicd-default-addons.md §3 — ServersTransport для backend'а OpenBao
+    # (самоподписанный bootstrap-сертификат листенера, Traefik ему не доверяет по умолчанию) —
+    # см. helm/values/platform-devops-labs-ru/namespaces/platform/openbao/values.yaml для полного
+    # контекста.
+    - name: "OpenBao: ServersTransport openbao-insecure-backend (Traefik)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        KUBECONFIG: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+      kubernetes.core.k8s:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        state: present
+        definition:
+          apiVersion: traefik.io/v1alpha1
+          kind: ServersTransport
+          metadata:
+            name: openbao-insecure-backend
+            namespace: platform
+            labels:
+              app.kubernetes.io/managed-by: ansible
+          spec:
+            insecureSkipVerify: true
 
     - name: Вывод helmwave up
       ansible.builtin.debug:
