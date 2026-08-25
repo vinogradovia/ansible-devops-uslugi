@@ -1,0 +1,100 @@
+---
+# Один хост за вызов (item: {host, secret}) — вынесено из site.yml отдельным файлом, потому что
+# ansible.builtin.include_tasks поддерживает loop, а block — нет (docs/adr/0016-openbao-secrets-pki.md
+# §3, TLS-сертификаты выпускаются по одному на host). delegate_to/environment не наследуются
+# надёжно через include_tasks (в отличие от block) — заданы явно в каждой задаче ниже.
+
+- name: "Проверить существование Secret {{ item.secret }}"
+  delegate_to: localhost
+  become: false
+  environment:
+    KUBECONFIG: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+    NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+    no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Secret
+    namespace: platform
+    name: "{{ item.secret }}"
+  register: platform_aicd_devops_labs_ru_tls_secret_check
+
+# Авто-ренью (docs/adr/0016-openbao-secrets-pki.md §4) — TTL сертификата 2160h (90 дней),
+# перевыпускаем за 30 дней до истечения (renew-after = момент выпуска + 60 дней), а не только
+# при полном отсутствии Secret. Метка времени — эпоха в аннотации самого Secret (не парсинг PEM
+# notAfter — Secret и так уже читаем, а разбор PEM потребовал бы отдельного модуля/утилиты на
+# control-хосте). Jinja "or" — ленивый (как Python), поэтому обращение к
+# .resources[0].metadata... безопасно при пустом resources: правая часть просто не вычисляется.
+- name: "Определить необходимость (пере)выпуска для {{ item.host }}"
+  ansible.builtin.set_fact:
+    platform_aicd_devops_labs_ru_tls_needs_issue: >-
+      {{
+        platform_aicd_devops_labs_ru_tls_secret_check.resources | length == 0
+        or (
+          (
+            (platform_aicd_devops_labs_ru_tls_secret_check.resources[0].metadata.annotations | default({}))
+            .get('aicd.devops-labs.ru/renew-after-epoch', 0) | int
+          ) <= (ansible_date_time.epoch | int)
+        )
+      }}
+
+- name: "OpenBao: pki/issue/aicd-devops-labs-ru для {{ item.host }}"
+  when: platform_aicd_devops_labs_ru_tls_needs_issue | bool
+  delegate_to: localhost
+  become: false
+  environment:
+    NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+    no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+  ansible.builtin.uri:
+    url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/pki/issue/aicd-devops-labs-ru"
+    ca_path: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
+    method: POST
+    headers:
+      X-Vault-Token: "{{ platform_aicd_devops_labs_ru_openbao_root_token }}"
+    body_format: json
+    body:
+      common_name: "{{ item.host }}"
+      ttl: "2160h"
+    status_code: [200]
+  register: platform_aicd_devops_labs_ru_tls_issue
+  no_log: true
+
+- name: "Сохранить сертификат в Secret {{ item.secret }}"
+  when: platform_aicd_devops_labs_ru_tls_needs_issue | bool
+  delegate_to: localhost
+  become: false
+  environment:
+    KUBECONFIG: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+    NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+    no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+  kubernetes.core.k8s:
+    kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+    state: present
+    kind: Secret
+    name: "{{ item.secret }}"
+    namespace: platform
+    definition:
+      apiVersion: v1
+      metadata:
+        labels:
+          app.kubernetes.io/managed-by: ansible
+        annotations:
+          # + 60 дней от момента выпуска — 30-дневный запас до реального истечения (2160h=90д).
+          # Явный "| string" обязателен — найдено реальным прогоном: k8s API требует строковые
+          # значения аннотаций, а ansible native-jinja отдаёт Python int для шаблона, целиком
+          # состоящего из одного числового выражения, ДАЖЕ если он обёрнут в двойные кавычки в
+          # самом YAML (кавычки — синтаксис YAML, они не переживают Jinja-рендер) — модуль
+          # kubernetes.core.k8s сериализовал бы это как JSON number, а не string, и API-сервер
+          # отвечал бы "cannot unmarshal number into ... annotations of type string".
+          aicd.devops-labs.ru/renew-after-epoch: "{{ ((ansible_date_time.epoch | int) + (60 * 86400)) | string }}"
+      type: kubernetes.io/tls
+      # Найдено реальным прогоном (Traefik: "unable to generate TLS certificate: tls: failed to
+      # find any PEM data") — YAML folded block scalar (">-") схлопывает перенос строки между
+      # двумя Jinja-подстановками в ПРОБЕЛ, а не сохраняет его: "-----END CERTIFICATE----- -----BEGIN
+      # CERTIFICATE-----" на одной строке не парсится как два PEM-блока. Explicit "\n" в
+      # двухкавычечной строке — YAML разворачивает escape-последовательность в реальный перенос
+      # строки на этапе парсинга YAML, ДО Jinja-рендера, поэтому между блоками гарантированно
+      # настоящий \n, а не пробел.
+      stringData:
+        tls.crt: "{{ platform_aicd_devops_labs_ru_tls_issue.json.data.certificate }}\n{{ platform_aicd_devops_labs_ru_tls_issue.json.data.ca_chain | join('\n') }}"
+        tls.key: "{{ platform_aicd_devops_labs_ru_tls_issue.json.data.private_key }}"
+  no_log: true

@@ -1,0 +1,27 @@
+---
+# docs/adr/0017-platform-cicd-default-addons.md — стандартный набор Helm-релизов на k3s-ноде
+# platform/aicd-devops-labs-ru (второе окружение того же стека, что platform/aicd) и возможность
+# его переопределить. Тот же принцип, что
+# roles/monitoring_server/defaults/main.yml (monitoring_server_helmwave_tags/_other_tags):
+# каждый релиз в helmwave уже автоматически тегируется своим именем
+# (helm/helmwave.yml.tpl:76-78), поэтому выборочная установка — это просто список имён релизов,
+# переданный в `helmwave up --tags` (platform/aicd-devops-labs-ru/ansible/site.yml).
+
+# Обязательные релизы платформы — не являются "аддонами", всегда ставятся.
+platform_aicd_devops_labs_ru_core_releases:
+  - openbao
+  - gitea
+  - semaphore
+  - flux2
+
+# Стандартный набор дополнительных инструментов, ставится по умолчанию.
+platform_aicd_devops_labs_ru_default_addons:
+  - radar
+
+# Оверрайды: добавить аддон сверх дефолтного набора / исключить аддон из дефолтного набора.
+platform_aicd_devops_labs_ru_extra_addons: []
+platform_aicd_devops_labs_ru_disabled_addons: []
+
+platform_aicd_devops_labs_ru_enabled_addons: >-
+  {{ (platform_aicd_devops_labs_ru_default_addons + platform_aicd_devops_labs_ru_extra_addons)
+     | unique | difference(platform_aicd_devops_labs_ru_disabled_addons) }}
