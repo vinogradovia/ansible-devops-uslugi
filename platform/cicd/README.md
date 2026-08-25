@@ -221,8 +221,24 @@ read `secret/gitea`|`secret/semaphore`), `gitea-tls`/`semaphore-tls` перев�
     иначе падает `"x509: certificate signed by unknown authority"`. Исправлено добавлением
     `VAULT_CACERT` в `environment:` второго `helmwave up` рядом с `VAULT_ADDR`/`VAULT_TOKEN`.
 
+### Стандартный набор аддонов (docs/adr/0017-platform-cicd-default-addons.md)
+
+Второй `helmwave up` теперь ограничен `--tags` — обязательные релизы
+(`platform_cicd_core_releases`) плюс включённый набор аддонов
+(`platform_cicd_default_addons`/`_extra_addons`/`_disabled_addons`,
+`platform/cicd/ansible/group_vars/platform_hosts.yml`). Первый и пока единственный аддон —
+[Radar](https://github.com/skyhook-io/radar) (open-source Kubernetes UI, чарт `skyhook/radar`):
+RBAC-дефолты чарта оставлены как есть (без доступа к Secrets, без Helm-writes), вход — за
+Traefik basic-auth (`Middleware radar-basic-auth`), пароль и TLS — из того же OpenBao/PKI, что
+`gitea`/`semaphore` (ADR-0016). Чтобы отключить Radar на конкретном стенде (до первой установки):
+`platform_cicd_disabled_addons: [radar]` в `group_vars/platform_hosts.yml` или `-e`. Найдено
+реальным прогоном: на УЖЕ развёрнутом Radar тот же оверрайд релиз не удаляет (`helmwave up
+--tags` просто исключает его из плана, не трогая существующий helm-релиз) — для реального
+удаления нужен ручной `helmwave down --tags radar` (см. `docs/adr/0017-platform-cicd-default-addons.md`).
+
 Не проработано (см. также `docs/adr/0016-openbao-secrets-pki.md`, «Не проработано»): нет
 intermediate CA у PKI engine; CI-раннер (Gitea Actions) не читает секреты из OpenBao;
 интеграция с `reverse_proxy_traefik`/docker-based Traefik пилотных Module (`infra-panel-target`)
 — отдельная задача (Фаза 6 в широком смысле); `Module.spec.vars` пилотных Module по-прежнему
-плейнтекст в `platform/gitops`.
+плейнтекст в `platform/gitops`; RBAC-профиль Radar не тюнится тоньше дефолтов чарта
+(ADR-0017, «Не проработано»).
