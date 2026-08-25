@@ -1,12 +1,17 @@
-# ADR-0016: OpenBao — секреты и внутренний PKI CA для platform/cicd
+# ADR-0016: OpenBao — секреты и внутренний PKI CA для platform/aicd
 
 - **Статус:** Принято
 - **Дата:** 2026-08-24
 - **Авторы:** Ivan Vinogradov (решения), Claude Code (оформление по итогам обсуждения)
 
+**Примечание (2026-08-25):** директория и прикладной домен переименованы `platform/cicd`/
+`cicd.platform` → `platform/aicd`/`aicd.platform` уже после принятия этого ADR — текст ниже
+приведён к актуальному имени; внутренние terraform-идентификаторы живой VM (`local.vms.cicd`,
+`platform-cicd`) сознательно оставлены как есть, см. `platform/aicd/terraform/versions.tf`.
+
 ## Контекст
 
-`platform/cicd` (ADR-0012, ADR-0014) сейчас хранит все секреты прямым текстом в
+`platform/aicd` (ADR-0012, ADR-0014) сейчас хранит все секреты прямым текстом в
 git-закоммиченных `helm/values/platform/namespaces/platform/{gitea,semaphore}/values.yaml` —
 admin-пароли Gitea/Semaphore и base64-ключи `SEMAPHORE_COOKIE_HASH`/`SEMAPHORE_COOKIE_ENCRYPTION`/
 `SEMAPHORE_ACCESS_KEY_ENCRYPTION` заведены как плейсхолдеры прямо в файлах с явной пометкой
@@ -20,8 +25,8 @@ ADR-0012 §3 уже решил эту развилку архитектурно:
 поднималась — ADR-0012 фиксировал только выбор инструмента, не реализацию.
 
 Этот ADR закрывает два смежных открытых вопроса одним решением: как реализовать OpenBao для
-`platform/cicd`, и заодно — использовать ли его же как внутренний PKI CA вместо отдельного
-`cert-manager`. `cicd.platform` живёт на приватной libvirt-сети без публичного DNS — Let's
+`platform/aicd`, и заодно — использовать ли его же как внутренний PKI CA вместо отдельного
+`cert-manager`. `aicd.platform` живёт на приватной libvirt-сети без публичного DNS — Let's
 Encrypt в любом случае недоступен, а заводить cert-manager с self-signed issuer ради одного
 приватного стенда — лишний компонент инфраструктуры без выигрыша перед прямым использованием
 PKI secrets engine уже поднятого OpenBao.
@@ -45,7 +50,7 @@ Vault/OpenBao кластер (HA, несколько реплик) избыто�
 ### 2. Гомплейт `vault://` datasource вместо ansible-обвязки для чтения секретов в values
 
 **Решение:** секреты читаются в Helm values напрямую через встроенный в **gomplate** (уже
-используемый helmwave-темплейтер, `platform/cicd/ansible/site.yml`, `--templater gomplate`)
+используемый helmwave-темплейтер, `platform/aicd/ansible/site.yml`, `--templater gomplate`)
 datasource `vault://` — API-совместимый с любым Vault-подобным сервером, включая OpenBao без
 доработок: `{{ (datasource "vault" "secret/gitea").data.admin_password }}` прямо в
 `values.yaml`. Аутентификация — `$VAULT_ADDR`/`$VAULT_TOKEN`, передаются в `environment:` вызова
@@ -60,28 +65,28 @@ OpenBao и подставляющий их в values файлы перед ре�
 Решение — двухфазный `helmwave up`, используя уже применяемый в коллекции механизм тегов релизов
 (`docs/adr/0007-monitoring-server-role.md`, `monitoring_server_helmwave_tags`/`--tags`): релиз
 `openbao` помечен `tags: [openbao]`, первый вызов `helmwave up --tags openbao` поднимает только
-его, затем `platform/cicd/ansible/site.yml` инициализирует/распечатывает OpenBao и наполняет
+его, затем `platform/aicd/ansible/site.yml` инициализирует/распечатывает OpenBao и наполняет
 секреты через ansible, и только затем второй, уже безусловный `helmwave up` (без `--tags`)
 разворачивает Gitea/Semaphore/Flux, для которых `vault://` к этому моменту уже отвечает.
 
 ### 3. Init/unseal/bootstrap — идемпотентный ansible-блок в `site.yml`, не отдельный runbook
 
-**Решение:** `platform/cicd/ansible/site.yml` при каждом прогоне (не только первом):
+**Решение:** `platform/aicd/ansible/site.yml` при каждом прогоне (не только первом):
 - проверяет существование K8s Secret `openbao-init` (namespace `platform`) — если нет,
   инициализирует OpenBao (`POST /v1/sys/init`, `secret_shares: 1`, `secret_threshold: 1`) и
   сохраняет `root_token`+unseal-ключ в этот Secret; если да — просто читает значения обратно
   (`kubernetes.core.k8s_info` + `b64decode`), НЕ реинициализирует;
 - безусловно проверяет `seal-status` и распечатывает OpenBao, если он sealed (под мог
   перезапуститься между прогонами — raft-хранилище не авто-распечатывается);
-- включает `secret/` (KV v2) и `pki/` (генерирует root CA для `cicd.platform`, `ttl: 87600h`,
-  PKI-роль `cicd-platform` с `allowed_domains: cicd.platform`, `allow_subdomains: true`) — только
+- включает `secret/` (KV v2) и `pki/` (генерирует root CA для `aicd.platform`, `ttl: 87600h`,
+  PKI-роль `aicd-platform` с `allowed_domains: aicd.platform`, `allow_subdomains: true`) — только
   если ещё не включены;
 - генерирует admin-пароли Gitea/Semaphore и base64-ключи Semaphore **только если их ещё нет** в
   `secret/gitea`/`secret/semaphore` — критичная идемпотентность: пере-генерация при каждом
   прогоне сломала бы уже существующие сессии/данные (тот же принцип, что уже документирован для
   паролей других ролей, но здесь источник правды не git, а сам OpenBao);
-- выпускает TLS-сертификаты (`POST /pki/issue/cicd-platform` для `gitea.cicd.platform` и
-  `semaphore.cicd.platform`) и пишет их в K8s Secrets `type: kubernetes.io/tls`, тоже только если
+- выпускает TLS-сертификаты (`POST /pki/issue/aicd-platform` для `gitea.aicd.platform` и
+  `semaphore.aicd.platform`) и пишет их в K8s Secrets `type: kubernetes.io/tls`, тоже только если
   такого Secret ещё нет.
 
 **Обоснование:** переиспользует уже существующий в коллекции паттерн check-Secret-then-act
@@ -95,15 +100,15 @@ K3s-нода и единственный оператор. Пересмотре�
 
 ### 4. TLS через PKI secrets engine, без cert-manager
 
-**Решение:** сертификаты для `gitea.cicd.platform`/`semaphore.cicd.platform` выпускаются
-напрямую через `pki/issue/cicd-platform` (см. §3) и подключаются к уже существующим
+**Решение:** сертификаты для `gitea.aicd.platform`/`semaphore.aicd.platform` выпускаются
+напрямую через `pki/issue/aicd-platform` (см. §3) и подключаются к уже существующим
 `IngressRoute` через `tls.secretName` (шаблон `helm/localrepo/universal-chart/templates/
 traefikingressroute.yml` уже поддерживает это поле — подтверждено чтением исходника, доработка
 чарта не нужна).
 
 **Обоснование:** единственный корневой CA для всех сервисов стенда вместо самоподписанного
 сертификата Traefik по умолчанию на каждый хост — оператору достаточно один раз импортировать CA
-`cicd.platform` в доверенное хранилище, а не подтверждать security exception для каждого
+`aicd.platform` в доверенное хранилище, а не подтверждать security exception для каждого
 сервиса отдельно. `cert-manager` не используется — Let's Encrypt всё равно недоступен на
 приватной сети без публичного DNS, а `vault`/`venafi`-issuer cert-manager поверх уже
 поднятого OpenBao добавил бы ещё один компонент ради стенда, который и так полностью управляется
@@ -117,8 +122,8 @@ traefikingressroute.yml` уже поддерживает это поле — п�
 
 Три пункта из «Не проработано» первой редакции этого ADR, закрытые вторым заходом:
 
-**Scoped `VAULT_TOKEN`.** Policy `cicd-platform-render` (`sys/policies/acl/cicd-platform-render`,
-`platform/cicd/ansible/site.yml`) даёт только `read` на `secret/data/gitea` и
+**Scoped `VAULT_TOKEN`.** Policy `aicd-platform-render` (`sys/policies/acl/aicd-platform-render`,
+`platform/aicd/ansible/site.yml`) даёт только `read` на `secret/data/gitea` и
 `secret/data/semaphore` — ничего из `sys/*`/`pki/*`/write. Токен по этой policy (`ttl: 87600h`,
 `auth/token/create`) выпускается один раз, сохраняется в K8s Secret `openbao-render-token` (тот
 же идемпотентный паттерн, что `openbao-init`) и используется как `VAULT_TOKEN` для второго
@@ -126,7 +131,7 @@ traefikingressroute.yml` уже поддерживает это поле — п�
 init/unseal/engines/PKI — наружу, во внешний процесс (`helmwave`), больше не передаётся.
 
 **Авто-ренью TLS-сертификатов.** `tasks/issue-tls-cert.yml` пишет аннотацию
-`cicd.platform/renew-after-epoch` на Secret (`gitea-tls`/`semaphore-tls`) в момент выпуска
+`aicd.platform/renew-after-epoch` на Secret (`gitea-tls`/`semaphore-tls`) в момент выпуска
 (`issued_at + 60d`, TTL сертификата — 90д, т.е. 30-дневный запас), и на каждом прогоне
 `site.yml` перевыпускает сертификат не только при отсутствии Secret, но и когда этот порог
 пройден. Разбор PEM (`notAfter`) не потребовался — Secret и так уже читается для

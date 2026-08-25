@@ -2,12 +2,12 @@
 # платформенного контроллера (docs/adr/0014-platform-controller-architecture.md §4,
 # docs/adr/0012-cicd-platform-architecture.md §4). Официальный чарт gitea-charts/gitea.
 #
-# Проверено реальным прогоном (platform/cicd/README.md, «Проверено реальным прогоном»): под
+# Проверено реальным прогоном (platform/aicd/README.md, «Проверено реальным прогоном»): под
 # Running, PVC Bound, HTTP 200 через встроенный k3s Traefik.
 #
 # admin.password — читается из OpenBao (docs/adr/0016-openbao-secrets-pki.md) через gomplate
 # datasource vault://, а не задан прямым текстом — сгенерирован один раз
-# platform/cicd/ansible/site.yml при первом прогоне, при повторных прогонах не меняется. ВНИМАНИЕ:
+# platform/aicd/ansible/site.yml при первом прогоне, при повторных прогонах не меняется. ВНИМАНИЕ:
 # этот файл целиком — gomplate-шаблон с делимитерами "квадратная скобка дважды" вместо Jinja-фигурных
 # (см. helm/helmwave.yml.tpl, delimiter_left/right для values-файлов релизов), рендерится
 # helmwave/gomplate, не ansible — не используйте парные квадратные скобки нигде в этом файле, даже
@@ -17,13 +17,13 @@
 # алиасы датасорсов через CLI-флаг (в отличие от чистого gomplate-бинаря), их нужно объявить
 # прямо в шаблоне (docs.helmwave.app, «HashiCorp Vault»). Путь — "secret/data/gitea" (не
 # "secret/gitea") — обязательный префикс "data/" для KV v2 engine, тот же путь на низком уровне
-# API, что platform/cicd/ansible/site.yml использует в /v1/secret/data/gitea.
+# API, что platform/aicd/ansible/site.yml использует в /v1/secret/data/gitea.
 [[ defineDatasource "vault" "vault:///secret/data/gitea" ]]
 gitea:
   admin:
     username: gitea_admin
     password: '[[ (ds "vault").data.admin_password ]]'
-    email: gitea_admin@cicd.platform
+    email: gitea_admin@aicd.platform
   config:
     database:
       DB_TYPE: sqlite3
@@ -69,16 +69,16 @@ service:
 # Штатный k3s Traefik как ingress controller (не reverse_proxy_traefik этой коллекции — тот
 # работает в Docker на других стендах, это другой физический инстанс внутри k8s-кластера).
 # TLS — сертификат из внутреннего PKI CA OpenBao (docs/adr/0016-openbao-secrets-pki.md §4),
-# Secret gitea-tls создан platform/cicd/ansible/site.yml (pki/issue/cicd-platform).
+# Secret gitea-tls создан platform/aicd/ansible/site.yml (pki/issue/aicd-platform).
 ingress:
   enabled: true
   className: traefik
   hosts:
-    - host: gitea.cicd.platform
+    - host: gitea.aicd.platform
       paths:
         - path: /
           pathType: Prefix
   tls:
     - secretName: gitea-tls
       hosts:
-        - gitea.cicd.platform
+        - gitea.aicd.platform

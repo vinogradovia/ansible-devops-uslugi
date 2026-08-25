@@ -5,17 +5,17 @@
 # homer в helm/envs/k3s-monitoring.yaml (helm/values/k3s-monitoring/namespaces/monitoring/homer/
 # values.yaml) — голый Deployment/PVC/Service/IngressRoute вместо отдельного чарта.
 #
-# Проверено реальным прогоном (platform/cicd/README.md, «Проверено реальным прогоном»): под
+# Проверено реальным прогоном (platform/aicd/README.md, «Проверено реальным прогоном»): под
 # Running, PVC Bound, HTTP 200 через IngressRoute (встроенный k3s Traefik). ЗНАЧИМАЯ находка
 # этого прогона: IngressRoute рендерится только если Traefik CRD уже зарегистрирован в
 # кластере — при первом `helmwave up` сразу после установки k3s CRD ещё не существовал (k3s
 # разворачивает встроенный Traefik асинхронно), и Helm молча пропустил ресурс. Исправлено на
-# уровне плейбука (platform/cicd/ansible/site.yml ждёт CRD перед helmwave up), не здесь.
+# уровне плейбука (platform/aicd/ansible/site.yml ждёт CRD перед helmwave up), не здесь.
 #
 # БД — bolt (встроенная, файл на persistent volume) — минимальная схема для Фазы 0, без
 # отдельного Postgres. Admin-пароль и cookie/access-key секреты ниже читаются из OpenBao
 # (docs/adr/0016-openbao-secrets-pki.md) через gomplate datasource vault:// — сгенерированы один
-# раз platform/cicd/ansible/site.yml при первом прогоне, не меняются при повторных. ВНИМАНИЕ: этот
+# раз platform/aicd/ansible/site.yml при первом прогоне, не меняются при повторных. ВНИМАНИЕ: этот
 # файл целиком — gomplate-шаблон с делимитерами "квадратная скобка дважды" вместо Jinja-фигурных
 # (см. helm/helmwave.yml.tpl, delimiter_left/right для values-файлов релизов), рендерится
 # helmwave/gomplate, не ansible — не используйте парные квадратные скобки нигде в этом файле, даже
@@ -40,7 +40,7 @@
 # алиасы датасорсов через CLI-флаг (в отличие от чистого gomplate-бинаря), их нужно объявить
 # прямо в шаблоне (docs.helmwave.app, «HashiCorp Vault»). Путь — "secret/data/semaphore" (не
 # "secret/semaphore") — обязательный префикс "data/" для KV v2 engine, тот же путь на низком
-# уровне API, что platform/cicd/ansible/site.yml использует в /v1/secret/data/semaphore.
+# уровне API, что platform/aicd/ansible/site.yml использует в /v1/secret/data/semaphore.
 [[ defineDatasource "vault" "vault:///secret/data/semaphore" ]]
 
 pvcs:
@@ -64,13 +64,13 @@ deployments:
           - name: SEMAPHORE_ADMIN
             value: admin
           - name: SEMAPHORE_ADMIN_EMAIL
-            value: admin@cicd.platform
+            value: admin@aicd.platform
           - name: SEMAPHORE_ADMIN_NAME
             value: Administrator
           - name: SEMAPHORE_ADMIN_PASSWORD
             value: '[[ (ds "vault").data.admin_password ]]'
           # Semaphore требует непустые валидные base64-значения при первом старте — сгенерированы
-          # platform/cicd/ansible/site.yml один раз, хранятся в OpenBao (secret/semaphore).
+          # platform/aicd/ansible/site.yml один раз, хранятся в OpenBao (secret/semaphore).
           - name: SEMAPHORE_COOKIE_HASH
             value: '[[ (ds "vault").data.cookie_hash ]]'
           - name: SEMAPHORE_COOKIE_ENCRYPTION
@@ -98,14 +98,14 @@ services:
 # в отличие от homer/values.yaml, где он обязателен.
 #
 # tls.secretName — сертификат из внутреннего PKI CA OpenBao (docs/adr/0016-openbao-secrets-pki.md
-# §4), Secret semaphore-tls создан platform/cicd/ansible/site.yml (pki/issue/cicd-platform),
+# §4), Secret semaphore-tls создан platform/aicd/ansible/site.yml (pki/issue/aicd-platform),
 # вместо дефолтного самоподписанного `TRAEFIK DEFAULT CERT` (пустой tls: {} раньше).
 ingressroutes:
   semaphore:
     entryPoints:
       - websecure
     routes:
-      "Host(`semaphore.cicd.platform`)":
+      "Host(`semaphore.aicd.platform`)":
         services:
           semaphore-semaphore:
             port: 3000

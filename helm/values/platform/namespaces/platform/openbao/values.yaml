@@ -1,5 +1,5 @@
 # OpenBao (docs/adr/0016-openbao-secrets-pki.md) — секреты (KV v2) и внутренний PKI CA стенда
-# platform/cicd. Официальный чарт openbao/openbao — https://openbao.github.io/openbao-helm.
+# platform/aicd. Официальный чарт openbao/openbao — https://openbao.github.io/openbao-helm.
 #
 # integrated storage (raft), НЕ dev-режим (server.dev.enabled — все данные в памяти, исчезают
 # при каждом рестарте пода, неприемлемо для персистентной инфраструктуры). server.ha.raft с
@@ -8,7 +8,7 @@
 # обязательно несколько реплик) — тот же масштаб, что весь стенд (одна K3s-нода).
 #
 # service.type: NodePort — control-хост (где запускается helmwave/gomplate, delegate_to:
-# localhost в platform/cicd/ansible/site.yml) не имеет маршрута к ClusterIP-адресам сервисов
+# localhost в platform/aicd/ansible/site.yml) не имеет маршрута к ClusterIP-адресам сервисов
 # k3s (только к реальному IP ноды, как и kube-apiserver, см. подмену 127.0.0.1 на реальный IP в
 # site.yml) — NodePort даёт стабильный `<node-ip>:30820` для VAULT_ADDR/ansible.builtin.uri.
 #

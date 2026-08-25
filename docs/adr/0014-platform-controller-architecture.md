@@ -1,7 +1,7 @@
 # ADR-0014: Платформенный контроллер — Module CRD, GitOps-синхронизация, Ansible как ядро изменений
 
 - **Статус:** Принято (Фазы 0–6 реализованы и проверены реальным прогоном на живом стенде
-  `platform/cicd`, см. `ROADMAP.md`, «Предлагаемая последовательность работ», пункт 7, и
+  `platform/aicd`, см. `ROADMAP.md`, «Предлагаемая последовательность работ», пункт 7, и
   `platform-controller/README.md`; расширение охвата на остальные роли коллекции — открытая
   задача, см. «Не проработано» ниже)
 - **Дата:** 2026-08-22
@@ -102,7 +102,7 @@ inventory-файл — часть того же репозитория.
 
 - ~~Flux vs ArgoCD — конкретный выбор GitOps-инструмента для §4 не сделан.~~ **Решено (Фаза 2):**
   Flux (`source-controller`+`kustomize-controller` через Helmwave) — CRD-first, без второго web
-  UI, легче для одной ноды. См. `platform/cicd/flux/README.md`.
+  UI, легче для одной ноды. См. `platform/aicd/flux/README.md`.
 - ~~Формат `status` подресурса `Module`... — не спроектирован.~~ **Решено (Фаза 1/3):**
   `status.conditions[Ready]`, `lastAppliedRevision`, `lastSyncTime`, `semaphoreJobID` —
   применены и проверены на живом стенде.
@@ -145,4 +145,4 @@ inventory-файл — часть того же репозитория.
   на которую опирается безопасность непрерывного reconcile (§3).
 - `docs/adr/0002-docker-role.md` §2 — прецедент `meta`-зависимостей между ролями, потенциальный
   образец для зависимостей между модулями (см. «Не проработано»).
-- `docs/adr/0016-openbao-secrets-pki.md` — секреты и внутренний PKI CA для `platform/cicd`.
+- `docs/adr/0016-openbao-secrets-pki.md` — секреты и внутренний PKI CA для `platform/aicd`.
