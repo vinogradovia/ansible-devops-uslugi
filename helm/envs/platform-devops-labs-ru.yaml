@@ -42,3 +42,10 @@ releases:
     namespace: platform
     chart: skyhook/radar
     version: 1.11.0
+
+  # docs/adr/0017-platform-cicd-default-addons.md §3 — второй стандартный аддон, тот же, что
+  # helm/envs/platform.yaml (без расхождений между окружениями).
+  - name: infra-panel
+    namespace: platform
+    chart: localrepo/universal-chart
+    version: 2.8.1

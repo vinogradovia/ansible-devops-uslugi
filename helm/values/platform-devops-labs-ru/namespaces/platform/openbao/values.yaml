@@ -23,6 +23,12 @@
 # openbao.scheme), и BAO_ADDR/BAO_API_ADDR внутри пода на https — правки runtime-кода не нужны.
 # configAnnotation: true — иначе смена server.ha.raft.config (ConfigMap) не перезапускает под
 # автоматически (под каждый раз читает конфиг только при старте).
+#
+# server.ingress / server.service.annotations (docs/adr/0017-platform-cicd-default-addons.md §3)
+# — публикация UI OpenBao через Traefik (openbao.aicd.devops-labs.ru), тот же приём, что
+# helm/values/platform/namespaces/platform/openbao/values.yaml — см. тот файл для полного
+# контекста (ServersTransport openbao-insecure-backend, отсутствие basic-auth, bootstrap-нюанс
+# порядка выпуска openbao-ingress-tls).
 
 injector:
   enabled: false
@@ -36,6 +42,20 @@ server:
   service:
     type: NodePort
     nodePort: 30820
+    annotations:
+      traefik.ingress.kubernetes.io/service.serverstransport: platform-openbao-insecure-backend@kubernetescrd
+
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    hosts:
+      - host: openbao.aicd.devops-labs.ru
+        paths:
+          - /
+    tls:
+      - secretName: openbao-ingress-tls
+        hosts:
+          - openbao.aicd.devops-labs.ru
 
   dataStorage:
     enabled: true

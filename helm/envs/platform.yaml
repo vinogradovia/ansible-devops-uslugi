@@ -60,3 +60,14 @@ releases:
     namespace: platform
     chart: skyhook/radar
     version: 1.11.0
+
+  # docs/adr/0017-platform-cicd-default-addons.md §3 — второй стандартный аддон: дашборд-стартовая
+  # страница со ссылками на все веб-UI платформы (Gitea/Semaphore/Radar/OpenBao). Официального
+  # чарта homer нет — тот же приём localrepo/universal-chart, что уже применён для Semaphore выше
+  # и для примера в envs/k3s-monitoring.yaml. Release name — "infra-panel" (дефис, не "infra_panel"
+  # как называется одноимённая роль/ADR-0008) — подчёркивание сломало бы RFC-1123 имена k8s-объектов,
+  # которые universal-chart генерирует как "<release>-<key>".
+  - name: infra-panel
+    namespace: platform
+    chart: localrepo/universal-chart
+    version: 2.8.1

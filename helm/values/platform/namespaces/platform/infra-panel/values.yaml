@@ -1,0 +1,84 @@
+# infra-panel (homer, https://github.com/bastienwirtz/homer) — второй стандартный аддон
+# (docs/adr/0017-platform-cicd-default-addons.md §3): дашборд-стартовая страница со ссылками на
+# все веб-UI платформы. Официального чарта homer нет — развёрнут через nxs-universal-chart
+# (helm/localrepo/universal-chart), тем же приёмом, что уже применён для Semaphore
+# (helm/values/platform/namespaces/platform/semaphore/values.yaml) и для иллюстративного примера
+# в helm/values/k3s-monitoring/namespaces/monitoring/homer/values.yaml.
+#
+# В отличие от того примера — basic-auth здесь НЕ хардкодится в values (там `admin:admin` —
+# намеренно небезопасный плейсхолдер для демонстрации). Secret infra-panel-basic-auth и Middleware
+# infra-panel-basic-auth создаются platform/aicd/ansible/site.yml тем же приёмом, что уже применён
+# для Radar (community.general.htpasswd + пароль, сгенерированный/прочитанный из OpenBao,
+# secret/infra-panel) — здесь только ссылка на уже существующий Middleware по имени.
+#
+# TLS — Secret infra-panel-tls, выпущен из внутреннего PKI CA OpenBao тем же циклом
+# (tasks/issue-tls-cert.yml), что gitea-tls/semaphore-tls/radar-tls.
+
+configMaps:
+  config:
+    data:
+      config.yml: |
+        title: "Infra Panel"
+        subtitle: "aicd.platform"
+        columns: "3"
+        connectivityCheck: false
+        services:
+          - name: Platform
+            items:
+              - name: Gitea
+                url: https://gitea.aicd.platform
+                target: _blank
+              - name: Semaphore
+                url: https://semaphore.aicd.platform
+                target: _blank
+              - name: Radar
+                url: https://radar.aicd.platform
+                target: _blank
+              - name: OpenBao
+                url: https://openbao.aicd.platform
+                target: _blank
+
+deployments:
+  infra-panel:
+    containers:
+      - name: homer
+        image: b4bz/homer
+        imageTag: v26.4.2
+        env:
+          # config.yml уже приходит через ConfigMap (volumeMounts ниже) — отключаем
+          # entrypoint-скрипт образа, который иначе при пустом /www/assets разворачивает туда
+          # набор примеров.
+          - name: INIT_ASSETS
+            value: "0"
+        ports:
+          - name: http
+            containerPort: 8080
+        volumeMounts:
+          # subPath, а не монтирование всего /www/assets — иначе перекрывается остальное
+          # содержимое каталога (кастомные иконки и т.п.), нужен только сам файл.
+          - name: config
+            mountPath: /www/assets/config.yml
+            subPath: config.yml
+    volumes:
+      - name: config
+        type: configMap
+
+services:
+  infra-panel:
+    ports:
+      - name: http
+        port: 8080
+
+ingressroutes:
+  infra-panel:
+    entryPoints:
+      - websecure
+    routes:
+      "Host(`infra-panel.aicd.platform`)":
+        middlewares:
+          - name: infra-panel-basic-auth
+        services:
+          infra-panel-infra-panel:
+            port: 8080
+    tls:
+      secretName: infra-panel-tls

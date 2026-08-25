@@ -1,0 +1,68 @@
+# infra-panel (homer) — второй стандартный аддон (docs/adr/0017-platform-cicd-default-addons.md
+# §3), тот же, что helm/values/platform/namespaces/platform/infra-panel/values.yaml — разница
+# только в домене (aicd.devops-labs.ru вместо aicd.platform). См. тот файл для полного контекста
+# решений (basic-auth/TLS через ansible, не через values чарта).
+
+configMaps:
+  config:
+    data:
+      config.yml: |
+        title: "Infra Panel"
+        subtitle: "aicd.devops-labs.ru"
+        columns: "3"
+        connectivityCheck: false
+        services:
+          - name: Platform
+            items:
+              - name: Gitea
+                url: https://gitea.aicd.devops-labs.ru
+                target: _blank
+              - name: Semaphore
+                url: https://semaphore.aicd.devops-labs.ru
+                target: _blank
+              - name: Radar
+                url: https://radar.aicd.devops-labs.ru
+                target: _blank
+              - name: OpenBao
+                url: https://openbao.aicd.devops-labs.ru
+                target: _blank
+
+deployments:
+  infra-panel:
+    containers:
+      - name: homer
+        image: b4bz/homer
+        imageTag: v26.4.2
+        env:
+          - name: INIT_ASSETS
+            value: "0"
+        ports:
+          - name: http
+            containerPort: 8080
+        volumeMounts:
+          - name: config
+            mountPath: /www/assets/config.yml
+            subPath: config.yml
+    volumes:
+      - name: config
+        type: configMap
+
+services:
+  infra-panel:
+    ports:
+      - name: http
+        port: 8080
+
+ingressroutes:
+  infra-panel:
+    entryPoints:
+      - websecure
+    routes:
+      "Host(`infra-panel.aicd.devops-labs.ru`)":
+        middlewares:
+          - name: infra-panel-basic-auth
+        services:
+          infra-panel-infra-panel:
+            port: 8080
+    tls:
+      secretName: infra-panel-tls

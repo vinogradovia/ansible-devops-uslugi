@@ -22,6 +22,32 @@
 # openbao.scheme), и BAO_ADDR/BAO_API_ADDR внутри пода на https — правки runtime-кода не нужны.
 # configAnnotation: true — иначе смена server.ha.raft.config (ConfigMap) не перезапускает под
 # автоматически (под каждый раз читает конфиг только при старте).
+#
+# server.ingress / server.service.annotations (docs/adr/0017-platform-cicd-default-addons.md §3)
+# — публикация UI OpenBao через Traefik (openbao.aicd.platform), в дополнение к уже существующему
+# NodePort (тот остаётся единственным маршрутом для control-хоста, helmwave/gomplate/ansible.uri в
+# site.yml его не заменяют). Backend слушает TLS без alternative-плейна (global.tlsDisable: false)
+# самоподписанным bootstrap-сертификатом openbao-server-tls — Service уже проставляет
+# appProtocol: HTTPS на этот порт (чарт, openbao.scheme), поэтому Traefik сам решает идти в
+# backend по HTTPS, но не доверяет самоподписанному сертификату без явного ServersTransport.
+# ServersTransport openbao-insecure-backend (insecureSkipVerify: true) заводится
+# platform/aicd/ansible/site.yml (kubernetes.core.k8s, тот же приём, что Middleware
+# radar-basic-auth) — аннотация ссылается на него по имени
+# "<namespace>-<имя>@kubernetescrd", как и router.middlewares у Radar/infra-panel, но здесь это
+# аннотация SERVICE, а не Ingress (так documented для service.serverstransport в Traefik).
+#
+# Basic-auth перед OpenBao НЕ заводится — OpenBao аутентифицирует сам себя (root token/policy),
+# тот же принцип, что уже применён к Gitea/Semaphore (см. их values.yaml).
+#
+# Secret openbao-ingress-tls — отдельный от openbao-server-tls (тот остаётся внутренним
+# bootstrap-сертификатом самого listener'а) сертификат из внутреннего PKI CA, выпущенный тем же
+# циклом tasks/issue-tls-cert.yml, что gitea-tls/semaphore-tls/radar-tls/infra-panel-tls.
+#
+# Известный bootstrap-нюанс: server.ingress применяется первым `helmwave up --tags openbao` — ДО
+# того, как в рамках блока "OpenBao: bootstrap" в site.yml будет выпущен openbao-ingress-tls. На
+# самом первом прогоне Ingress на несколько секунд ссылается на ещё не существующий Secret —
+# Traefik сам подхватывает его, как только тот появляется в рамках того же прогона (тот же класс
+# "eventually consistent", что уже документирован для Traefik CRD/IngressRoute выше по коллекции).
 
 injector:
   enabled: false
@@ -35,6 +61,20 @@ server:
   service:
     type: NodePort
     nodePort: 30820
+    annotations:
+      traefik.ingress.kubernetes.io/service.serverstransport: platform-openbao-insecure-backend@kubernetescrd
+
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    hosts:
+      - host: openbao.aicd.platform
+        paths:
+          - /
+    tls:
+      - secretName: openbao-ingress-tls
+        hosts:
+          - openbao.aicd.platform
 
   dataStorage:
     enabled: true
