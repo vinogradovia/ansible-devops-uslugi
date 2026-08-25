@@ -1,5 +1,5 @@
 ---
-# platform/cicd (ROADMAP.md, «Предлагаемая последовательность работ», пункт 7, Фаза 0;
+# platform/aicd (ROADMAP.md, «Предлагаемая последовательность работ», пункт 7, Фаза 0;
 # docs/adr/0012-cicd-platform-architecture.md §4/§5) — Gitea (self-hosted git, источник
 # Module-манифестов) + Semaphore UI (исполнитель Task Template) на одной K3s-ноде. Namespace
 # "platform" для всех релизов ниже — helmwave options.create_namespace: true (helmwave.yml.tpl)
@@ -12,7 +12,7 @@ registries: []
 releases:
   # docs/adr/0016-openbao-secrets-pki.md — секреты (KV) и внутренний PKI CA стенда. Admin-креды
   # Gitea/Semaphore ниже читаются gomplate-датасорсом vault:// из этого релиза, а не заданы
-  # прямо в values — поэтому tags: [openbao] и первым в списке: platform/cicd/ansible/site.yml
+  # прямо в values — поэтому tags: [openbao] и первым в списке: platform/aicd/ansible/site.yml
   # поднимает его отдельным `helmwave up --tags openbao` (init/unseal/наполнение секретов через
   # ansible), и только затем — безусловным `helmwave up` разворачивает Gitea/Semaphore/Flux,
   # которым к этому моменту OpenBao уже отвечает.
@@ -50,9 +50,9 @@ releases:
     version: 2.19.0
 
   # docs/adr/0017-platform-cicd-default-addons.md — первый стандартный аддон k3s-стенда,
-  # набор которых по умолчанию управляется platform_cicd_default_addons/_extra_addons/
-  # _disabled_addons (platform/cicd/ansible/group_vars/platform_hosts.yml) и передаётся в
-  # `helmwave up --tags` вторым вызовом (platform/cicd/ansible/site.yml). Radar
+  # набор которых по умолчанию управляется platform_aicd_default_addons/_extra_addons/
+  # _disabled_addons (platform/aicd/ansible/group_vars/platform_hosts.yml) и передаётся в
+  # `helmwave up --tags` вторым вызовом (platform/aicd/ansible/site.yml). Radar
   # (https://github.com/skyhook-io/radar) — open-source Kubernetes UI: топология, ресурсы,
   # Helm/GitOps-диагностика. Basic-auth и TLS — не встроены в чарт, заводятся ansible'ом
   # (site.yml) тем же приёмом, что уже применён для infra_panel/reverse_proxy_traefik.

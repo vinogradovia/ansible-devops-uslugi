@@ -18,7 +18,7 @@ Flux (source-controller + kustomize-controller — только эти два, �
   прогоном (`docs/adr/0016-openbao-secrets-pki.md`): при переезде `gitea.admin.password` на
   OpenBao этот вручную-заведённый Secret не синхронизировался, `GitRepository` ушёл в
   `authentication required` на часы незамеченным. Файл удалён, Secret теперь синхронизируется
-  безусловно на каждом прогоне `platform/cicd/ansible/site.yml` (задачи «Flux: прочитать текущий
+  безусловно на каждом прогоне `platform/aicd/ansible/site.yml` (задачи «Flux: прочитать текущий
   admin_password secret/gitea»/«Flux: синхронизировать gitops-git-auth») с актуальным
   admin_password из OpenBao.
 - `gitrepository.yaml` — `GitRepository` `flux-system/gitops`, ветка `main`, интервал 1m.
@@ -27,7 +27,7 @@ Flux (source-controller + kustomize-controller — только эти два, �
 
 `gitrepository.yaml`/`kustomization.yaml` применены вручную (`kubectl apply -f`, конфигурация
 самого Flux — не то, что предполагается делать через сам Flux, курица/яйцо) на живой стенд
-`platform/cicd`. Автоматизация этого применения через `site.yml` — не сделана, следующий шаг при
+`platform/aicd`. Автоматизация этого применения через `site.yml` — не сделана, следующий шаг при
 возврате к этой фазе (Secret `gitops-git-auth` — уже автоматизирован, см. выше).
 
 ## Проверено реальным прогоном

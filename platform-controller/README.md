@@ -25,7 +25,7 @@
 
 ## Проверено реальным прогоном
 
-На живом стенде `platform/cicd` (см. его README) — вживую, не только `kubectl apply --dry-run`:
+На живом стенде `platform/aicd` (см. его README) — вживую, не только `kubectl apply --dry-run`:
 
 ```bash
 kubectl apply -f config/crd/module-crd.yaml
@@ -35,7 +35,7 @@ kubectl apply -f config/samples/module-infra-panel.yaml
 `config/samples/module-infra-panel.yaml` ссылается на реально существующие на стенде объекты —
 репозиторий `platform/gitops` в Gitea и Task Template id=1 (`infra_panel (pilot, ADR-0014 Фаза 0)`)
 в Semaphore-проекте `platform` (id=1), созданные вручную через REST API этих сервисов
-(`platform/cicd/README.md`, «Ручные шаги»).
+(`platform/aicd/README.md`, «Ручные шаги»).
 
 Результат: CR создаётся и проходит валидацию OpenAPI-схемой (вложенные `vars`/`inventoryRef` —
 без ошибок), short name `mod` резолвится, additional printer columns (`Role`/`Ready`/`LastSync`)
@@ -64,9 +64,9 @@ metrics/health эндпоинтов (не нужны для локального
 - `StartTask(templateID, vars)` — `POST /api/project/{project_id}/tasks`, `vars` сериализуется в
   строковое поле `environment` тела запроса (переопределяет Environment, привязанный к Task
   Template) — так `spec.vars` модуля долетает до реального job'а.
-- `Options.HostHeader`/`InsecureSkipTLSVerify` — пилотный стенд `platform/cicd` не имеет ни
+- `Options.HostHeader`/`InsecureSkipTLSVerify` — пилотный стенд `platform/aicd` не имеет ни
   публичного DNS, ни валидного TLS: маршрутизация по `Host`-заголовку через встроенный k3s
-  Traefik (тот же приём, что `curl -H "Host: ..."` в `platform/cicd/README.md`), сертификат
+  Traefik (тот же приём, что `curl -H "Host: ..."` в `platform/aicd/README.md`), сертификат
   самоподписанный. Оба — временное решение для одноузлового пилота.
 
 `internal/controller/module_controller.go` — `Reconcile`: читает `spec.semaphoreTemplateID` и
@@ -102,7 +102,7 @@ generation при реальных прогонах больше не наблю
 ```bash
 export KUBECONFIG=/путь/к/kubeconfig-стенда
 export SEMAPHORE_URL=https://<ip-стенда>
-export SEMAPHORE_HOST_HEADER=semaphore.cicd.platform
+export SEMAPHORE_HOST_HEADER=semaphore.aicd.platform
 export SEMAPHORE_INSECURE_TLS=true
 export SEMAPHORE_PROJECT_ID=1
 export SEMAPHORE_TOKEN=<личный API-токен, создан вручную через POST /api/user/tokens>
@@ -120,7 +120,7 @@ Semaphore API, не хранится в git) — на реальном запу�
 хостовую систему ради тулчейна одного пилотного компонента не требовалось): `go build`/`go vet`
 чисто. Запущен локально (тем же `docker run --network host`, чтобы обойти системный HTTP-прокси
 control-хоста для приватного IP стенда — `NO_PROXY` его не покрывает) против живого стенда
-`platform/cicd` с реальным API-токеном Semaphore.
+`platform/aicd` с реальным API-токеном Semaphore.
 
 Полный цикл подтверждён несколькими прогонами (каждый раз — новый `generation` через
 `kubectl patch spec.vars`, чтобы имитировать create/update): контроллер стартовал, вызывал ровно
@@ -133,7 +133,7 @@ control-хоста для приватного IP стенда — `NO_PROXY` е
 `GET /api/project/1/tasks` (тот же `template_id`, тот же `environment` с переданными vars). Сама
 задача в Semaphore каждый раз закономерно завершалась `status: "error"` — collection
 `devops.uslugi` не установлена раннером (тот же открытый вопрос, что и в
-`platform/cicd/README.md`, «Ручные шаги»: `requirements.yml` ссылается на несуществующий пока
+`platform/aicd/README.md`, «Ручные шаги»: `requirements.yml` ссылается на несуществующий пока
 `platform/devops-uslugi`) — это ожидаемо и не относится к зоне ответственности контроллера
 («вызвать Semaphore API, дождаться результата и записать статус», не «убедиться, что сам job
 внутри Semaphore успешен» — то, что реально произошло в Semaphore, каждый раз корректно долетало
@@ -205,7 +205,7 @@ drift-loop одинаково корректно работает и для ус
 2. **Апгрейд снёс BoltDB** — апстрим убрал dialect `bolt` в пользу `sqlite`/`mysql`/`postgres`
    между этими версиями. Пересобрано на `SEMAPHORE_DB_DIALECT=sqlite`/`SEMAPHORE_DB_HOST=...db`
    — **все данные Semaphore предыдущих фаз потеряны** (проект, ключи, Task Template, история
-   задач) и пересозданы заново вручную теми же командами, что в Фазе 0 (```platform/cicd/README.md```
+   задач) и пересозданы заново вручную теми же командами, что в Фазе 0 (```platform/aicd/README.md```
    не менялся — сам факт потери данных специфичен для этого прогона, не для процедуры Фазы 0).
 3. **После фикса #1 обнаружилась настоящая (другая) причина падения `git clone`**: репозиторий
    `platform/gitops` приватный, а ключ доступа в Semaphore был типа `none` (без креденшлов) —
@@ -230,7 +230,7 @@ Semaphore API, включая корректное поведение и для 
 Фаза 5). Для этого не хватало двух вещей, обе закрыты в этой сессии:
 
 1. **Реальный источник коллекции** — см. выше («Фаза 4», решено после её закрытия).
-2. **Реальный целевой хост** — `platform/cicd/terraform/infra-panel-target.tf`: отдельная VM
+2. **Реальный целевой хост** — `platform/aicd/terraform/infra-panel-target.tf`: отдельная VM
    (1 vCPU/1GB/15GB, тот же Debian 12 cloud image, что `cicd`), **сознательно не добавлена** в
    `local.vms` (`vms.tf`) как ещё один ключ общего `for_each` — реальным `tofu plan` обнаружено,
    что shared-ресурсы (`libvirt_network.platform`, cloudinit-шаблон) заставили бы Terraform

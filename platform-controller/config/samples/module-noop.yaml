@@ -1,7 +1,7 @@
 # Пример Module CR для проверки drift-loop (Фаза 4 ADR-0014) — тривиальный playbook без
 # внешних зависимостей, специально чтобы проверить цикл reconcile на реально успешном job'е
 # (infra_panel остаётся нерабочим: коллекция devops.uslugi недостижима для раннера, см.
-# platform/cicd/README.md, «Ручные шаги»). Применяется вручную: kubectl apply -f
+# platform/aicd/README.md, «Ручные шаги»). Применяется вручную: kubectl apply -f
 # module-noop.yaml — не через GitOps (clusters/platform/), чтобы не пересекаться с
 # управляемым Flux'ом module-infra-panel.yaml.
 apiVersion: platform.devops.uslugi/v1alpha1

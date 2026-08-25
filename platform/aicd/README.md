@@ -1,4 +1,12 @@
-# platform/cicd — Фаза 0 ADR-0014 (K3s + Gitea + Semaphore UI)
+# platform/aicd — Фаза 0 ADR-0014 (K3s + Gitea + Semaphore UI)
+
+**Переименовано из `platform/cicd` (2026-08-25).** Директория, префикс ansible-переменных
+(`platform_aicd_*`) и прикладной домен (`cicd.platform` → `aicd.platform`, Ingress-хосты, PKI CN)
+переименованы; внутренние terraform-идентификаторы живой VM (`local.vms.cicd`, storage pool/сеть
+`platform-cicd`) сознательно оставлены как есть — см. заметку в `terraform/versions.tf`
+(переименование форсирует пересоздание pool/сети/диска/домена VM целиком, проверено эмпирически).
+Операторам: локальные `/etc/hosts`-записи/закладки на `gitea.cicd.platform`/
+`semaphore.cicd.platform`/`radar.cicd.platform` нужно вручную поправить на `*.aicd.platform`.
 
 Персистентная платформенная инфраструктура (`docs/adr/0012-cicd-platform-architecture.md` §6),
 не демо-стенд — в отличие от `demo/*` (ADR-0006, эфемерные одноразовые VM, демонстрирующие роли
@@ -46,7 +54,7 @@ poetry run ansible-playbook -i inventory.yml site.yml
    ssh-key типа `login_password` — репозиторий приватный, ключ типа `none` не давал креденшлов
    для клонирования, см. `platform-controller/README.md`, «Фаза 4»/«Фаза 5»), inventory
    `infra_panel` (id=1, тип `file`, указывает на `inventory/infra_panel.ini` с реальным целевым
-   хостом — `platform/cicd/terraform/infra-panel-target.tf`, отдельная VM, см. ниже),
+   хостом — `platform/aicd/terraform/infra-panel-target.tf`, отдельная VM, см. ниже),
    environment `default` (id=1), Task Template `infra_panel (pilot, ADR-0014 Фаза 0)` (id=1,
    playbook `playbooks/infra_panel.yml`). Учётные данные администратора —
    `helm/values/platform/namespaces/platform/semaphore/values.yaml`
@@ -69,7 +77,7 @@ poetry run ansible-playbook -i inventory.yml site.yml
    `healthy`. Подробности сквозного прогона (git → Flux → Module → контроллер → Semaphore →
    реальная инфраструктура) — `platform-controller/README.md`, «Фаза 5».
 
-3. **Реальный целевой хост** (`platform/cicd/terraform/infra-panel-target.tf`) — отдельная VM
+3. **Реальный целевой хост** (`platform/aicd/terraform/infra-panel-target.tf`) — отдельная VM
    (1 vCPU/1GB/15GB, Debian 12), сознательно НЕ добавлена в общий `local.vms` (`vms.tf`) —
    реальным `tofu plan` обнаружено, что любое изменение в shared-ресурсах (сеть, cloudinit-
    шаблон) заставляет Terraform пересоздать их для уже работающей `cicd` — риск для живого
@@ -83,8 +91,8 @@ poetry run ansible-playbook -i inventory.yml site.yml
 
 Полный цикл (`tofu apply` → `ansible-playbook site.yml`) выполнен и проверен целиком: оба пода
 (`gitea`, `semaphore-semaphore`) `Running`, 0 рестартов, оба PVC `Bound`, оба сервиса отвечают
-`200 OK` по HTTP(S) через встроенный в k3s Traefik (`curl -H "Host: gitea.cicd.platform" ...`,
-`curl -H "Host: semaphore.cicd.platform" ...`). `ansible-playbook` идемпотентен на повторном
+`200 OK` по HTTP(S) через встроенный в k3s Traefik (`curl -H "Host: gitea.aicd.platform" ...`,
+`curl -H "Host: semaphore.aicd.platform" ...`). `ansible-playbook` идемпотентен на повторном
 прогоне (второй запуск — `changed=2`, без ошибок).
 
 Две реальные находки первого прогона, обе исправлены в `site.yml`/`.gitignore`:
@@ -120,9 +128,9 @@ poetry run ansible-playbook -i inventory.yml site.yml
 
 Реализовано и проверено реальным прогоном на живом стенде: секреты Gitea/Semaphore (admin-пароли,
 cookie/access-key Semaphore) читаются gomplate-датасорсом `vault://` из OpenBao вместо плейнтекста
-в git, TLS-сертификаты `gitea.cicd.platform`/`semaphore.cicd.platform` выпускаются внутренним PKI
-CA OpenBao (`CN=cicd.platform`) вместо дефолтного `TRAEFIK DEFAULT CERT`. Реальная проверка:
-`openssl s_client` показывает `issuer=CN=cicd.platform`, логин в Gitea/Semaphore реальным
+в git, TLS-сертификаты `gitea.aicd.platform`/`semaphore.aicd.platform` выпускаются внутренним PKI
+CA OpenBao (`CN=aicd.platform`) вместо дефолтного `TRAEFIK DEFAULT CERT`. Реальная проверка:
+`openssl s_client` показывает `issuer=CN=aicd.platform`, логин в Gitea/Semaphore реальным
 сгенерированным паролем (прочитанным из OpenBao) — `200`/`204`. Повторный прогон
 `ansible-playbook` полностью идемпотентен — все init/unseal/secrets/PKI/TLS-задачи `skipping`,
 `changed=3` (только always-changed `lineinfile`/`helmwave up`, без пере-генерации секретов).
@@ -174,9 +182,9 @@ CA OpenBao (`CN=cicd.platform`) вместо дефолтного `TRAEFIK DEFAU
    для пилотного стенда, следующий раз пароль будет реально «прижившимся» через `vault://` без
    дополнительных действий, если он не меняется.
 7. **Секрет `gitops-git-auth` (flux-system) не был синхронизирован с новым admin_password и
-   молча сломал GitOps на часы.** `platform/cicd/flux/git-credentials-secret.yaml` был заведён
+   молча сломал GitOps на часы.** `platform/aicd/flux/git-credentials-secret.yaml` был заведён
    вручную ДО OpenBao с плейсхолдером `"PleAse_Change_ME!"` (`kubectl apply -f`, см.
-   `platform/cicd/flux/README.md`) — при переезде `gitea.admin.password` на OpenBao (находка №5
+   `platform/aicd/flux/README.md`) — при переезде `gitea.admin.password` на OpenBao (находка №5
    выше) этот отдельный Secret никто не тронул. `GitRepository gitops` ушёл в `READY: False
    (authentication required)` и оставался в этом состоянии часами незамеченным — verify-шаги этой
    фазы проверяли логин в Gitea/Semaphore напрямую, но не статус `GitRepository`. Исправлено:
@@ -191,7 +199,7 @@ CA OpenBao (`CN=cicd.platform`) вместо дефолтного `TRAEFIK DEFAU
 ### Хвосты ADR-0016: scoped render-token, авто-ренью TLS, TLS для API самого OpenBao
 
 Второй заход по «Не проработано» первой редакции — все три пункта закрыты и проверены живым
-прогоном: `VAULT_TOKEN` для gomplate теперь scoped-токен (policy `cicd-platform-render`, только
+прогоном: `VAULT_TOKEN` для gomplate теперь scoped-токен (policy `aicd-platform-render`, только
 read `secret/gitea`|`secret/semaphore`), `gitea-tls`/`semaphore-tls` перевыпускаются
 автоматически по epoch-аннотации `renew-after-epoch` (60 из 90 дней TTL), API самого OpenBao
 теперь слушает `https://` (bootstrap self-signed сертификат, не из своего PKI engine — см.
@@ -209,7 +217,7 @@ read `secret/gitea`|`secret/semaphore`), `gitea-tls`/`semaphore-tls` перев�
    пода и удаляет под при расхождении (StatefulSet сам пересоздаёт с PVC, данные raft не
    теряются) — на каждом прогоне, не только при первом переключении на TLS.
 9. **K8s API требует строковые значения аннотаций, а ansible native-jinja отдаёт число.**
-   `cicd.platform/renew-after-epoch: "{{ (epoch|int) + N }}"`, будучи ЦЕЛИКОМ одним числовым
+   `aicd.platform/renew-after-epoch: "{{ (epoch|int) + N }}"`, будучи ЦЕЛИКОМ одним числовым
    Jinja-выражением, рендерится в Python `int`, а не строку, ДАЖЕ будучи в двойных кавычках в
    YAML (кавычки — синтаксис YAML, Jinja их не видит) — `kubectl`/`kubernetes.core.k8s` затем
    пытается записать JSON `number`, API-сервер отвечает `"cannot unmarshal number into ...
@@ -224,14 +232,14 @@ read `secret/gitea`|`secret/semaphore`), `gitea-tls`/`semaphore-tls` перев�
 ### Стандартный набор аддонов (docs/adr/0017-platform-cicd-default-addons.md)
 
 Второй `helmwave up` теперь ограничен `--tags` — обязательные релизы
-(`platform_cicd_core_releases`) плюс включённый набор аддонов
-(`platform_cicd_default_addons`/`_extra_addons`/`_disabled_addons`,
-`platform/cicd/ansible/group_vars/platform_hosts.yml`). Первый и пока единственный аддон —
+(`platform_aicd_core_releases`) плюс включённый набор аддонов
+(`platform_aicd_default_addons`/`_extra_addons`/`_disabled_addons`,
+`platform/aicd/ansible/group_vars/platform_hosts.yml`). Первый и пока единственный аддон —
 [Radar](https://github.com/skyhook-io/radar) (open-source Kubernetes UI, чарт `skyhook/radar`):
 RBAC-дефолты чарта оставлены как есть (без доступа к Secrets, без Helm-writes), вход — за
 Traefik basic-auth (`Middleware radar-basic-auth`), пароль и TLS — из того же OpenBao/PKI, что
 `gitea`/`semaphore` (ADR-0016). Чтобы отключить Radar на конкретном стенде (до первой установки):
-`platform_cicd_disabled_addons: [radar]` в `group_vars/platform_hosts.yml` или `-e`. Найдено
+`platform_aicd_disabled_addons: [radar]` в `group_vars/platform_hosts.yml` или `-e`. Найдено
 реальным прогоном: на УЖЕ развёрнутом Radar тот же оверрайд релиз не удаляет (`helmwave up
 --tags` просто исключает его из плана, не трогая существующий helm-релиз) — для реального
 удаления нужен ручной `helmwave down --tags radar` (см. `docs/adr/0017-platform-cicd-default-addons.md`).

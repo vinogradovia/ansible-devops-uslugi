@@ -826,24 +826,24 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
    (зависимости между стадиями см. в `docs/adr/0014-platform-controller-architecture.md`):
    1. ~~**Фаза 0**~~ (пререквизит из ADR-0012, не часть ADR-0014 самого по себе) — **сделано**:
       минимальный срез — K3s (одна нода) + Gitea + Semaphore UI, оба Helm-релизами через
-      Helmwave на одном кластере (`platform/cicd/`, см. README там) — без ожидания
+      Helmwave на одном кластере (`platform/aicd/`, см. README там) — без ожидания
       Harbor/OpenBao/Authelia, которые независимы и не блокируют это. Проверено реальным
       прогоном: `tofu apply` → `ansible-playbook site.yml`, оба пода `Running`, PVC `Bound`,
       HTTP 200 через встроенный k3s Traefik, idempotent повторный прогон. Две реальные находки —
       race condition (Traefik CRD ещё не зарегистрирован в момент первого `helmwave up` — k3s
       разворачивает встроенный Traefik асинхронно) и коллизия `helm/helmwave.yml` (общий
       рендер-файл с `roles/monitoring_server`, `K8S_CLUSTER=platform` перезаписывал чужой
-      референс) — обе исправлены, см. `platform/cicd/README.md`. Ручные шаги (создание
+      референс) — обе исправлены, см. `platform/aicd/README.md`. Ручные шаги (создание
       репозитория в Gitea, Task Template в Semaphore на роли `infra_panel`) — ~~сделано~~:
       выполнены на живом стенде через REST API обоих сервисов (организация `platform`, репозиторий
       `platform/gitops`, Semaphore-проект + Task Template `infra_panel (pilot, ADR-0014 Фаза 0)`),
-      см. `platform/cicd/README.md`. Сам Task Template ни разу не запускался — установка
+      см. `platform/aicd/README.md`. Сам Task Template ни разу не запускался — установка
       коллекции `devops.uslugi` на runner'е и реальный целевой хост в inventory остаются открытыми
       (не блокируют переход к Фазе 1). **Фаза 0 закрыта целиком.**
    2. ~~**Фаза 1**~~ — схема `Module` CRD (`spec.role`/`spec.vars`/`spec.inventoryRef`,
       `status.conditions`/`lastAppliedRevision`/`lastSyncTime`/`semaphoreJobID`), без кода
       контроллера — **сделано**: `platform-controller/config/crd/module-crd.yaml`, применена на
-      живом стенде `platform/cicd` вместе с одним примером CR
+      живом стенде `platform/aicd` вместе с одним примером CR
       (`config/samples/module-infra-panel.yaml`, ссылается на реальные `platform/gitops` в Gitea
       и Task Template id=1 в Semaphore из Фазы 0). Проверено: валидация OpenAPI-схемы (вложенные
       `vars`/`inventoryRef`), short name `mod`, printer columns, и отдельно `status`-subresource
@@ -855,10 +855,10 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
       ADR-0014) — **сделано**: `flux2` Helm-релиз (только `source-controller`+
       `kustomize-controller`, остальные контроллеры чарта отключены) через Helmwave
       (`helm/envs/platform.yaml`), `GitRepository`/`Kustomization`/`Secret` в
-      `platform/cicd/flux/` применены на живой стенд. Проверено реальным прогоном: поле
+      `platform/aicd/flux/` применены на живой стенд. Проверено реальным прогоном: поле
       `spec.vars.infra_panel_gitops_managed: true`, закоммиченное в `platform/gitops` **только
       через Gitea API** (без единого `kubectl apply`), появилось в живом `Module` в кластере
-      после reconcile-цикла (~20-30с). См. `platform/cicd/flux/README.md`.
+      после reconcile-цикла (~20-30с). См. `platform/aicd/flux/README.md`.
    4. ~~**Фаза 3**~~ — контроллер MVP (`platform-controller/`, новый top-level каталог этого же
       репозитория — единая история версий с ролями, свой `go.mod`, независимый от poetry/
       ansible-lint тулчейна остального репозитория): событийный reconcile (create/update →
@@ -905,7 +905,7 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
       HA-БД роли: у них ручной promote/failover, плохо сочетающийся с автоматическим reconcile
       на раннем этапе) со сквозной проверкой всей цепочки на demo-стенде — **сделано**:
       `infra_panel` выбран. Реальный целевой хост —
-      `platform/cicd/terraform/infra-panel-target.tf` (отдельная VM, полностью изолированные
+      `platform/aicd/terraform/infra-panel-target.tf` (отдельная VM, полностью изолированные
       Terraform-ресурсы — не задета уже работающая `cicd`). Полная цепочка подтверждена
       реальным прогоном ЧЕРЕЗ КОНТРОЛЛЕР (не только ручные API-вызовы): git-коммит →
       Flux-синхронизация `Module` → контроллер обнаружил новый generation → реальный Semaphore

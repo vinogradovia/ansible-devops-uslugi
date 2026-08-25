@@ -1,5 +1,5 @@
 ---
-# platform/cicd — ROADMAP.md, «Предлагаемая последовательность работ», пункт 7, Фаза 0
+# platform/aicd — ROADMAP.md, «Предлагаемая последовательность работ», пункт 7, Фаза 0
 # (docs/adr/0014-platform-controller-architecture.md; docs/adr/0012-cicd-platform-architecture.md
 # §4/§5). Одна K3s-нода, Gitea + Semaphore UI — оба Helm-релизами через Helmwave, тем же
 # способом, что roles/monitoring_server/tasks/monitoring-server.k3s.yml
@@ -42,7 +42,7 @@
       ansible.builtin.fetch:
         src: /etc/rancher/k3s/k3s.yaml
         dest: "{{ playbook_dir }}/.kube-tmp/"
-      register: platform_cicd_kubeconfig
+      register: platform_aicd_kubeconfig
       changed_when: false
 
     # kubeconfig, который отдаёт k3s, содержит "server: https://127.0.0.1:6443" — годится только
@@ -50,12 +50,12 @@
     # (delegate_to: localhost ниже), поэтому адрес нужно подменить на реальный IP ноды — тот же
     # приём, что roles/monitoring_server/tasks/monitoring-server.k3s.yml.
     - name: Подставить реальный IP вместо 127.0.0.1 в снятый kubeconfig
-      when: "'dest' in platform_cicd_kubeconfig"
+      when: "'dest' in platform_aicd_kubeconfig"
       delegate_to: localhost
       become: false
       run_once: true
       ansible.builtin.lineinfile:
-        path: "{{ platform_cicd_kubeconfig.dest }}"
+        path: "{{ platform_aicd_kubeconfig.dest }}"
         regexp: '    server: https://127.0.0.1:6443'
         line: '    server: https://{{ ansible_facts["default_ipv4"]["address"] }}:6443'
 
@@ -71,15 +71,15 @@
       become: false
       run_once: true
       environment:
-        KUBECONFIG: "{{ platform_cicd_kubeconfig.dest }}"
+        KUBECONFIG: "{{ platform_aicd_kubeconfig.dest }}"
         NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
         no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
       kubernetes.core.k8s_info:
         api_version: apiextensions.k8s.io/v1
         kind: CustomResourceDefinition
         name: ingressroutes.traefik.io
-      register: platform_cicd_traefik_crd
-      until: platform_cicd_traefik_crd.resources | length > 0
+      register: platform_aicd_traefik_crd
+      until: platform_aicd_traefik_crd.resources | length > 0
       retries: 30
       delay: 5
 
@@ -91,11 +91,11 @@
       become: false
       run_once: true
       environment:
-        KUBECONFIG: "{{ platform_cicd_kubeconfig.dest }}"
+        KUBECONFIG: "{{ platform_aicd_kubeconfig.dest }}"
         NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
         no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
       kubernetes.core.k8s:
-        kubeconfig: "{{ platform_cicd_kubeconfig.dest }}"
+        kubeconfig: "{{ platform_aicd_kubeconfig.dest }}"
         state: present
         kind: Namespace
         name: platform
@@ -144,18 +144,18 @@
         csr_path: "{{ playbook_dir }}/.kube-tmp/openbao-server.csr"
         provider: selfsigned
         selfsigned_not_after: "+3650d"
-      register: platform_cicd_openbao_server_cert
+      register: platform_aicd_openbao_server_cert
 
     - name: "OpenBao server TLS: сохранить Secret openbao-server-tls"
       delegate_to: localhost
       become: false
       run_once: true
       environment:
-        KUBECONFIG: "{{ platform_cicd_kubeconfig.dest }}"
+        KUBECONFIG: "{{ platform_aicd_kubeconfig.dest }}"
         NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
         no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
       kubernetes.core.k8s:
-        kubeconfig: "{{ platform_cicd_kubeconfig.dest }}"
+        kubeconfig: "{{ platform_aicd_kubeconfig.dest }}"
         state: present
         kind: Secret
         name: openbao-server-tls
@@ -182,7 +182,7 @@
       become: false
       run_once: true
       environment:
-        KUBECONFIG: "{{ platform_cicd_kubeconfig.dest }}"
+        KUBECONFIG: "{{ platform_aicd_kubeconfig.dest }}"
         K8S_CLUSTER: platform
         NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
         no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
@@ -204,7 +204,7 @@
           - helmwave.platform.yml
           - --tags
           - openbao
-      register: platform_cicd_helmwave_up_openbao
+      register: platform_aicd_helmwave_up_openbao
       changed_when: true
 
     # Найдено реальным прогоном: чарт openbao/openbao ставит StatefulSet
@@ -219,7 +219,7 @@
       become: false
       run_once: true
       environment:
-        KUBECONFIG: "{{ platform_cicd_kubeconfig.dest }}"
+        KUBECONFIG: "{{ platform_aicd_kubeconfig.dest }}"
         NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
         no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
       block:
@@ -229,7 +229,7 @@
             kind: StatefulSet
             namespace: platform
             name: openbao
-          register: platform_cicd_openbao_sts
+          register: platform_aicd_openbao_sts
 
         - name: Прочитать checksum конфига из живого пода (если существует)
           kubernetes.core.k8s_info:
@@ -237,21 +237,21 @@
             kind: Pod
             namespace: platform
             name: openbao-0
-          register: platform_cicd_openbao_pod_before
+          register: platform_aicd_openbao_pod_before
 
         - name: Удалить под openbao-0, если его конфиг устарел
           when: >-
-            platform_cicd_openbao_pod_before.resources | length > 0
-            and platform_cicd_openbao_sts.resources | length > 0
+            platform_aicd_openbao_pod_before.resources | length > 0
+            and platform_aicd_openbao_sts.resources | length > 0
             and (
-              (platform_cicd_openbao_pod_before.resources[0].metadata.annotations | default({}))
+              (platform_aicd_openbao_pod_before.resources[0].metadata.annotations | default({}))
               .get('openbao.hashicorp.com/config-checksum', '')
             ) != (
-              (platform_cicd_openbao_sts.resources[0].spec.template.metadata.annotations | default({}))
+              (platform_aicd_openbao_sts.resources[0].spec.template.metadata.annotations | default({}))
               .get('openbao.hashicorp.com/config-checksum', '')
             )
           kubernetes.core.k8s:
-            kubeconfig: "{{ platform_cicd_kubeconfig.dest }}"
+            kubeconfig: "{{ platform_aicd_kubeconfig.dest }}"
             state: absent
             kind: Pod
             namespace: platform
@@ -262,7 +262,7 @@
       become: false
       run_once: true
       environment:
-        KUBECONFIG: "{{ platform_cicd_kubeconfig.dest }}"
+        KUBECONFIG: "{{ platform_aicd_kubeconfig.dest }}"
         NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
         no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
       kubernetes.core.k8s_info:
@@ -270,10 +270,10 @@
         kind: Pod
         namespace: platform
         name: openbao-0
-      register: platform_cicd_openbao_pod
+      register: platform_aicd_openbao_pod
       until: >-
-        platform_cicd_openbao_pod.resources | length > 0
-        and platform_cicd_openbao_pod.resources[0].status.phase == 'Running'
+        platform_aicd_openbao_pod.resources | length > 0
+        and platform_aicd_openbao_pod.resources[0].status.phase == 'Running'
       retries: 30
       delay: 5
 
@@ -289,7 +289,7 @@
       become: false
       run_once: true
       environment:
-        KUBECONFIG: "{{ platform_cicd_kubeconfig.dest }}"
+        KUBECONFIG: "{{ platform_aicd_kubeconfig.dest }}"
         NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
         no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
       block:
@@ -300,8 +300,8 @@
         # он проверяется только для промежуточных звеньев цепочки, не для самого якоря доверия).
         - name: Определить адрес OpenBao API (NodePort, TLS) и путь до его CA
           ansible.builtin.set_fact:
-            platform_cicd_openbao_addr: "https://{{ ansible_facts['default_ipv4']['address'] }}:30820"
-            platform_cicd_openbao_ca_path: "{{ playbook_dir }}/.kube-tmp/openbao-server.crt"
+            platform_aicd_openbao_addr: "https://{{ ansible_facts['default_ipv4']['address'] }}:30820"
+            platform_aicd_openbao_ca_path: "{{ playbook_dir }}/.kube-tmp/openbao-server.crt"
 
         - name: Проверить существование Secret openbao-init (идемпотентность init)
           kubernetes.core.k8s_info:
@@ -309,31 +309,31 @@
             kind: Secret
             namespace: platform
             name: openbao-init
-          register: platform_cicd_openbao_init_secret
+          register: platform_aicd_openbao_init_secret
 
         # Инициализация — один-единственный раз за всю жизнь стенда: повторный init на уже
         # инициализированном OpenBao необратимо ошибается ("Vault is already initialized"), а
         # Secret openbao-init — единственное место, где root token/unseal-ключ вообще существуют,
         # поэтому именно его наличие — маркер "уже инициализирован", не запрос к самому OpenBao.
         - name: Инициализировать OpenBao (только при первом прогоне)
-          when: platform_cicd_openbao_init_secret.resources | length == 0
+          when: platform_aicd_openbao_init_secret.resources | length == 0
           no_log: true
           block:
             - name: "OpenBao: sys/init (secret_shares=1, secret_threshold=1 — однодольный ключ, single-node стенд)"
               ansible.builtin.uri:
-                url: "{{ platform_cicd_openbao_addr }}/v1/sys/init"
-                ca_path: "{{ platform_cicd_openbao_ca_path }}"
+                url: "{{ platform_aicd_openbao_addr }}/v1/sys/init"
+                ca_path: "{{ platform_aicd_openbao_ca_path }}"
                 method: POST
                 body_format: json
                 body:
                   secret_shares: 1
                   secret_threshold: 1
                 status_code: [200]
-              register: platform_cicd_openbao_init
+              register: platform_aicd_openbao_init
 
             - name: "OpenBao: сохранить root_token/unseal-ключ в Secret openbao-init"
               kubernetes.core.k8s:
-                kubeconfig: "{{ platform_cicd_kubeconfig.dest }}"
+                kubeconfig: "{{ platform_aicd_kubeconfig.dest }}"
                 state: present
                 kind: Secret
                 name: openbao-init
@@ -345,14 +345,14 @@
                       app.kubernetes.io/managed-by: ansible
                   type: Opaque
                   stringData:
-                    root_token: "{{ platform_cicd_openbao_init.json.root_token }}"
+                    root_token: "{{ platform_aicd_openbao_init.json.root_token }}"
                     # .json.keys[0] коллизирует с Python dict.keys() (builtin-метод, а не
                     # JSON-ключ "keys") — Jinja резолвит .keys как атрибут раньше, чем как item
                     # lookup, отсюда "builtin_function_or_method object has no element 0"; нужна
                     # явная bracket-нотация.
-                    unseal_key: "{{ platform_cicd_openbao_init.json['keys'][0] }}"
+                    unseal_key: "{{ platform_aicd_openbao_init.json['keys'][0] }}"
 
-            # register в отдельную переменную, НЕ platform_cicd_openbao_init_secret — задача
+            # register в отдельную переменную, НЕ platform_aicd_openbao_init_secret — задача
             # внутри when-block, пропущенная (Secret уже существовал), тоже пишет в свой register
             # skip-результат ({"skipped": true}, без .resources) и тем самым затирала бы валидное
             # значение из самой первой "Проверить существование" (реальный найденный баг: "object
@@ -363,65 +363,65 @@
                 kind: Secret
                 namespace: platform
                 name: openbao-init
-              register: platform_cicd_openbao_init_secret_fresh
+              register: platform_aicd_openbao_init_secret_fresh
 
         - name: Обновить Secret-результат данными после инициализации (если она выполнялась)
           when: >-
-            platform_cicd_openbao_init_secret_fresh is defined
-            and platform_cicd_openbao_init_secret_fresh.resources is defined
+            platform_aicd_openbao_init_secret_fresh is defined
+            and platform_aicd_openbao_init_secret_fresh.resources is defined
           ansible.builtin.set_fact:
-            platform_cicd_openbao_init_secret: "{{ platform_cicd_openbao_init_secret_fresh }}"
+            platform_aicd_openbao_init_secret: "{{ platform_aicd_openbao_init_secret_fresh }}"
 
         - name: Прочитать root_token/unseal-ключ из Secret
           no_log: true
           ansible.builtin.set_fact:
-            platform_cicd_openbao_root_token: >-
-              {{ platform_cicd_openbao_init_secret.resources[0].data.root_token | b64decode }}
-            platform_cicd_openbao_unseal_key: >-
-              {{ platform_cicd_openbao_init_secret.resources[0].data.unseal_key | b64decode }}
+            platform_aicd_openbao_root_token: >-
+              {{ platform_aicd_openbao_init_secret.resources[0].data.root_token | b64decode }}
+            platform_aicd_openbao_unseal_key: >-
+              {{ platform_aicd_openbao_init_secret.resources[0].data.unseal_key | b64decode }}
 
         # Безусловно на каждом прогоне — под мог перезапуститься между прогонами, raft-хранилище
         # не авто-распечатывается (нет auto-unseal), sealed-под отвечает на /v1/sys/seal-status,
         # но не на большинство остальных путей API.
         - name: "OpenBao: проверить seal-status"
           ansible.builtin.uri:
-            url: "{{ platform_cicd_openbao_addr }}/v1/sys/seal-status"
-            ca_path: "{{ platform_cicd_openbao_ca_path }}"
+            url: "{{ platform_aicd_openbao_addr }}/v1/sys/seal-status"
+            ca_path: "{{ platform_aicd_openbao_ca_path }}"
             method: GET
             status_code: [200]
-          register: platform_cicd_openbao_seal_status
+          register: platform_aicd_openbao_seal_status
 
         - name: "OpenBao: распечатать (unseal), если sealed"
-          when: platform_cicd_openbao_seal_status.json.sealed | bool
+          when: platform_aicd_openbao_seal_status.json.sealed | bool
           no_log: true
           ansible.builtin.uri:
-            url: "{{ platform_cicd_openbao_addr }}/v1/sys/unseal"
-            ca_path: "{{ platform_cicd_openbao_ca_path }}"
+            url: "{{ platform_aicd_openbao_addr }}/v1/sys/unseal"
+            ca_path: "{{ platform_aicd_openbao_ca_path }}"
             method: POST
             body_format: json
             body:
-              key: "{{ platform_cicd_openbao_unseal_key }}"
+              key: "{{ platform_aicd_openbao_unseal_key }}"
             status_code: [200]
 
         - name: "OpenBao: проверить включённые secrets engines"
           ansible.builtin.uri:
-            url: "{{ platform_cicd_openbao_addr }}/v1/sys/mounts"
-            ca_path: "{{ platform_cicd_openbao_ca_path }}"
+            url: "{{ platform_aicd_openbao_addr }}/v1/sys/mounts"
+            ca_path: "{{ platform_aicd_openbao_ca_path }}"
             method: GET
             headers:
-              X-Vault-Token: "{{ platform_cicd_openbao_root_token }}"
+              X-Vault-Token: "{{ platform_aicd_openbao_root_token }}"
             status_code: [200]
-          register: platform_cicd_openbao_mounts
+          register: platform_aicd_openbao_mounts
           no_log: true
 
         - name: "OpenBao: включить KV v2 (secret/)"
-          when: "'secret/' not in platform_cicd_openbao_mounts.json.data"
+          when: "'secret/' not in platform_aicd_openbao_mounts.json.data"
           ansible.builtin.uri:
-            url: "{{ platform_cicd_openbao_addr }}/v1/sys/mounts/secret"
-            ca_path: "{{ platform_cicd_openbao_ca_path }}"
+            url: "{{ platform_aicd_openbao_addr }}/v1/sys/mounts/secret"
+            ca_path: "{{ platform_aicd_openbao_ca_path }}"
             method: POST
             headers:
-              X-Vault-Token: "{{ platform_cicd_openbao_root_token }}"
+              X-Vault-Token: "{{ platform_aicd_openbao_root_token }}"
             body_format: json
             body:
               type: kv
@@ -430,17 +430,17 @@
             status_code: [200, 204]
           no_log: true
 
-        - name: "OpenBao: включить PKI (pki/) и выпустить root CA + role cicd-platform"
-          when: "'pki/' not in platform_cicd_openbao_mounts.json.data"
+        - name: "OpenBao: включить PKI (pki/) и выпустить root CA + role aicd-platform"
+          when: "'pki/' not in platform_aicd_openbao_mounts.json.data"
           no_log: true
           block:
             - name: "OpenBao: sys/mounts/pki (type=pki)"
               ansible.builtin.uri:
-                url: "{{ platform_cicd_openbao_addr }}/v1/sys/mounts/pki"
-                ca_path: "{{ platform_cicd_openbao_ca_path }}"
+                url: "{{ platform_aicd_openbao_addr }}/v1/sys/mounts/pki"
+                ca_path: "{{ platform_aicd_openbao_ca_path }}"
                 method: POST
                 headers:
-                  X-Vault-Token: "{{ platform_cicd_openbao_root_token }}"
+                  X-Vault-Token: "{{ platform_aicd_openbao_root_token }}"
                 body_format: json
                 body:
                   type: pki
@@ -448,29 +448,29 @@
                     max_lease_ttl: "87600h"
                 status_code: [200, 204]
 
-            - name: "OpenBao: pki/root/generate/internal (root CA cicd.platform)"
+            - name: "OpenBao: pki/root/generate/internal (root CA aicd.platform)"
               ansible.builtin.uri:
-                url: "{{ platform_cicd_openbao_addr }}/v1/pki/root/generate/internal"
-                ca_path: "{{ platform_cicd_openbao_ca_path }}"
+                url: "{{ platform_aicd_openbao_addr }}/v1/pki/root/generate/internal"
+                ca_path: "{{ platform_aicd_openbao_ca_path }}"
                 method: POST
                 headers:
-                  X-Vault-Token: "{{ platform_cicd_openbao_root_token }}"
+                  X-Vault-Token: "{{ platform_aicd_openbao_root_token }}"
                 body_format: json
                 body:
-                  common_name: cicd.platform
+                  common_name: aicd.platform
                   ttl: "87600h"
                 status_code: [200]
 
-            - name: "OpenBao: pki/roles/cicd-platform (allowed_domains: cicd.platform)"
+            - name: "OpenBao: pki/roles/aicd-platform (allowed_domains: aicd.platform)"
               ansible.builtin.uri:
-                url: "{{ platform_cicd_openbao_addr }}/v1/pki/roles/cicd-platform"
-                ca_path: "{{ platform_cicd_openbao_ca_path }}"
+                url: "{{ platform_aicd_openbao_addr }}/v1/pki/roles/aicd-platform"
+                ca_path: "{{ platform_aicd_openbao_ca_path }}"
                 method: POST
                 headers:
-                  X-Vault-Token: "{{ platform_cicd_openbao_root_token }}"
+                  X-Vault-Token: "{{ platform_aicd_openbao_root_token }}"
                 body_format: json
                 body:
-                  allowed_domains: cicd.platform
+                  allowed_domains: aicd.platform
                   allow_subdomains: true
                   max_ttl: "2160h"
                 status_code: [200, 204]
@@ -479,24 +479,24 @@
         # уже созданные сессии/данные в Gitea/Semaphore (docs/adr/0016-openbao-secrets-pki.md §3).
         - name: "OpenBao: проверить наличие secret/gitea"
           ansible.builtin.uri:
-            url: "{{ platform_cicd_openbao_addr }}/v1/secret/data/gitea"
-            ca_path: "{{ platform_cicd_openbao_ca_path }}"
+            url: "{{ platform_aicd_openbao_addr }}/v1/secret/data/gitea"
+            ca_path: "{{ platform_aicd_openbao_ca_path }}"
             method: GET
             headers:
-              X-Vault-Token: "{{ platform_cicd_openbao_root_token }}"
+              X-Vault-Token: "{{ platform_aicd_openbao_root_token }}"
             status_code: [200, 404]
-          register: platform_cicd_openbao_secret_gitea
+          register: platform_aicd_openbao_secret_gitea
           no_log: true
 
         - name: "OpenBao: сгенерировать и записать secret/gitea (только при первом прогоне)"
-          when: platform_cicd_openbao_secret_gitea.status == 404
+          when: platform_aicd_openbao_secret_gitea.status == 404
           no_log: true
           ansible.builtin.uri:
-            url: "{{ platform_cicd_openbao_addr }}/v1/secret/data/gitea"
-            ca_path: "{{ platform_cicd_openbao_ca_path }}"
+            url: "{{ platform_aicd_openbao_addr }}/v1/secret/data/gitea"
+            ca_path: "{{ platform_aicd_openbao_ca_path }}"
             method: POST
             headers:
-              X-Vault-Token: "{{ platform_cicd_openbao_root_token }}"
+              X-Vault-Token: "{{ platform_aicd_openbao_root_token }}"
             body_format: json
             body:
               data:
@@ -505,24 +505,24 @@
 
         - name: "OpenBao: проверить наличие secret/semaphore"
           ansible.builtin.uri:
-            url: "{{ platform_cicd_openbao_addr }}/v1/secret/data/semaphore"
-            ca_path: "{{ platform_cicd_openbao_ca_path }}"
+            url: "{{ platform_aicd_openbao_addr }}/v1/secret/data/semaphore"
+            ca_path: "{{ platform_aicd_openbao_ca_path }}"
             method: GET
             headers:
-              X-Vault-Token: "{{ platform_cicd_openbao_root_token }}"
+              X-Vault-Token: "{{ platform_aicd_openbao_root_token }}"
             status_code: [200, 404]
-          register: platform_cicd_openbao_secret_semaphore
+          register: platform_aicd_openbao_secret_semaphore
           no_log: true
 
         - name: "OpenBao: сгенерировать и записать secret/semaphore (только при первом прогоне)"
-          when: platform_cicd_openbao_secret_semaphore.status == 404
+          when: platform_aicd_openbao_secret_semaphore.status == 404
           no_log: true
           ansible.builtin.uri:
-            url: "{{ platform_cicd_openbao_addr }}/v1/secret/data/semaphore"
-            ca_path: "{{ platform_cicd_openbao_ca_path }}"
+            url: "{{ platform_aicd_openbao_addr }}/v1/secret/data/semaphore"
+            ca_path: "{{ platform_aicd_openbao_ca_path }}"
             method: POST
             headers:
-              X-Vault-Token: "{{ platform_cicd_openbao_root_token }}"
+              X-Vault-Token: "{{ platform_aicd_openbao_root_token }}"
             body_format: json
             body:
               data:
@@ -538,24 +538,24 @@
         # ниже перевыпускался бы на каждом прогоне без необходимости).
         - name: "OpenBao: проверить наличие secret/radar"
           ansible.builtin.uri:
-            url: "{{ platform_cicd_openbao_addr }}/v1/secret/data/radar"
-            ca_path: "{{ platform_cicd_openbao_ca_path }}"
+            url: "{{ platform_aicd_openbao_addr }}/v1/secret/data/radar"
+            ca_path: "{{ platform_aicd_openbao_ca_path }}"
             method: GET
             headers:
-              X-Vault-Token: "{{ platform_cicd_openbao_root_token }}"
+              X-Vault-Token: "{{ platform_aicd_openbao_root_token }}"
             status_code: [200, 404]
-          register: platform_cicd_openbao_secret_radar
+          register: platform_aicd_openbao_secret_radar
           no_log: true
 
         - name: "OpenBao: сгенерировать и записать secret/radar (только при первом прогоне)"
-          when: platform_cicd_openbao_secret_radar.status == 404
+          when: platform_aicd_openbao_secret_radar.status == 404
           no_log: true
           ansible.builtin.uri:
-            url: "{{ platform_cicd_openbao_addr }}/v1/secret/data/radar"
-            ca_path: "{{ platform_cicd_openbao_ca_path }}"
+            url: "{{ platform_aicd_openbao_addr }}/v1/secret/data/radar"
+            ca_path: "{{ platform_aicd_openbao_ca_path }}"
             method: POST
             headers:
-              X-Vault-Token: "{{ platform_cicd_openbao_root_token }}"
+              X-Vault-Token: "{{ platform_aicd_openbao_root_token }}"
             body_format: json
             body:
               data:
@@ -569,9 +569,9 @@
           no_log: true
           ansible.builtin.include_tasks: tasks/issue-tls-cert.yml
           loop:
-            - {host: gitea.cicd.platform, secret: gitea-tls}
-            - {host: semaphore.cicd.platform, secret: semaphore-tls}
-            - {host: radar.cicd.platform, secret: radar-tls}
+            - {host: gitea.aicd.platform, secret: gitea-tls}
+            - {host: semaphore.aicd.platform, secret: semaphore-tls}
+            - {host: radar.aicd.platform, secret: radar-tls}
           loop_control:
             label: "{{ item.host }}"
 
@@ -581,13 +581,13 @@
         # write. Root token остаётся только внутри самого этого ansible-блока (init/unseal/
         # engines/PKI/генерация секретов), наружу (в environment внешнего процесса helmwave) не
         # передаётся.
-        - name: "OpenBao: policy cicd-platform-render (read-only secret/gitea, secret/semaphore)"
+        - name: "OpenBao: policy aicd-platform-render (read-only secret/gitea, secret/semaphore)"
           ansible.builtin.uri:
-            url: "{{ platform_cicd_openbao_addr }}/v1/sys/policies/acl/cicd-platform-render"
-            ca_path: "{{ platform_cicd_openbao_ca_path }}"
+            url: "{{ platform_aicd_openbao_addr }}/v1/sys/policies/acl/aicd-platform-render"
+            ca_path: "{{ platform_aicd_openbao_ca_path }}"
             method: PUT
             headers:
-              X-Vault-Token: "{{ platform_cicd_openbao_root_token }}"
+              X-Vault-Token: "{{ platform_aicd_openbao_root_token }}"
             body_format: json
             body:
               policy: |
@@ -605,33 +605,33 @@
             kind: Secret
             namespace: platform
             name: openbao-render-token
-          register: platform_cicd_openbao_render_token_secret
+          register: platform_aicd_openbao_render_token_secret
 
         # Токен выпускается один раз — повторный прогон не должен плодить новые токены (старые
         # не отзываются автоматически, это был бы утечка токенов при каждом ansible-playbook).
         - name: "OpenBao: выпустить render-token (только при первом прогоне)"
-          when: platform_cicd_openbao_render_token_secret.resources | length == 0
+          when: platform_aicd_openbao_render_token_secret.resources | length == 0
           no_log: true
           block:
-            - name: "OpenBao: auth/token/create (policy cicd-platform-render)"
+            - name: "OpenBao: auth/token/create (policy aicd-platform-render)"
               ansible.builtin.uri:
-                url: "{{ platform_cicd_openbao_addr }}/v1/auth/token/create"
-                ca_path: "{{ platform_cicd_openbao_ca_path }}"
+                url: "{{ platform_aicd_openbao_addr }}/v1/auth/token/create"
+                ca_path: "{{ platform_aicd_openbao_ca_path }}"
                 method: POST
                 headers:
-                  X-Vault-Token: "{{ platform_cicd_openbao_root_token }}"
+                  X-Vault-Token: "{{ platform_aicd_openbao_root_token }}"
                 body_format: json
                 body:
-                  policies: [cicd-platform-render]
+                  policies: [aicd-platform-render]
                   ttl: "87600h"
                   renewable: true
-                  display_name: cicd-platform-render
+                  display_name: aicd-platform-render
                 status_code: [200]
-              register: platform_cicd_openbao_render_token
+              register: platform_aicd_openbao_render_token
 
             - name: "OpenBao: сохранить render-token в Secret openbao-render-token"
               kubernetes.core.k8s:
-                kubeconfig: "{{ platform_cicd_kubeconfig.dest }}"
+                kubeconfig: "{{ platform_aicd_kubeconfig.dest }}"
                 state: present
                 kind: Secret
                 name: openbao-render-token
@@ -643,7 +643,7 @@
                       app.kubernetes.io/managed-by: ansible
                   type: Opaque
                   stringData:
-                    token: "{{ platform_cicd_openbao_render_token.json.auth.client_token }}"
+                    token: "{{ platform_aicd_openbao_render_token.json.auth.client_token }}"
 
             # Отдельное имя register + промежуточный set_fact — тот же приём, что уже применён
             # выше для openbao-init (найденный реальным прогоном баг: register в то же имя
@@ -654,25 +654,25 @@
                 kind: Secret
                 namespace: platform
                 name: openbao-render-token
-              register: platform_cicd_openbao_render_token_secret_fresh
+              register: platform_aicd_openbao_render_token_secret_fresh
 
         - name: Обновить Secret-результат render-token данными после выпуска (если он выполнялся)
           when: >-
-            platform_cicd_openbao_render_token_secret_fresh is defined
-            and platform_cicd_openbao_render_token_secret_fresh.resources is defined
+            platform_aicd_openbao_render_token_secret_fresh is defined
+            and platform_aicd_openbao_render_token_secret_fresh.resources is defined
           ansible.builtin.set_fact:
-            platform_cicd_openbao_render_token_secret: "{{ platform_cicd_openbao_render_token_secret_fresh }}"
+            platform_aicd_openbao_render_token_secret: "{{ platform_aicd_openbao_render_token_secret_fresh }}"
 
         - name: Прочитать render-token из Secret
           no_log: true
           ansible.builtin.set_fact:
-            platform_cicd_openbao_render_token_value: >-
-              {{ platform_cicd_openbao_render_token_secret.resources[0].data.token | b64decode }}
+            platform_aicd_openbao_render_token_value: >-
+              {{ platform_aicd_openbao_render_token_secret.resources[0].data.token | b64decode }}
 
     # docs/adr/0017-platform-cicd-default-addons.md — --tags ограничивает второй helmwave up
-    # обязательными релизами (platform_cicd_core_releases) плюс включённым набором аддонов
-    # (platform_cicd_default_addons/_extra_addons/_disabled_addons,
-    # platform/cicd/ansible/group_vars/platform_hosts.yml). Каждый релиз в helmwave уже
+    # обязательными релизами (platform_aicd_core_releases) плюс включённым набором аддонов
+    # (platform_aicd_default_addons/_extra_addons/_disabled_addons,
+    # platform/aicd/ansible/group_vars/platform_hosts.yml). Каждый релиз в helmwave уже
     # автоматически тегируется своим именем (helm/helmwave.yml.tpl:76-78) — отдельный tags: в
     # envs/platform.yaml не нужен.
     - name: Helmwave up (Gitea + Semaphore + Flux + аддоны, helm/envs/platform.yaml)
@@ -681,7 +681,7 @@
       run_once: true
       no_log: true
       environment:
-        KUBECONFIG: "{{ platform_cicd_kubeconfig.dest }}"
+        KUBECONFIG: "{{ platform_aicd_kubeconfig.dest }}"
         K8S_CLUSTER: platform
         # Прокси control-хоста иначе уводит запросы к приватному IP kube-apiserver через себя —
         # таймаут "Kubernetes cluster unreachable" вместо ошибки роли/helmwave, тот же found,
@@ -689,17 +689,17 @@
         NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
         no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
         # Читаются gomplate-датасорсом vault:// в values.yaml Gitea/Semaphore (docs/adr/
-        # 0016-openbao-secrets-pki.md §2) — scoped render-token (policy cicd-platform-render,
+        # 0016-openbao-secrets-pki.md §2) — scoped render-token (policy aicd-platform-render,
         # только read secret/gitea|semaphore), не root token (§5).
-        VAULT_ADDR: "{{ platform_cicd_openbao_addr }}"
-        VAULT_TOKEN: "{{ platform_cicd_openbao_render_token_value }}"
+        VAULT_ADDR: "{{ platform_aicd_openbao_addr }}"
+        VAULT_TOKEN: "{{ platform_aicd_openbao_render_token_value }}"
         # Найдено реальным прогоном после включения TLS на самом OpenBao (§5): datasource
         # vault:// внутри gomplate использует свой собственный HTTP-клиент (hashicorp/vault/api),
         # не ansible.builtin.uri — ca_path, заданный для ansible-задач, на него не действует.
         # Клиент честно проверяет сертификат и падает ("x509: certificate signed by unknown
         # authority") без явного доверенного CA — VAULT_CACERT это тот же стандартный env var,
         # что понимает Vault/OpenBao CLI.
-        VAULT_CACERT: "{{ platform_cicd_openbao_ca_path }}"
+        VAULT_CACERT: "{{ platform_aicd_openbao_ca_path }}"
       ansible.builtin.command:
         chdir: "{{ playbook_dir }}/../../../helm"
         argv:
@@ -712,13 +712,13 @@
           - --file
           - helmwave.platform.yml
           - --tags
-          - "{{ (platform_cicd_core_releases + platform_cicd_enabled_addons) | join(',') }}"
-      register: platform_cicd_helmwave_up
+          - "{{ (platform_aicd_core_releases + platform_aicd_enabled_addons) | join(',') }}"
+      register: platform_aicd_helmwave_up
       changed_when: true
 
     # gitops-git-auth (flux-system) — basic-auth для Flux GitRepository "gitops"
-    # (platform/cicd/flux/gitrepository.yaml), тот же admin-аккаунт Gitea. Секрет заведён вручную
-    # (platform/cicd/flux/git-credentials-secret.yaml, флейс-README «Не проработано») ДО OpenBao,
+    # (platform/aicd/flux/gitrepository.yaml), тот же admin-аккаунт Gitea. Секрет заведён вручную
+    # (platform/aicd/flux/git-credentials-secret.yaml, флейс-README «Не проработано») ДО OpenBao,
     # с плейсхолдером "PleAse_Change_ME!" — найдено реальным прогоном: при переезде
     # gitea.admin.password на OpenBao (docs/adr/0016-openbao-secrets-pki.md) этот Secret не
     # синхронизировали, GitRepository ушёл в authentication required на часы незамеченным.
@@ -734,13 +734,13 @@
         NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
         no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
       ansible.builtin.uri:
-        url: "{{ platform_cicd_openbao_addr }}/v1/secret/data/gitea"
-        ca_path: "{{ platform_cicd_openbao_ca_path }}"
+        url: "{{ platform_aicd_openbao_addr }}/v1/secret/data/gitea"
+        ca_path: "{{ platform_aicd_openbao_ca_path }}"
         method: GET
         headers:
-          X-Vault-Token: "{{ platform_cicd_openbao_root_token }}"
+          X-Vault-Token: "{{ platform_aicd_openbao_root_token }}"
         status_code: [200]
-      register: platform_cicd_openbao_secret_gitea_current
+      register: platform_aicd_openbao_secret_gitea_current
 
     - name: "Flux: синхронизировать gitops-git-auth (flux-system) с текущим admin_password"
       delegate_to: localhost
@@ -748,11 +748,11 @@
       run_once: true
       no_log: true
       environment:
-        KUBECONFIG: "{{ platform_cicd_kubeconfig.dest }}"
+        KUBECONFIG: "{{ platform_aicd_kubeconfig.dest }}"
         NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
         no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
       kubernetes.core.k8s:
-        kubeconfig: "{{ platform_cicd_kubeconfig.dest }}"
+        kubeconfig: "{{ platform_aicd_kubeconfig.dest }}"
         state: present
         kind: Secret
         name: gitops-git-auth
@@ -765,14 +765,14 @@
           type: Opaque
           stringData:
             username: gitea_admin
-            password: "{{ platform_cicd_openbao_secret_gitea_current.json.data.data.admin_password }}"
+            password: "{{ platform_aicd_openbao_secret_gitea_current.json.data.data.admin_password }}"
 
     # docs/adr/0017-platform-cicd-default-addons.md — Radar сам никого не аутентифицирует
     # (auth.mode: none, дефолт чарта), доступ гейтится Traefik Middleware (тот же приём, что уже
     # применён для infra_panel/reverse_proxy_traefik: community.general.htpasswd на
     # control-хосте + Secret с готовым htpasswd-содержимым). Пароль — из уже наполненного OpenBao
     # (secret/radar), не хардкод. Блок безусловный — при отсутствии релиза radar в
-    # platform_cicd_enabled_addons Middleware/Ingress просто не на что ссылаться, задачи
+    # platform_aicd_enabled_addons Middleware/Ingress просто не на что ссылаться, задачи
     # остаются безвредным идемпотентным no-op.
     - name: "Radar: прочитать текущий admin_password secret/radar (для basic-auth)"
       delegate_to: localhost
@@ -783,13 +783,13 @@
         NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
         no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
       ansible.builtin.uri:
-        url: "{{ platform_cicd_openbao_addr }}/v1/secret/data/radar"
-        ca_path: "{{ platform_cicd_openbao_ca_path }}"
+        url: "{{ platform_aicd_openbao_addr }}/v1/secret/data/radar"
+        ca_path: "{{ platform_aicd_openbao_ca_path }}"
         method: GET
         headers:
-          X-Vault-Token: "{{ platform_cicd_openbao_root_token }}"
+          X-Vault-Token: "{{ platform_aicd_openbao_root_token }}"
         status_code: [200]
-      register: platform_cicd_openbao_secret_radar_current
+      register: platform_aicd_openbao_secret_radar_current
 
     # community.general.htpasswd идемпотентен сам по себе (тот же приём, что
     # roles/infra_panel/tasks/infra-panel.k3s.yml) — перезаписывает файл только если хэш
@@ -802,7 +802,7 @@
       community.general.htpasswd:
         path: "{{ playbook_dir }}/.kube-tmp/radar-htpasswd"
         name: admin
-        password: "{{ platform_cicd_openbao_secret_radar_current.json.data.data.admin_password }}"
+        password: "{{ platform_aicd_openbao_secret_radar_current.json.data.data.admin_password }}"
         mode: '0600'
 
     - name: "Radar: прочитать рендернутый htpasswd обратно"
@@ -811,7 +811,7 @@
       run_once: true
       no_log: true
       ansible.builtin.set_fact:
-        platform_cicd_radar_htpasswd: "{{ lookup('ansible.builtin.file', playbook_dir + '/.kube-tmp/radar-htpasswd') }}"
+        platform_aicd_radar_htpasswd: "{{ lookup('ansible.builtin.file', playbook_dir + '/.kube-tmp/radar-htpasswd') }}"
 
     - name: "Radar: сохранить Secret radar-basic-auth"
       delegate_to: localhost
@@ -819,11 +819,11 @@
       run_once: true
       no_log: true
       environment:
-        KUBECONFIG: "{{ platform_cicd_kubeconfig.dest }}"
+        KUBECONFIG: "{{ platform_aicd_kubeconfig.dest }}"
         NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
         no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
       kubernetes.core.k8s:
-        kubeconfig: "{{ platform_cicd_kubeconfig.dest }}"
+        kubeconfig: "{{ platform_aicd_kubeconfig.dest }}"
         state: present
         kind: Secret
         name: radar-basic-auth
@@ -835,7 +835,7 @@
               app.kubernetes.io/managed-by: ansible
           type: Opaque
           stringData:
-            users: "{{ platform_cicd_radar_htpasswd }}"
+            users: "{{ platform_aicd_radar_htpasswd }}"
 
     # Middleware CRD Traefik (traefik.io/v1alpha1) — Radar сам такой ресурс не создаёт (обычный
     # k8s Ingress в helm/values/platform/namespaces/platform/radar/values.yaml, не IngressRoute).
@@ -847,11 +847,11 @@
       become: false
       run_once: true
       environment:
-        KUBECONFIG: "{{ platform_cicd_kubeconfig.dest }}"
+        KUBECONFIG: "{{ platform_aicd_kubeconfig.dest }}"
         NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
         no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
       kubernetes.core.k8s:
-        kubeconfig: "{{ platform_cicd_kubeconfig.dest }}"
+        kubeconfig: "{{ platform_aicd_kubeconfig.dest }}"
         state: present
         definition:
           apiVersion: traefik.io/v1alpha1
@@ -867,4 +867,4 @@
 
     - name: Вывод helmwave up
       ansible.builtin.debug:
-        var: platform_cicd_helmwave_up.stderr_lines
+        var: platform_aicd_helmwave_up.stderr_lines
