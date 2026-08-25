@@ -263,6 +263,26 @@ resource "libvirt_domain" "vm" {
       }
     ]
 
+    # Только на Rocky9-гостях (freeipa): без явного virtio-serial channel org.qemu.guest_agent.0
+    # systemd-юнит qemu-guest-agent.service на RHEL-семействе зависит от devices/virtio-ports
+    # udev-события, которого без этого channel нет — cloud-init падает на
+    # `systemctl enable --now qemu-guest-agent` с "Dependency failed for QEMU Guest Agent" при
+    # каждом первом boot (не блокирует SSH/ansible-провижининг, но cloud-init отчитывается
+    # ошибкой). На Debian-гостях того же бага нет (юнит там static, no-op) — поэтому channel не
+    # добавлен остальным VM стенда, чтобы не создавать им лишний ForceNew-пересозданный домен.
+    channels = lookup(each.value, "base", "debian") == "rocky9" ? [
+      {
+        source = {
+          unix = {}
+        }
+        target = {
+          virt_io = {
+            name = "org.qemu.guest_agent.0"
+          }
+        }
+      }
+    ] : []
+
     # Serial-консоль с логом на диск control-хоста — единственный способ увидеть boot-лог
     # long-lived стенда без графики/vnc (тот же паттерн, что demo/mysql-ha-platform).
     consoles = [
