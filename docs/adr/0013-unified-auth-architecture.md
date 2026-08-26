@@ -1,9 +1,9 @@
 # ADR-0013: Единая авторизация — Authelia поверх `freeipa`, `*_auth_method` для потребителей
 
-- **Статус:** Принято; реализовано на `platform/aicd` (2026-08-26) — persistent `freeipa`,
-  Authelia (OIDC + `forwardAuth`), `forwardAuth` перед `infra-panel`/`radar`, нативный OIDC у
-  Semaphore/Gitea. `platform/aicd-devops-labs-ru` — не выполнено (см. «Не проработано»,
-  внешний пререквизит).
+- **Статус:** Принято; реализовано на `platform/aicd` и `platform/aicd-devops-labs-ru`
+  (2026-08-26) — persistent `freeipa`, Authelia (OIDC + `forwardAuth`), `forwardAuth` перед
+  `infra-panel`/`radar`, нативный OIDC у Semaphore/Gitea. Оба окружения проверены живым прогоном
+  (см. §7 и §8).
 - **Дата:** 2026-08-21
 - **Авторы:** Ivan Vinogradov (решения), Claude Code (оформление по итогам обсуждения)
 
@@ -217,11 +217,75 @@ control-хосте), хранилище — SQLite на PVC, TLS — из вну
 (`/api/auth/login` → `"oidc_providers":[{"id":"authelia",...}]`) показывают кнопку входа через
 Authelia, повторный прогон полностью идемпотентен (`changed=3`, только always-changed задачи).
 
+### 8. Реализация на `platform/aicd-devops-labs-ru` (2026-08-26) — Фаза F, механический перенос
+
+После подготовки пользователем Rocky 9 cloud-init шаблона на Proxmox (VMID 9001, внешний
+пререквизит из §7 «Не проработано») код §7 перенесён вторым окружением тем же приёмом, что уже
+использовался для предыдущих релизов этой платформы (`sed`-замена префиксов/домена + unified
+diff + `patch`, см. `demo/full-platform`/`platform/aicd` историю): `freeipa-target.tf`
+(`proxmox_virtual_environment_vm`, статический IP вместо DHCP-резервации libvirt), `site.yml`
+(3 play в том же порядке), `group_vars/freeipa_hosts.yml`, Helm values Authelia/CA-траста
+Gitea/Semaphore, `authelia` в `platform_aicd_devops_labs_ru_core_releases`.
+
+**Найденные реальным прогоном проблемы этой фазы (сверх уже известных из §7, все исправлены):**
+
+1. **CPU-модель Proxmox по умолчанию (`qemu64`) не поддерживает x86-64-v2 (SSE4.2 и др.),
+   обязательные для ядра Rocky Linux 9.** VM зависала на пустой serial-консоли без единой строки
+   вывода (ядро падает до инициализации консоли) — не диагностируется штатными средствами (`qm
+   config` показывал корректный `serial0: socket`). Исправлено `cpu.type = "x86-64-v2-AES"` в
+   `freeipa-target.tf` (только для `freeipa`, `aicd_labs`/Ubuntu не затронута — та же
+   дефолтная `qemu64` для Ubuntu-ядра проблемой не является).
+2. **Механическая sed-замена случайно переименовала литеральный идентификатор, который должен
+   был остаться одинаковым в обоих окружениях.** `Secret aicd-platform-ca` (сознательно с
+   одинаковым именем на `platform/aicd` и здесь, §7 находка №7) при переносе получил имя
+   `aicd-devops-labs-ru-ca` — правило "aicd-platform → aicd-devops-labs-ru" не различает
+   "заменить домен" и "не трогать этот один литерал". Из-за рассинхронизации имени Secret'а с тем,
+   что ждут `values.yaml` Gitea/Semaphore (`originalName: aicd-platform-ca`), оба пода зависали
+   на несуществующем volume (`Init:0/3`/`ContainerCreating`) — `helmwave up` с `wait: true` ждал
+   Ready **более 4 часов** прежде чем сдаться по таймауту. Исправлено возвратом буквального имени
+   `aicd-platform-ca`; урок — при мех. переносе явно перепроверять все "намеренно одинаковые"
+   идентификаторы, а не полагаться на список sed-правил целиком.
+3. **`ipa-server-install` прерван обрывом SSH-сессии (сетевая флакость физической LAN этого
+   стенда, см. ниже) ровно в тот момент, когда файл `/etc/ipa/default.conf` уже существовал, но
+   реальная настройка LDAP/KDC/CA ещё не завершилась.** Идемпотентность роли `freeipa`
+   (`creates: /etc/ipa/default.conf`) в норме верно пропускает повторную установку — но здесь она
+   молча пропускала переустановку УЖЕ СЛОМАННОГО состояния (`ipactl`: `"IPA is not configured"`,
+   `systemctl start ipa` падал: `"control process exited with error code"`). Диагностировано
+   прямым SSH + `journalctl -u ipa.service`. Восстановлено вручную (`ipa-server-install
+   --uninstall --unattended` на самой VM — однократное ручное вмешательство, не входит в
+   автоматический контур playbook), после чего следующий прогон поставил FreeIPA с нуля успешно.
+   Общий урок для этого паттерна идемпотентности: `creates:` защищает от повторного запуска
+   долгой команды, но не отличает "успешно завершилась" от "прервана на полпути" — риск,
+   специфичный для одношаговых (`--unattended`) инсталляторов без собственного transactional
+   отката.
+4. **Rocky 9 шаблон Proxmox (VMID 9001) не содержит пакет `firewalld` вовсе** (в отличие от
+   Packer-образа `platform/aicd` из §7 находки №6, где пакет уже стоит, просто не запущен) —
+   `ansible.builtin.systemd` падал `"Could not find the requested service firewalld: host"`.
+   Исправлено явной `ansible.builtin.dnf: name=firewalld state=present` перед
+   запуском/включением сервиса — разница между Packer-образом и шаблоном, подготовленным вручную
+   пользователем через веб-интерфейс/CLI Proxmox.
+5. **Сильная периодическая обрывность SSH/HTTPS до физической LAN этого Proxmox-стенда** (уже
+   документированная в `ansible.cfg` находка, но в моменте реализации проявилась значительно
+   острее обычного — короткие ad hoc SSH-подключения рвались чаще, чем проходили, ~40% успеха)
+   потребовала для живого прогона отдельного bash-цикла с автоматическим повтором
+   `ansible-playbook` (до 20 попыток, очистка `~/.ssh` control-socket между попытками — обнаружен
+   и отдельный побочный баг: осиротевший control-socket от прежде прерванного прогона на диске
+   `~/.ansible/cp/` вызывал зависание НОВЫХ соединений, пытавшихся его переиспользовать через
+   идентичный `ControlPath`) — идемпотентность каждой из уже описанных выше задач (freeipa,
+   bind-аккаунт, секреты OpenBao) подтверждена тем, что финальный успешный прогон случился только
+   на очередной попытке после уже нескольких частично успешных, без дублей/конфликтов состояния.
+
+**Проверено реальным прогоном:** `Releases Success 7/7`, `forwardAuth` — `302` на портал логина
+для `infra-panel.aicd.devops-labs.ru`/`radar.aicd.devops-labs.ru` без сессии, TLS-issuer у
+`sso.aicd.devops-labs.ru` — внутренний CA этого окружения, Gitea (`gitea admin auth list` →
+источник `authelia`, `OAuth2`, `enabled=true`) и Semaphore (`SEMAPHORE_OIDC_PROVIDERS` в
+переменных окружения пода) настроены, `freeipa` (`systemctl is-active ipa` → `active`, все
+сервисы IPA стартовали), повторный прогон полностью идемпотентен (`freeipa: changed=0`,
+`aicd-labs: changed=3`, все три — заведомо always-changed задачи: подстановка IP в kubeconfig и
+два `Helmwave up`).
+
 ## Не проработано (следующие шаги)
 
-- **`platform/aicd-devops-labs-ru`** — та же реализация не выполнена (Фаза F исходного плана):
-  нужен Rocky 9 cloud-init шаблон на Proxmox-сервере пользователя (внешний, не автоматизируемый
-  из репозитория пререквизит) для второй VM `freeipa` этого окружения.
 - `monitoring_server`/Grafana (нативный OIDC, §4, первый исторически предполагавшийся кандидат) и
   клиентские `reverse_proxy_traefik`/`reverse_proxy_npm`-стенды — вне охвата реализации §7:
   Grafana живёт в другой, не связанной сети; клиентские стенды — на произвольных сетях заказчиков

@@ -138,3 +138,32 @@ ADR-0017 §3 для полного описания (ServersTransport для с�
 `200` для `openbao.aicd.devops-labs.ru/ui/`, TLS issuer обоих — внутренний PKI CA
 (`CN=aicd.devops-labs.ru`), повторный прогон полностью идемпотентен (`changed=3`, только
 ожидаемые always-changed задачи).
+
+## Единая авторизация (docs/adr/0013-unified-auth-architecture.md)
+
+Тот же дизайн, что `platform/aicd` (ADR-0013 §7) — свой, persistent `freeipa`
+(`ipa.aicd.devops-labs.ru`, отдельная VM `platform/aicd-devops-labs-ru/terraform/freeipa-target.tf`,
+клонирована из Rocky 9 cloud-init шаблона Proxmox, VMID 9001, готовится пользователем заранее — см.
+«Подготовка Proxmox» выше) и **Authelia** (`sso.aicd.devops-labs.ru`) поверх него — OIDC-провайдер +
+`forwardAuth`-шлюз, Helm-релизом, не отдельной ролью коллекции. `infra-panel`/`radar` защищены
+`forwardAuth` (`Middleware authelia-forward-auth`, `/api/authz/forward-auth`), Semaphore и Gitea —
+нативным OIDC. Каталог `freeipa` пуст по умолчанию — реальные учётные записи заводятся вручную
+(`ipa user-add`, с VM `ipa.aicd.devops-labs.ru`, после `kinit admin`).
+
+Перенесено на это окружение механической заменой (Фаза F, ADR-0013 §8) уже после того, как весь
+дизайн был проверен и исправлен на `platform/aicd` (§7) — здесь всплыл свой класс находок,
+специфичных для Proxmox-шаблона этого стенда: CPU-модель `qemu64` по умолчанию не поддерживает
+x86-64-v2, обязательный для ядра Rocky 9 (VM зависала на пустой serial-консоли), sed-перенос
+случайно переименовал `Secret aicd-platform-ca` (сознательно одинаковое имя между окружениями) в
+`aicd-devops-labs-ru-ca`, из-за чего Gitea/Semaphore часами висели в `Init`/`ContainerCreating` на
+несуществующем volume, пакет `firewalld` на этом шаблоне не установлен вовсе (в отличие от
+Packer-образа `platform/aicd`), а обрыв SSH-сессии посреди `ipa-server-install` (сильная сетевая
+флакость физической LAN этого стенда) оставил `/etc/ipa/default.conf` без реально завершённой
+установки — потребовалось ручное `ipa-server-install --uninstall`. Полная хронология и разбор — ADR
+§8.
+
+**Проверено реальным прогоном:** `Releases Success 7/7`, `forwardAuth` — `302` на
+`sso.aicd.devops-labs.ru` для `infra-panel`/`radar` без сессии, TLS issuer
+`sso.aicd.devops-labs.ru` — внутренний CA этого окружения, Gitea/Semaphore показывают OIDC-вход
+через Authelia, `freeipa` (`systemctl is-active ipa` → `active`), повторный прогон полностью
+идемпотентен (`freeipa: changed=0`, `aicd-labs: changed=3`, только always-changed задачи).

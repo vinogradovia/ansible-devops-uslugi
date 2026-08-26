@@ -715,16 +715,20 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
     `Termination: Backup OK`, тома реально на диске (`Full-0001`, `Incremental-0002`).
 
 49. ~~**Единая система авторизации для сервисов коллекции (OAuth — приоритет, LDAP — альтернатива).**~~
-    — **реализовано на `platform/aicd`** (2026-08-26, `docs/adr/0013-unified-auth-architecture.md`
-    §7): каталог пользователей — persistent `freeipa` (LDAP), federated с **Authelia**
-    (не Keycloak, повторно подтверждено ADR §5) через `authentication_backend.ldap.implementation:
-    'freeipa'`. Authelia — не отдельная роль коллекции, а Helm-релиз на платформенной
-    инфраструктуре (ADR §6, тот же паттерн, что Gitea/Semaphore/Radar/infra-panel). Потребители:
-    `forwardAuth` перед `infra-panel`/`radar` (эндпоинт `/api/authz/forward-auth`, не легаси
-    `/api/verify` — см. ADR §7, критическая находка №8), нативный OIDC у Semaphore
-    (`SEMAPHORE_OIDC_PROVIDERS`) и Gitea (декларативно, `gitea.oauth` в values чарта).
-    `platform/aicd-devops-labs-ru` — не выполнено (внешний пререквизит, Rocky 9 Proxmox-шаблон).
-    Grafana/клиентские `reverse_proxy_*`-стенды — вне охвата (другие, не связанные сети).
+    — **реализовано на `platform/aicd` и `platform/aicd-devops-labs-ru`** (2026-08-26,
+    `docs/adr/0013-unified-auth-architecture.md` §7/§8): каталог пользователей — persistent
+    `freeipa` (LDAP, свой инстанс в каждом окружении), federated с **Authelia** (не Keycloak,
+    повторно подтверждено ADR §5) через `authentication_backend.ldap.implementation: 'freeipa'`.
+    Authelia — не отдельная роль коллекции, а Helm-релиз на платформенной инфраструктуре (ADR §6,
+    тот же паттерн, что Gitea/Semaphore/Radar/infra-panel). Потребители: `forwardAuth` перед
+    `infra-panel`/`radar` (эндпоинт `/api/authz/forward-auth`, не легаси `/api/verify` — см. ADR
+    §7, критическая находка №8), нативный OIDC у Semaphore (`SEMAPHORE_OIDC_PROVIDERS`) и Gitea
+    (декларативно, `gitea.oauth` в values чарта). Второе окружение (Proxmox) перенесено
+    механической заменой (Фаза F, ADR §8) — поймала свой класс находок: несовместимая с Rocky 9
+    CPU-модель Proxmox по умолчанию, sed случайно переименовавший литерал, который должен был
+    остаться одинаковым между окружениями, отсутствующий пакет firewalld на этом шаблоне,
+    прерванная сетевым обрывом установка `ipa-server-install`. Grafana/клиентские
+    `reverse_proxy_*`-стенды — вне охвата (другие, не связанные сети).
 
 50. ~~**Компонент запуска ansible/terraform (CI/CD-панель), например Semaphore UI.**~~ —
     **архитектура решена** (`docs/adr/0012-cicd-platform-architecture.md` §5): панель — Semaphore
