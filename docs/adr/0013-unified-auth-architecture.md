@@ -284,6 +284,35 @@ Gitea/Semaphore, `authelia` в `platform_aicd_devops_labs_ru_core_releases`.
 `aicd-labs: changed=3`, все три — заведомо always-changed задачи: подстановка IP в kubeconfig и
 два `Helmwave up`).
 
+### 9. Реальный клик-тест логина выявил 2 бага, не покрытых прежней проверкой (2026-08-26)
+
+Прежняя «Проверено реальным прогоном» (§7/§8) подтверждала только *наличие* кнопки OIDC-входа
+(`/api/auth/login` отдаёт список провайдеров), но не проход полного цикла логина. Реальный клик
+пользователем на обоих окружениях вскрыл 2 независимых бага, оба присутствовали с самого §7:
+
+1. **Semaphore: `invalid_client` при обмене authorization code на токен.** Authelia без явного
+   `token_endpoint_auth_method` регистрирует OIDC-клиент с дефолтным `client_secret_basic`
+   (HTTP Basic Auth), а Semaphore (v2.19.8) на этот эндпоинт отправляет credentials методом
+   `client_secret_post` (в теле запроса) — Authelia отвечает `invalid_client`
+   (`"token_endpoint_auth_method ... does not allow this method"`), пользователь после успешной
+   аутентификации в Authelia попадает на `404` вместо возврата в Semaphore. Исправлено явным
+   `token_endpoint_auth_method: 'client_secret_post'` на клиенте `semaphore` в конфиге Authelia.
+2. **Gitea: OIDC-вход молча проваливается для любой личности без существующего локального
+   аккаунта.** Дефолт Gitea `ENABLE_AUTO_REGISTRATION: false` — сервер отклоняет создание нового
+   аккаунта из ещё не встречавшейся OIDC-личности без единой строки в логах (просто редиректит
+   обратно на `/user/login`), выглядит как "не работает" без всякой диагностики со стороны
+   администратора. Поскольку каталог `freeipa` не заводит пользователей заранее (ADR-0011), без
+   этого флага OIDC-вход неюзабелен вообще ни для одного реального пользователя каталога.
+   Исправлено `[oauth2_client] ENABLE_AUTO_REGISTRATION: true` в конфиге Gitea.
+
+**Побочная находка при применении фикса:** оба ConfigMap (`config.yml` homer/`infra-panel`,
+`configuration.yml` Authelia) монтируются в под с `subPath` — Kubernetes принципиально не
+обновляет `subPath`-смонтированные файлы при изменении ConfigMap (известное ограничение, не баг
+конкретной этой реализации), под должен быть перезапущен вручную (`kubectl rollout restart`)
+после каждого такого изменения, даже когда `helm upgrade`/`Helmwave up` успешно обновил сам
+ConfigMap. Учитывать при любых будущих правках `configMaps`-секций `authelia`/`infra-panel`
+values.yaml.
+
 ## Не проработано (следующие шаги)
 
 - `monitoring_server`/Grafana (нативный OIDC, §4, первый исторически предполагавшийся кандидат) и

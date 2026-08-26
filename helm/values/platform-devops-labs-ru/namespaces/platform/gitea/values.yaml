@@ -33,6 +33,13 @@ gitea:
       ADAPTER: memory
     queue:
       TYPE: level
+    # Найдено реальным прогоном: без ENABLE_AUTO_REGISTRATION (дефолт Gitea — false) первый
+    # логин через OIDC для личности, у которой ещё нет локального аккаунта Gitea, молча
+    # проваливается (редирект на /user/login без единой строки ошибки в логах) — freeipa не
+    # заводит пользователей заранее (ADR-0011), поэтому без этого флага OIDC-вход неюзабелен
+    # ни для одного реального пользователя каталога, только для заранее вручную привязанных.
+    oauth2_client:
+      ENABLE_AUTO_REGISTRATION: true
   # ADR-0013 §5 — нативный OIDC-логин через Authelia, декларативно, штатным механизмом чарта
   # (см. helm/values/platform/namespaces/platform/gitea/values.yaml, первый стенд, для разбора).
   oauth:

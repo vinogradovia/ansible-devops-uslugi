@@ -26,6 +26,9 @@ configMaps:
               - name: OpenBao
                 url: https://openbao.aicd.devops-labs.ru
                 target: _blank
+              - name: FreeIPA
+                url: https://ipa.aicd.devops-labs.ru/ipa/ui/
+                target: _blank
 
 deployments:
   infra-panel:

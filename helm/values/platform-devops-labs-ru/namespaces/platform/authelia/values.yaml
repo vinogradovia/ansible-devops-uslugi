@@ -87,6 +87,12 @@ configMaps:
                 public: false
                 authorization_policy: 'one_factor'
                 require_pkce: false
+                # Найдено реальным прогоном: без явного token_endpoint_auth_method Authelia
+                # регистрирует клиент с дефолтным client_secret_basic — Semaphore (v2.19.8) при
+                # обмене authorization code на токен отправляет client_secret_post, Authelia
+                # отвечает invalid_client ("token_endpoint_auth_method... does not allow this
+                # method"). Логин зависал на редиректе после успешной аутентификации в Authelia.
+                token_endpoint_auth_method: 'client_secret_post'
                 redirect_uris:
                   - 'https://semaphore.aicd.devops-labs.ru/api/auth/oidc/authelia/redirect'
                 scopes: ['openid', 'profile', 'email']

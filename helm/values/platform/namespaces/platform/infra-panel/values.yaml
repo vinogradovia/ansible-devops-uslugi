@@ -38,6 +38,9 @@ configMaps:
               - name: OpenBao
                 url: https://openbao.aicd.platform
                 target: _blank
+              - name: FreeIPA
+                url: https://ipa.aicd.platform/ipa/ui/
+                target: _blank
 
 deployments:
   infra-panel:
