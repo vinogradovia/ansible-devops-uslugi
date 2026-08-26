@@ -6,9 +6,10 @@ resource "local_file" "ansible_inventory" {
   content = templatefile("${path.module}/templates/inventory.yml.tpl", {
     vms          = local.vms
     ansible_user = var.ansible_user
+    freeipa_ip   = local.freeipa_ip
   })
 
   file_permission = "0644"
 
-  depends_on = [libvirt_domain.vm]
+  depends_on = [libvirt_domain.vm, libvirt_domain.freeipa]
 }

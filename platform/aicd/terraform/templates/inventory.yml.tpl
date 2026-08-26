@@ -10,3 +10,7 @@ all:
       hosts:
         cicd:
           ansible_host: ${vms["cicd"].ip}
+    freeipa_hosts:
+      hosts:
+        freeipa:
+          ansible_host: ${freeipa_ip}

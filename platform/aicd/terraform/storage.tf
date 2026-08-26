@@ -29,3 +29,26 @@ resource "libvirt_volume" "base" {
     }
   }
 }
+
+# Второй base-образ — только для VM freeipa (ADR-0013 §1). file:// вместо https:// у debian-образа
+# выше — источник локальный (собственная сборка Packer), тот же приём, что
+# demo/full-platform/terraform/storage.tf.
+resource "libvirt_volume" "freeipa_base" {
+  name = "rockylinux9-freeipa-base.qcow2"
+  pool = libvirt_pool.platform.name
+
+  target = {
+    format = {
+      type = "qcow2"
+    }
+    permissions = {
+      mode = "0644"
+    }
+  }
+
+  create = {
+    content = {
+      url = "file://${abspath("${path.module}/${var.freeipa_base_image_path}")}"
+    }
+  }
+}

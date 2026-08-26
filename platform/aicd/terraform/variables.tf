@@ -58,3 +58,13 @@ variable "ansible_user" {
   type        = string
   default     = "ansible"
 }
+
+# ADR-0013 §1 — persistent freeipa как единый каталог для Authelia. Тот же собственный Packer-образ
+# Rocky 9, что уже используется demo/full-platform/terraform/storage.tf (обходит геоблок HashiCorp/
+# проблемы готовых vagrant/rockylinux-боксов, см. ADR-0012 §3) — переиспользуется напрямую, без
+# повторной сборки Packer.
+variable "freeipa_base_image_path" {
+  description = "Путь к собственному Rocky 9 qcow2-образу (extensions/molecule/freeipa/packer), тот же файл, что demo/full-platform"
+  type        = string
+  default     = "../../../extensions/molecule/freeipa/packer/output-rockylinux9-freeipa/rockylinux9-freeipa.qcow2"
+}
