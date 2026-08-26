@@ -10,3 +10,7 @@ all:
       hosts:
         aicd-labs:
           ansible_host: ${vm_ip}
+    freeipa_hosts:
+      hosts:
+        freeipa:
+          ansible_host: ${freeipa_ip}

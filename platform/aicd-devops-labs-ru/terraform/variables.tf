@@ -17,9 +17,13 @@ variable "proxmox_datastore_id" {
 }
 
 variable "vm_name" {
+  # Имя включает идентификатор окружения (совпадает с именем каталога platform/aicd-devops-labs-ru)
+  # — на одном Proxmox-хосте потенциально несколько сред/стендов, голое "aicd-labs" неотличимо от
+  # VM другого окружения в общем списке VM Proxmox UI. Смена этого атрибута у уже существующей VM —
+  # update in place (provider не считает "name" ForceNew), пересоздания VM не вызывает.
   description = "Отображаемое имя VM в Proxmox UI и hostname гостя (короткое, не FQDN — домен ниже отдельно)"
   type        = string
-  default     = "aicd-labs"
+  default     = "aicd-devops-labs-ru"
 }
 
 variable "vcpu" {
@@ -31,7 +35,7 @@ variable "vcpu" {
 variable "memory" {
   description = "RAM, MiB — как у platform/aicd"
   type        = number
-  default     = 4096
+  default     = 6000
 }
 
 variable "disk_gb" {
@@ -68,4 +72,48 @@ variable "ansible_user" {
   description = "Пользователь, заводимый cloud-init на VM (passwordless sudo, для Ansible) — заменяет ciuser=ubuntu самого шаблона"
   type        = string
   default     = "ansible"
+}
+
+# ADR-0013 §1 — persistent freeipa, единый каталог для Authelia (тот же принцип, что
+# platform/aicd/terraform/freeipa-target.tf). Отдельный Rocky 9 cloud-init шаблон (VMID 9001,
+# подготовлен пользователем на этом Proxmox-сервере — не создаётся этим terraform, freeipa-server
+# для Ubuntu/Debian не существует, см. roles/freeipa/README.md).
+variable "proxmox_freeipa_template_vmid" {
+  description = "VMID шаблона Rocky 9 (cloud-init-ready), с которого клонируется VM freeipa"
+  type        = number
+  default     = 9001
+}
+
+variable "freeipa_vm_name" {
+  description = "Отображаемое имя VM freeipa в Proxmox UI и hostname гостя — с префиксом окружения, см. var.vm_name"
+  type        = string
+  default     = "aicd-devops-labs-ru-freeipa"
+}
+
+# vcpu/memory/disk_gb — тот же профиль, что platform/aicd/terraform/freeipa-target.tf (минимум по
+# README роли freeipa — LDAP+Kerberos KDC+httpd+CA одновременно).
+variable "freeipa_vcpu" {
+  description = "Число vCPU для VM freeipa"
+  type        = number
+  default     = 2
+}
+
+variable "freeipa_memory" {
+  description = "RAM, MiB для VM freeipa"
+  type        = number
+  default     = 4096
+}
+
+variable "freeipa_disk_gb" {
+  description = "Размер диска, GB для VM freeipa"
+  type        = number
+  default     = 20
+}
+
+# Свободный IP той же плоской LAN, что основная VM (var.vm_ip_cidr, .249) — подтверждено
+# пользователем как свободный на момент реализации (ADR-0013).
+variable "freeipa_ip_cidr" {
+  description = "Статический IPv4-адрес VM freeipa с маской (та же плоская LAN, что основная VM)"
+  type        = string
+  default     = "10.10.10.248/24"
 }

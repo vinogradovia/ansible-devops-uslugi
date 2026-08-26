@@ -8,10 +8,11 @@ resource "local_file" "ansible_inventory" {
 
   content = templatefile("${path.module}/templates/inventory.yml.tpl", {
     vm_ip        = split("/", var.vm_ip_cidr)[0]
+    freeipa_ip   = split("/", var.freeipa_ip_cidr)[0]
     ansible_user = var.ansible_user
   })
 
   file_permission = "0644"
 
-  depends_on = [proxmox_virtual_environment_vm.aicd_labs]
+  depends_on = [proxmox_virtual_environment_vm.aicd_labs, proxmox_virtual_environment_vm.freeipa]
 }
