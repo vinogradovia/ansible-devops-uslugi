@@ -1,6 +1,9 @@
 # ADR-0013: Единая авторизация — Authelia поверх `freeipa`, `*_auth_method` для потребителей
 
-- **Статус:** Принято (архитектурное решение; реализация не начата)
+- **Статус:** Принято; реализовано на `platform/aicd` (2026-08-26) — persistent `freeipa`,
+  Authelia (OIDC + `forwardAuth`), `forwardAuth` перед `infra-panel`/`radar`, нативный OIDC у
+  Semaphore/Gitea. `platform/aicd-devops-labs-ru` — не выполнено (см. «Не проработано»,
+  внешний пререквизит).
 - **Дата:** 2026-08-21
 - **Авторы:** Ivan Vinogradov (решения), Claude Code (оформление по итогам обсуждения)
 
@@ -124,25 +127,121 @@ kube-apiserver, кандидат — Dex или аналог) встал воп�
   требует отдельного ADR (см. ROADMAP №55). Здесь закрыт только вопрос "менять ли Authelia на
   Keycloak ради №2/№4", а не выбор провайдера для №55.
 
+### 6. Ревизия §3: Helm-релиз вместо отдельной роли (2026-08-26)
+
+**Решение:** Authelia реализована НЕ отдельной ansible-ролью коллекции (как предполагал §3), а
+Helm-релизом (`localrepo/universal-chart`) с оркестрацией секретов/TLS/forwardAuth в
+`platform/aicd/ansible/site.yml` — тем же приёмом, что уже применён для OpenBao/Gitea/Semaphore/
+Radar/infra-panel на этой же инфраструктуре.
+
+**Обоснование:** с момента написания §3 фактическая практика `platform/aicd*` (ADR-0012 §6 сам
+оставлял вопрос "роль или нет" открытым) устоялась в пользу "нет" для всей платформенной
+инфраструктуры — ни один из перечисленных в ADR-0012 компонентов (кроме Harbor, не
+реализован) в итоге не стал ролью коллекции. Authelia технически — точно такой же кейс (один
+контейнер, конфиг-файл, секреты, TLS, Ingress), заводить под неё новую роль с molecule-сценарием
+означало бы единственное на всю платформенную инфраструктуру исключение без практической пользы.
+Имя роли (§3, «не проработано») снимается этим же решением — вопрос больше не актуален.
+
+### 7. Реализация на `platform/aicd` (2026-08-26) — freeipa persistent, Authelia, forwardAuth, OIDC
+
+**freeipa** — новая persistent VM (`platform/aicd/terraform/freeipa-target.tf`, тот же
+Packer-образ Rocky 9, что `demo/full-platform`), роль `freeipa` применяется отдельным play
+(`platform/aicd/ansible/site.yml`) на хосте `ipa.aicd.platform`. Bind-аккаунт `svc-authelia`
+(обычный непривилегированный IPA-пользователь, `--password-expiration` далеко в будущем — иначе
+FreeIPA требует смены пароля при первом использовании, а сервисный аккаунт никогда не логинится
+интерактивно) заводится оркестрацией `site.yml` (не самой ролью, ADR-0011 §3).
+
+**Authelia** — `configuration.yml` через ConfigMap, `authentication_backend.ldap.implementation:
+'freeipa'` (готовый пресет Authelia под FreeIPA), OIDC-клиенты для Semaphore/Gitea
+(`client_secret` — pbkdf2-sha512-хэш, посчитан `authelia crypto hash generate` через Docker на
+control-хосте), хранилище — SQLite на PVC, TLS — из внутреннего PKI CA OpenBao.
+
+**Найденные реальным прогоном проблемы (по хронологии, все исправлены):**
+
+1. **CoreDNS: два `hosts`-плагина в одном Server Block роняют CoreDNS в CrashLoopBackOff.**
+   Дефолтный k3s Corefile уже содержит `hosts /etc/coredns/NodeHosts` — второй `hosts {}` через
+   `coredns-custom` (нужен был, чтобы резолвить `*.aicd.platform` изнутри кластера — эти хосты
+   существуют только во внешнем `/etc/hosts` операторов) конфликтует. Исправлено плагином
+   `template` (нет такого ограничения) с `answer` на ClusterIP встроенного Traefik.
+2. **CoreDNS: `template IN A` без соответствующего `IN AAAA` — авторитетный NXDOMAIN ломает
+   строгие резолверы.** AAAA-запрос для тех же имён проваливался через `fallthrough` в upstream
+   (не знающий про `aicd.platform` вообще) и получал NXDOMAIN — семантически неверно (должно быть
+   NODATA: имя существует, просто нет AAAA-записи). Резолвер Go (Traefik) и musl libc (`curl`)
+   трактуют такой NXDOMAIN как "имени не существует вообще" и отбрасывают уже полученный
+   успешный A-ответ. Исправлено вторым `template IN AAAA ... { rcode NOERROR }` для тех же имён.
+3. **`freeipa`: релиз `authelia` отсутствовал в `platform_aicd_core_releases`.** Добавлен в
+   `envs/platform.yaml`, но не в список для `--tags` второго `helmwave up` — релиз никогда не
+   применялся, хотя ошибок никто не видел (просто не устанавливался).
+   `depends_on: [{name: authelia}]` добавлен для `gitea`/`semaphore` — оба делают HTTPS-вызов к
+   Authelia в момент своего старта, `helmwave` гарантирует `wait: true` на зависимости раньше них.
+4. **gomplate `strings.Indent` непредсказуемо индентирует первую строку многострочного PEM иначе,
+   чем остальные** — первая строка RSA-ключа получала на 18 пробелов больше, ломая YAML внутри
+   вложенного `key: |`. Исправлено конвертацией в one-line double-quoted строку
+   (`strings.ReplaceAll` реальных переносов строк на литеральные `\n`, YAML разворачивает их
+   обратно при парсинге) — без риска рассинхронизации отступов.
+5. **Authelia: `session.cookies[].default_redirection_url` не может совпадать с `authelia_url`** —
+   иначе пользователя после логина редиректило бы обратно на сам портал. Указано на `infra-panel`
+   как логичную стартовую страницу платформы.
+6. **firewalld на образе Rocky 9 не запущен и не enabled по умолчанию** —
+   `ansible.posix.firewalld` с `immediate: true` требует реально работающий демон. Добавлен явный
+   `systemd: name=firewalld state=started enabled=true` перед открытием LDAP-портов.
+7. **Gitea/Semaphore не доверяют внутреннему PKI CA OpenBao** (`x509: certificate signed by
+   unknown authority`) при HTTPS-вызове к Authelia — Go-клиент внутри образов не знает о
+   самодельном CA. Секрет `aicd-platform-ca` (CA-сертификат, публичный, не секрет по сути — взят
+   из `pki/ca/pem`) монтируется в оба сервиса, `SSL_CERT_FILE` указывает на него.
+8. **Критическая находка — `forwardAuth` c легаси-эндпоинтом `/api/verify` полностью не
+   проверял авторизацию.** Middleware был настроен по устаревшему паттерну
+   (`address: https://sso.aicd.platform/api/verify?rd=...`) — запрос реально доходил до Authelia
+   (подтверждено TLS-сертификатом и логами), но Authelia у `/api/verify` авторизовывала запрос по
+   ДОМЕНУ САМОГО ВЫЗОВА (`sso.aicd.platform`, `policy: bypass`), полностью игнорируя
+   `X-Forwarded-Host` защищаемого ресурса — debug-лог Authelia прямым текстом показал `object
+   https://sso.aicd.platform/api/verify...` вместо реального `infra-panel.aicd.platform`. На
+   практике это означало: `forwardAuth` пропускал АБСОЛЮТНО ЛЮБОЙ запрос без проверки —
+   эксплуатируемая дыра в защите, не косметический баг. Официальный текущий паттерн для Traefik
+   (`authelia.com/integration/proxies/traefik/`) — другой эндпоинт, `/api/authz/forward-auth`,
+   и адрес — **внутренний ClusterIP-сервис напрямую**
+   (`http://authelia-authelia.platform.svc.cluster.local:9091/...`), не внешний домен через
+   Traefik. Заодно устранило нужду в `tls.insecureSkipVerify` (был нужен только из-за HTTPS до
+   внешнего домена) и саму возможность конфликта "домен вызова vs домен защищаемого ресурса".
+   Найдено и исправлено ДО передачи стенда в реальную эксплуатацию — живых пользователей за это
+   время не было.
+9. **Побочный инцидент: приватный RSA-ключ подписи OIDC засветился в открытом виде в терминальном
+   выводе** при ручной отладке рендеринга gomplate (`helmwave build` без `no_log`, в отличие от
+   ansible-задачи). Ключ ни разу не использовался (Authelia ни разу не стартовала успешно с
+   момента его генерации) — риск низкий, но `secret/authelia` целиком удалён и пересоздан заново
+   идемпотентным механизмом сразу после обнаружения.
+
+**Проверено реальным прогоном:** `Releases Success 7/7`, `forwardAuth` корректно возвращает `302`
+на портал логина для `infra-panel`/`radar` без сессии (было — 200 с реальным контентом, до находки
+№8), TLS-issuer у `sso.aicd.platform` — внутренний CA, Gitea (`/user/login`) и Semaphore
+(`/api/auth/login` → `"oidc_providers":[{"id":"authelia",...}]`) показывают кнопку входа через
+Authelia, повторный прогон полностью идемпотентен (`changed=3`, только always-changed задачи).
+
 ## Не проработано (следующие шаги)
 
-- Имя роли Authelia (§3).
-- Точный список ролей-потребителей и порядок реализации `*_auth_method` в каждой (кандидаты —
-  `monitoring_server` Grafana первой, как единственный сервис с готовой нативной OIDC-поддержкой;
-  `reverse_proxy_traefik`/`infra_panel`/`reverse_proxy_npm` — `forwardAuth`-путь).
-- Как `freeipa` и Authelia физически соединяются сетью, если `freeipa` остаётся на
-  `demo/full-platform`, а Authelia переезжает на новую платформенную инфраструктуру ADR-0012 —
-  межсетевой доступ/DNS между двумя разными стендами не проработан.
-- LDAP-bind учётка для Authelia на стороне `freeipa` (сервисная учётка с правом на bind + поиск,
-  не `admin`) — не спроектирована.
-- Semaphore SSO (ADR-0012 §5, follow-up) как первый конкретный потребитель `oauth`-режима —
-  не запланирован по срокам относительно остальных потребителей.
+- **`platform/aicd-devops-labs-ru`** — та же реализация не выполнена (Фаза F исходного плана):
+  нужен Rocky 9 cloud-init шаблон на Proxmox-сервере пользователя (внешний, не автоматизируемый
+  из репозитория пререквизит) для второй VM `freeipa` этого окружения.
+- `monitoring_server`/Grafana (нативный OIDC, §4, первый исторически предполагавшийся кандидат) и
+  клиентские `reverse_proxy_traefik`/`reverse_proxy_npm`-стенды — вне охвата реализации §7:
+  Grafana живёт в другой, не связанной сети; клиентские стенды — на произвольных сетях заказчиков
+  без маршрута к платформенной Authelia. Требует отдельной архитектурной проработки (VPN/сетевой
+  мост или отдельный per-заказчик экземпляр Authelia), не просто "ещё один потребитель".
+- LDAP — обычный `ldap://` (не `ldaps://`/StartTLS) между Authelia и `freeipa` — Authelia логирует
+  предупреждение при каждом старте. Сознательное упрощение для внутренней L2-сети одного
+  libvirt-хоста, не пересмотрено.
+- `access_control` — `one_factor` для `infra-panel`/`radar`, `authorization_policy: one_factor`
+  для OIDC-клиентов Semaphore/Gitea (не `two_factor`): TOTP/WebAuthn enrollment потребовал бы
+  интерактивной само-регистрации пользователя, не автоматизированной этим контуром.
 - Доступ к самому kube-apiserver (`kubectl`) этим ADR не покрыт — область действия ограничена
   приложениями за reverse-proxy (§4). Отдельная идея (Dex или аналог как OIDC-issuer перед
   kube-apiserver) зафиксирована в `ROADMAP.md` №55.
-- Статус OIDC-провайдера Authelia (beta 7/8 на 2026-08-26, §5) — проверить перед реализацией §4,
-  не стал ли он GA и не появились ли анонсированные апстримом breaking-изменения в
-  consent-policy.
+- Статус OIDC-провайдера Authelia (beta 7/8 на 2026-08-26, §5) — проверить перед следующими
+  потребителями, не стал ли он GA и не появились ли анонсированные апстримом
+  breaking-изменения в consent-policy.
+- Каталог `freeipa` пуст (роль сознательно не заводит пользователей/группы, ADR-0011) — реальные
+  учётные записи для входа через Authelia нужно заводить вручную (`ipa user-add`) отдельно от
+  этой реализации.
 
 ## Ссылки
 
@@ -156,6 +255,13 @@ kube-apiserver, кандидат — Dex или аналог) встал воп�
   §4) и разбора meta-зависимость vs композиция.
 - `docs/adr/0004-mysql-ha-replication-role.md` §11 — критерий meta-зависимость vs композиция,
   применённый в §4.
+- [Authelia + Traefik ForwardAuth — официальный паттерн](https://www.authelia.com/integration/proxies/traefik/) —
+  `/api/authz/forward-auth`, внутренний адрес сервиса, а не `/api/verify` через внешний домен
+  (§7, находка №8).
+- [Authelia LDAP — FreeIPA](https://www.authelia.com/integration/ldap/freeipa/) —
+  `authentication_backend.ldap.implementation: 'freeipa'` (§7).
+- `docs/adr/0017-platform-cicd-default-addons.md` — прецедент Helm-релиза вместо роли для
+  платформенной инфраструктуры (§6), тот же принцип для Radar/infra-panel.
 - [Authelia OpenID Connect 1.0 Provider — roadmap/статус беты](https://www.authelia.com/roadmap/active/openid-connect-1.0-provider/),
   [overview/OpenID Certified](https://www.authelia.com/overview/authorization/openid-connect-1.0/) —
   источники для повторной проверки §5.

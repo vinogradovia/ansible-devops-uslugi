@@ -715,16 +715,16 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
     `Termination: Backup OK`, тома реально на диске (`Full-0001`, `Incremental-0002`).
 
 49. ~~**Единая система авторизации для сервисов коллекции (OAuth — приоритет, LDAP — альтернатива).**~~
-    — **архитектура решена** (`docs/adr/0013-unified-auth-architecture.md`): каталог пользователей
-    остаётся один — уже реализованный `freeipa` (LDAP, ADR-0011) — OIDC не заводит отдельную базу,
-    а федерируется с ним через LDAP-бэкенд (ADR §1). Провайдер — **Authelia** (не Keycloak,
-    лёгкий Go-бинарник, нативный `forwardAuth` для Traefik, ADR §2). Роль — отдельная, по паттерну
-    `_server` (имя не выбрано), живёт на платформенной инфраструктуре
-    `docs/adr/0012-cicd-platform-architecture.md` §6, рядом с Harbor/Gitea/OpenBao/Semaphore
-    (ADR §3). Интеграция потребителей — нативный OIDC там, где сервис его умеет (Grafana первой),
-    `forwardAuth` через Authelia там, где нет (`reverse_proxy_traefik`/`infra_panel`/
-    `reverse_proxy_npm` admin UI); общая переменная `*_auth_method: basic|ldap|oauth` по образцу
-    `*_backup_tool` (№48, ADR §4). Роль не реализована — следующий шаг.
+    — **реализовано на `platform/aicd`** (2026-08-26, `docs/adr/0013-unified-auth-architecture.md`
+    §7): каталог пользователей — persistent `freeipa` (LDAP), federated с **Authelia**
+    (не Keycloak, повторно подтверждено ADR §5) через `authentication_backend.ldap.implementation:
+    'freeipa'`. Authelia — не отдельная роль коллекции, а Helm-релиз на платформенной
+    инфраструктуре (ADR §6, тот же паттерн, что Gitea/Semaphore/Radar/infra-panel). Потребители:
+    `forwardAuth` перед `infra-panel`/`radar` (эндпоинт `/api/authz/forward-auth`, не легаси
+    `/api/verify` — см. ADR §7, критическая находка №8), нативный OIDC у Semaphore
+    (`SEMAPHORE_OIDC_PROVIDERS`) и Gitea (декларативно, `gitea.oauth` в values чарта).
+    `platform/aicd-devops-labs-ru` — не выполнено (внешний пререквизит, Rocky 9 Proxmox-шаблон).
+    Grafana/клиентские `reverse_proxy_*`-стенды — вне охвата (другие, не связанные сети).
 
 50. ~~**Компонент запуска ansible/terraform (CI/CD-панель), например Semaphore UI.**~~ —
     **архитектура решена** (`docs/adr/0012-cicd-platform-architecture.md` §5): панель — Semaphore

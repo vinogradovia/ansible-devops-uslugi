@@ -265,3 +265,25 @@ intermediate CA у PKI engine; CI-раннер (Gitea Actions) не читает
 — отдельная задача (Фаза 6 в широком смысле); `Module.spec.vars` пилотных Module по-прежнему
 плейнтекст в `platform/gitops`; RBAC-профиль Radar не тюнится тоньше дефолтов чарта
 (ADR-0017, «Не проработано»).
+
+## Единая авторизация (docs/adr/0013-unified-auth-architecture.md)
+
+Persistent VM `freeipa` (`ipa.aicd.platform`, тот же Packer-образ Rocky 9, что
+`demo/full-platform`) — единый каталог пользователей. **Authelia** (`sso.aicd.platform`) —
+OIDC-провайдер + `forwardAuth`-шлюз, Helm-релизом (`localrepo/universal-chart`), не отдельной
+ролью коллекции (ADR-0013 §6). `infra-panel`/`radar` защищены `forwardAuth`
+(`Middleware authelia-forward-auth`, эндпоинт `/api/authz/forward-auth` — актуальный для Traefik,
+не легаси `/api/verify`), Semaphore и Gitea — нативным OIDC («Sign in with Authelia» на странице
+логина). Каталог `freeipa` пуст по умолчанию — реальные учётные записи заводятся вручную
+(`ipa user-add`, с VM `ipa.aicd.platform`, после `kinit admin`).
+
+**Проверено реальным прогоном** (полная хронология находок — ADR-0013 §7): `Releases Success
+7/7`, `forwardAuth` корректно отдаёт `302` на `sso.aicd.platform` для `infra-panel`/`radar` без
+сессии, TLS issuer `sso.aicd.platform` — внутренний CA, Gitea/Semaphore показывают OIDC-вход
+через Authelia, повторный прогон идемпотентен. Самая значимая находка: `forwardAuth`,
+изначально настроенный на легаси-эндпоинт `/api/verify` через внешний домен, реально **пропускал
+любой запрос без проверки** (Authelia авторизовывала по домену самого вызова, а не по
+защищаемому ресурсу) — исправлено переходом на `/api/authz/forward-auth` и прямой адрес
+ClusterIP-сервиса, см. ADR-0013 §7 для деталей и остальных находок (CoreDNS `hosts`/AAAA-NXDOMAIN,
+отсутствие `authelia` в `platform_aicd_core_releases`, `firewalld` не запущен на Rocky 9,
+доверие Gitea/Semaphore к внутреннему CA, gomplate-индентация PEM-ключа).
