@@ -22,9 +22,19 @@ releases:
     tags: [openbao]
     version: 0.29.2
 
+  # depends_on: authelia — найдено реальным прогоном (ADR-0013): init-контейнер configure-gitea
+  # делает `gitea admin auth add-oauth --auto-discover-url https://sso.aicd.platform/...` при
+  # каждом старте; без явного depends_on helmwave не гарантирует, что Authelia (и её
+  # IngressRoute у Traefik) уже готова к этому моменту — Gitea уходил в CrashLoopBackOff
+  # (пробовал резолвить ещё не задеплоенный sso.aicd.platform / получал TLS-сертификат
+  # дефолтного хоста Traefik, если у него ещё нет маршрута на этот Host). helmwave.yml.tpl уже
+  # ставит wait: true каждому релизу — depends_on гарантирует, что Authelia будет не просто
+  # применена, а полностью готова (Pod Ready) раньше, чем стартует Gitea.
   - name: gitea
     namespace: platform
     chart: gitea-charts/gitea
+    depends_on:
+      - name: authelia
     # Версия не проверена реальным прогоном (нет ещё поднятой VM на момент написания) — сверить
     # актуальную стабильную версию чарта на https://gitea.com/gitea/helm-gitea перед первым
     # applyем и поправить при необходимости.
@@ -35,9 +45,14 @@ releases:
   # Deployment/Service/PVC/IngressRoute через nxs-universal-chart, распакованный локально в
   # helm/localrepo/universal-chart/ (packed .tgz не годится — helmwave безусловно прогоняет
   # `helm dependency update`, а Helm отказывается делать это для запакованных чартов).
+  # depends_on: authelia — тот же принцип, что у gitea выше: Semaphore обменивается OIDC-токеном
+  # с Authelia при логине (server-to-server, из своего пода), тоже нуждается в уже готовом
+  # sso.aicd.platform.
   - name: semaphore
     namespace: platform
     chart: localrepo/universal-chart
+    depends_on:
+      - name: authelia
     version: 2.8.1
 
   # Фаза 2 (ROADMAP.md, пункт 7; docs/adr/0014-platform-controller-architecture.md §4) — Flux
@@ -68,6 +83,18 @@ releases:
   # как называется одноимённая роль/ADR-0008) — подчёркивание сломало бы RFC-1123 имена k8s-объектов,
   # которые universal-chart генерирует как "<release>-<key>".
   - name: infra-panel
+    namespace: platform
+    chart: localrepo/universal-chart
+    version: 2.8.1
+
+  # ADR-0013 — единая авторизация: Authelia (OIDC-провайдер + forwardAuth перед infra-panel/radar),
+  # федерирована с persistent freeipa этого же окружения по LDAP (platform/aicd/terraform/
+  # freeipa-target.tf, platform/aicd/ansible/site.yml). Официального Helm-чарта Authelia нет —
+  # тот же приём localrepo/universal-chart, что уже применён для Semaphore/infra-panel выше (ADR-0013
+  # ревизия §3 фиксирует отход от изначально предполагавшейся отдельной ansible-роли в пользу этого,
+  # уже устоявшегося для платформенной инфраструктуры паттерна). Release name — "authelia" (без
+  # изменений, RFC-1123-совместим как есть).
+  - name: authelia
     namespace: platform
     chart: localrepo/universal-chart
     version: 2.8.1

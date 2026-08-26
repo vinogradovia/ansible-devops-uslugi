@@ -5,11 +5,12 @@
 # (helm/values/platform/namespaces/platform/semaphore/values.yaml) и для иллюстративного примера
 # в helm/values/k3s-monitoring/namespaces/monitoring/homer/values.yaml.
 #
-# В отличие от того примера — basic-auth здесь НЕ хардкодится в values (там `admin:admin` —
-# намеренно небезопасный плейсхолдер для демонстрации). Secret infra-panel-basic-auth и Middleware
-# infra-panel-basic-auth создаются platform/aicd/ansible/site.yml тем же приёмом, что уже применён
-# для Radar (community.general.htpasswd + пароль, сгенерированный/прочитанный из OpenBao,
-# secret/infra-panel) — здесь только ссылка на уже существующий Middleware по имени.
+# Вход защищён forwardAuth-Middleware Authelia (ADR-0013 §4, authelia-forward-auth,
+# platform/aicd/ansible/site.yml) — заменяет прежний basic-auth Middleware
+# (infra-panel-basic-auth/secret/infra-panel не удалены, просто больше ни на что не влияют,
+# ADR-0017 §1). В отличие от иллюстративного примера в
+# helm/values/k3s-monitoring/namespaces/monitoring/homer/values.yaml — basic-auth здесь никогда
+# не хардкодился в values (там `admin:admin` — намеренно небезопасный плейсхолдер для демонстрации).
 #
 # TLS — Secret infra-panel-tls, выпущен из внутреннего PKI CA OpenBao тем же циклом
 # (tasks/issue-tls-cert.yml), что gitea-tls/semaphore-tls/radar-tls.
@@ -76,7 +77,7 @@ ingressroutes:
     routes:
       "Host(`infra-panel.aicd.platform`)":
         middlewares:
-          - name: infra-panel-basic-auth
+          - name: authelia-forward-auth
         services:
           infra-panel-infra-panel:
             port: 8080

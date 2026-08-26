@@ -1,0 +1,190 @@
+# Authelia (https://www.authelia.com) — единая авторизация платформы (ADR-0013): OIDC-провайдер
+# для сервисов, умеющих OIDC нативно (Semaphore, Gitea), и forwardAuth-шлюз перед панелями без
+# собственного логина (infra-panel, radar). Официального Helm-чарта нет — развёрнут через
+# nxs-universal-chart (helm/localrepo/universal-chart), тем же приёмом, что уже применён для
+# Semaphore/infra-panel/radar (ADR-0013 ревизия §3 — Helm-релиз вместо изначально предполагавшейся
+# отдельной ansible-роли, тот же принцип, что уже устоялся для остальной платформенной
+# инфраструктуры этого стенда).
+#
+# Единый каталог — persistent freeipa этого же окружения (platform/aicd/terraform/freeipa-target.tf,
+# platform/aicd/ansible/site.yml, play "Единая авторизация (ADR-0013): persistent freeipa") — LDAP
+# implementation: freeipa (готовый пресет Authelia под FreeIPA, минимальный набор полей — см.
+# https://www.authelia.com/integration/ldap/freeipa/). Bind-аккаунт svc-authelia создан тем же
+# play'ем — обычный непривилегированный IPA-пользователь (ADR-0011 §3 — заведение пользователей
+# каталога не входит в саму роль freeipa, поэтому bind-аккаунт заводится оркестрацией окружения).
+#
+# Секреты (jwt/session/storage-encryption/OIDC HMAC+RSA-ключ подписи/LDAP bind password/OIDC
+# client secrets Gitea и Semaphore) — идемпотентно сгенерированы в OpenBao (secret/authelia,
+# platform/aicd/ansible/site.yml, блок "OpenBao: bootstrap"), читаются через тот же gomplate
+# datasource vault://, что уже применяется в semaphore/values.yaml и gitea/values.yaml. ВНИМАНИЕ:
+# этот файл целиком — gomplate-шаблон с делимитерами "квадратная скобка дважды" вместо
+# Jinja-фигурных (см. helm/helmwave.yml.tpl) — не используйте парные квадратные скобки нигде в
+# этом файле, даже в комментариях.
+#
+# client_secret в identity_providers.oidc.clients — ОБЯЗАН быть pbkdf2-sha512-хэшем, не plaintext
+# (Authelia отказывается стартовать с plaintext-значением в этом поле) — хэш посчитан тем же
+# play'ем ("Authelia: посчитать pbkdf2-хэши client_secret...", authelia crypto hash generate) и
+# сохранён в тот же secret/authelia отдельными полями (*_client_secret_hash) — сами потребители
+# (Gitea CLI, SEMAPHORE_OIDC_PROVIDERS) получают plaintext-версию, не хэш.
+#
+# authorization_policy/access_control — one_factor (не two_factor): TOTP/WebAuthn enrollment
+# потребовал бы интерактивной само-регистрации пользователя перед первым входом, что не
+# автоматизировано этим ansible-контуром — задокументированный сознательный выбор MVP-охвата
+# (см. docs/adr/0013-unified-auth-architecture.md), не забытая настройка.
+#
+# password_reset.disable: true — LDAP-backend Authelia умеет менять пароль пользователя через bind
+# аккаунт, но svc-authelia (обычный непривилегированный IPA-пользователь, не выделенная
+# password-change-политика) не имеет права менять чужие пароли в FreeIPA — предлагать
+# "забыли пароль" пользователю, для которого это гарантированно не сработает, хуже, чем не
+# предлагать вовсе.
+
+[[ defineDatasource "vault" "vault:///secret/data/authelia" ]]
+
+pvcs:
+  data:
+    accessModes:
+      - ReadWriteOnce
+    size: 1Gi
+    storageClassName: local-path
+
+configMaps:
+  config:
+    data:
+      configuration.yml: |
+        theme: light
+        default_2fa_method: totp
+
+        server:
+          address: 'tcp://:9091'
+
+        log:
+          level: info
+
+        totp:
+          issuer: aicd.platform
+
+        authentication_backend:
+          password_reset:
+            disable: true
+          ldap:
+            implementation: 'freeipa'
+            address: 'ldap://ipa.aicd.platform:389'
+            base_dn: 'DC=aicd,DC=platform'
+            user: 'UID=svc-authelia,CN=users,CN=accounts,DC=aicd,DC=platform'
+            password: '[[ (ds "vault").data.ldap_bind_password ]]'
+
+        access_control:
+          default_policy: deny
+          rules:
+            - domain: 'sso.aicd.platform'
+              policy: bypass
+            - domain: 'infra-panel.aicd.platform'
+              policy: one_factor
+            - domain: 'radar.aicd.platform'
+              policy: one_factor
+
+        # default_redirection_url НЕ может совпадать с authelia_url (найдено реальным прогоном —
+        # Authelia отказывается стартовать: "which is not permitted", иначе после логина
+        # пользователя редиректило бы обратно на сам портал логина) — infra-panel как логичная
+        # стартовая страница платформы после входа.
+        session:
+          secret: '[[ (ds "vault").data.session_secret ]]'
+          cookies:
+            - domain: 'aicd.platform'
+              authelia_url: 'https://sso.aicd.platform'
+              default_redirection_url: 'https://infra-panel.aicd.platform'
+
+        storage:
+          encryption_key: '[[ (ds "vault").data.storage_encryption_key ]]'
+          local:
+            path: /data/db.sqlite3
+
+        notifier:
+          disable_startup_check: true
+          filesystem:
+            filename: /data/notification.txt
+
+        identity_validation:
+          reset_password:
+            jwt_secret: '[[ (ds "vault").data.jwt_secret ]]'
+
+        identity_providers:
+          oidc:
+            hmac_secret: '[[ (ds "vault").data.oidc_hmac_secret ]]'
+            jwks:
+              # key — найдено реальным прогоном: strings.Indent непредсказуемо индентирует первую
+              # строку многострочного PEM иначе, чем остальные (первая строка получала на 18
+              # пробелов больше нужного) — YAML внутри вложенного "key: |" ломался. Вместо
+              # индентации многострочного блока — конвертация в one-line double-quoted строку
+              # (strings.ReplaceAll реальных переносов строк на литеральные "\n"), которую YAML
+              # разворачивает обратно в настоящие переносы при парсинге — тот же результат, но без
+              # риска несовпадения отступов.
+              - key_id: 'main'
+                algorithm: 'RS256'
+                use: 'sig'
+                key: "[[ (ds "vault").data.oidc_issuer_private_key | strings.ReplaceAll "\n" "\\n" ]]"
+            clients:
+              - client_id: 'semaphore'
+                client_name: 'Semaphore'
+                client_secret: '[[ (ds "vault").data.semaphore_client_secret_hash ]]'
+                public: false
+                authorization_policy: 'one_factor'
+                require_pkce: false
+                redirect_uris:
+                  - 'https://semaphore.aicd.platform/api/auth/oidc/authelia/redirect'
+                scopes: ['openid', 'profile', 'email']
+                response_types: ['code']
+                grant_types: ['authorization_code']
+              - client_id: 'gitea'
+                client_name: 'Gitea'
+                client_secret: '[[ (ds "vault").data.gitea_client_secret_hash ]]'
+                public: false
+                authorization_policy: 'one_factor'
+                require_pkce: false
+                redirect_uris:
+                  - 'https://gitea.aicd.platform/user/oauth2/authelia/callback'
+                scopes: ['openid', 'profile', 'email']
+                response_types: ['code']
+                grant_types: ['authorization_code']
+
+deployments:
+  authelia:
+    containers:
+      - name: authelia
+        image: authelia/authelia
+        imageTag: "4.39.20"
+        ports:
+          - name: http
+            containerPort: 9091
+        volumeMounts:
+          - name: data
+            mountPath: /data
+          - name: config
+            mountPath: /config/configuration.yml
+            subPath: configuration.yml
+    volumes:
+      - name: data
+        type: pvc
+      - name: config
+        type: configMap
+
+services:
+  authelia:
+    ports:
+      - name: http
+        port: 9091
+
+# Basic-auth перед самой Authelia не нужен — это и есть auth-портал, обязан быть доступен без
+# предварительной авторизации (тот же принцип, что уже применён к OpenBao/Gitea/Semaphore —
+# self-auth, дополнительный middleware избыточен).
+ingressroutes:
+  authelia:
+    entryPoints:
+      - websecure
+    routes:
+      "Host(`sso.aicd.platform`)":
+        services:
+          authelia-authelia:
+            port: 9091
+    tls:
+      secretName: authelia-tls

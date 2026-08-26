@@ -33,6 +33,17 @@ gitea:
       ADAPTER: memory
     queue:
       TYPE: level
+  # ADR-0013 §5 — нативный OIDC-логин через Authelia. Декларативно, штатным механизмом самого
+  # чарта (templates/gitea/init.yaml, function configure_oauth) — идемпотентно, чарт сам проверяет
+  # `gitea admin auth list` и делает add-oauth/update-oauth в зависимости от результата, отдельный
+  # ansible-код не нужен. secret — plaintext (gitea_client_secret из secret/authelia, отдельное
+  # поле от gitea_client_secret_hash, который нужен только конфигу самой Authelia).
+  oauth:
+    - name: authelia
+      provider: openidConnect
+      key: gitea
+      secret: '[[ (ds "vault").data.gitea_client_secret ]]'
+      autoDiscoverUrl: https://sso.aicd.platform/.well-known/openid-configuration
 
 # strategy.type: Recreate — найдено реальным прогоном (первый helm upgrade Gitea после Фазы 0,
 # смена admin.password/ingress.tls): дефолтный RollingUpdate чарта создаёт новый под ДО остановки
@@ -43,6 +54,31 @@ gitea:
 # изменении values, не специфично для OpenBao/этого коммита.
 strategy:
   type: Recreate
+
+# ADR-0013 §5 — доверие к внутреннему PKI CA OpenBao (тот же CA, из которого выпущен
+# authelia-tls). Найдено реальным прогоном: без этого init-контейнер configure-gitea падал на
+# "certificate signed by unknown authority" при HTTPS-обращении к https://sso.aicd.platform для
+# настройки OIDC-источника — Go-клиент внутри образа не знает о внутреннем CA. Secret
+# aicd-platform-ca заведён platform/aicd/ansible/site.yml (pki/ca/pem, публичный, не секрет).
+# SSL_CERT_FILE указывает ТОЛЬКО на наш CA (не объединён с системным бандлом) — сознательное
+# упрощение: у этого инстанса Gitea сейчас нет других внешних HTTPS-обращений, для которых
+# понадобилось бы доверие публичным CA.
+extraVolumes:
+  - name: aicd-platform-ca
+    secret:
+      secretName: aicd-platform-ca
+extraInitVolumeMounts:
+  - name: aicd-platform-ca
+    mountPath: /etc/ssl/certs/aicd-platform-ca.pem
+    subPath: ca.pem
+extraContainerVolumeMounts:
+  - name: aicd-platform-ca
+    mountPath: /etc/ssl/certs/aicd-platform-ca.pem
+    subPath: ca.pem
+deployment:
+  env:
+    - name: SSL_CERT_FILE
+      value: /etc/ssl/certs/aicd-platform-ca.pem
 
 # SQLite — минимальная схема для Фазы 0 (нет отдельного требования к консистентности между
 # несколькими подами Gitea, single-node k3s), без bundled Postgres/Redis subchart.

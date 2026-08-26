@@ -77,15 +77,35 @@ deployments:
             value: '[[ (ds "vault").data.cookie_encryption ]]'
           - name: SEMAPHORE_ACCESS_KEY_ENCRYPTION
             value: '[[ (ds "vault").data.access_key_encryption ]]'
+          # ADR-0013 §5 — нативный OIDC-логин через Authelia (единый каталог — persistent freeipa
+          # этого окружения). client_secret — plaintext (secret/authelia, отдельного поля от
+          # *_client_secret_hash, который получает конфиг Authelia — ей нужен хэш, Semaphore как
+          # OIDC-клиенту нужен обычный секрет). redirect_url — формат, задокументированный
+          # authelia.com/integration/openid-connect/clients/semaphore/.
+          - name: SEMAPHORE_OIDC_PROVIDERS
+            value: >-
+              {"authelia":{"display_name":"Authelia","provider_url":"https://sso.aicd.platform","client_id":"semaphore","client_secret":"[[ (ds "vault").data.semaphore_client_secret ]]","redirect_url":"https://semaphore.aicd.platform/api/auth/oidc/authelia/redirect","scopes":["openid","profile","email"],"username_claim":"preferred_username","email_claim":"email","name_claim":"name"}}
+          # Доверие к внутреннему PKI CA OpenBao (тот же, что у authelia-tls) — без этого
+          # обмен OIDC-токеном с Authelia при логине падает на "certificate signed by unknown
+          # authority" (тот же класс проблемы, что уже найден и исправлен у Gitea, см. его
+          # values.yaml). Secret aicd-platform-ca заведён platform/aicd/ansible/site.yml.
+          - name: SSL_CERT_FILE
+            value: /etc/ssl/certs/aicd-platform-ca.pem
         ports:
           - name: http
             containerPort: 3000
         volumeMounts:
           - name: data
             mountPath: /var/lib/semaphore
+          - name: aicd-platform-ca
+            mountPath: /etc/ssl/certs/aicd-platform-ca.pem
+            subPath: ca.pem
     volumes:
       - name: data
         type: pvc
+      - name: aicd-platform-ca
+        type: secret
+        originalName: aicd-platform-ca
 
 services:
   semaphore:
