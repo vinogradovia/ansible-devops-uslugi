@@ -7,8 +7,14 @@
 # переданный в `helmwave up --tags` (platform/aicd/ansible/site.yml).
 
 # Обязательные релизы платформы — не являются "аддонами", всегда ставятся.
+# authelia (ADR-0013) — единая авторизация, foundational-инфраструктура (как openbao), а не
+# опциональный инструмент, поэтому здесь, а не в default_addons ниже. Найдено реальным прогоном:
+# без этого --tags второго helmwave up вообще не включал релиз authelia (описан в envs/platform.yaml,
+# но никогда не попадал в фильтр) — Traefik не знал маршрута на sso.aicd.platform, из-за чего
+# Gitea/Semaphore при попытке OIDC-discovery получали TLS-сертификат дефолтного хоста Traefik.
 platform_aicd_core_releases:
   - openbao
+  - authelia
   - gitea
   - semaphore
   - flux2

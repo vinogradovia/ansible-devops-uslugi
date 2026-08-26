@@ -1,0 +1,18 @@
+---
+# ADR-0013 §1 — persistent freeipa, единый каталог пользователей для Authelia. В отличие от
+# demo/full-platform/ansible/group_vars/freeipa_hosts.yml (одноразовый демо-стенд, пароли открытым
+# текстом, ADR-0006 §9) — здесь пароли идемпотентно генерируются в OpenBao (secret/freeipa,
+# site.yml, блок "OpenBao: bootstrap") и передаются play'ем через hostvars, не хранятся в этом
+# файле.
+
+freeipa_domain: aicd.platform
+freeipa_realm: AICD.PLATFORM
+# Совпадает по смыслу с FQDN, который cloud-init изначально задал VM (terraform/freeipa-target.tf,
+# fqdn = "freeipa.${var.network_domain}") — роль сама переустанавливает system hostname на
+# freeipa_hostname (idempotent), реальный прикладной домен (aicd.platform) не совпадает с
+# внутренним libvirt-DNS-доменом (cicd.platform, см. platform/aicd/terraform/versions.tf) —
+# это намеренно, тот же принцип, что и у остального стенда.
+freeipa_hostname: ipa.aicd.platform
+
+# freeipa_manage_hosts_entry: true (дефолт роли) — self-entry в /etc/hosts на самой VM freeipa
+# достаточно, встроенный DNS FreeIPA не используется (см. roles/freeipa/README.md).
