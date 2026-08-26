@@ -8,8 +8,12 @@
 # переданный в `helmwave up --tags` (platform/aicd-devops-labs-ru/ansible/site.yml).
 
 # Обязательные релизы платформы — не являются "аддонами", всегда ставятся.
+# authelia (ADR-0013) — единая авторизация, foundational-инфраструктура (как openbao), а не
+# опциональный инструмент — см. platform/aicd/ansible/group_vars/platform_hosts.yml для полного
+# разбора находки (без этого --tags второго helmwave up не включал релиз authelia вовсе).
 platform_aicd_devops_labs_ru_core_releases:
   - openbao
+  - authelia
   - gitea
   - semaphore
   - flux2

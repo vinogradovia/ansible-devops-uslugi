@@ -1,0 +1,13 @@
+---
+# ADR-0013 §1 — persistent freeipa, единый каталог пользователей для Authelia. Второе окружение
+# платформы — те же решения, что platform/aicd/ansible/group_vars/freeipa_hosts.yml (см. его для
+# полного разбора), другой домен. Пароли идемпотентно генерируются в OpenBao (secret/freeipa,
+# site.yml, блок "OpenBao: bootstrap") и передаются play'ем через hostvars, не хранятся в этом
+# файле.
+
+freeipa_domain: aicd.devops-labs.ru
+freeipa_realm: AICD.DEVOPS-LABS.RU
+freeipa_hostname: ipa.aicd.devops-labs.ru
+
+# freeipa_manage_hosts_entry: true (дефолт роли) — self-entry в /etc/hosts на самой VM freeipa
+# достаточно, встроенный DNS FreeIPA не используется (см. roles/freeipa/README.md).
