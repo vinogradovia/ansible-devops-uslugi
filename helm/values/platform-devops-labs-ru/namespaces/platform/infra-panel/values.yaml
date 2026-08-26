@@ -60,7 +60,7 @@ ingressroutes:
     routes:
       "Host(`infra-panel.aicd.devops-labs.ru`)":
         middlewares:
-          - name: infra-panel-basic-auth
+          - name: authelia-forward-auth
         services:
           infra-panel-infra-panel:
             port: 8080

@@ -33,12 +33,40 @@ gitea:
       ADAPTER: memory
     queue:
       TYPE: level
+  # ADR-0013 §5 — нативный OIDC-логин через Authelia, декларативно, штатным механизмом чарта
+  # (см. helm/values/platform/namespaces/platform/gitea/values.yaml, первый стенд, для разбора).
+  oauth:
+    - name: authelia
+      provider: openidConnect
+      key: gitea
+      secret: '[[ (ds "vault").data.gitea_client_secret ]]'
+      autoDiscoverUrl: https://sso.aicd.devops-labs.ru/.well-known/openid-configuration
 
 # strategy.type: Recreate — найдено реальным прогоном на первом стенде (platform/aicd) — дефолтный
 # RollingUpdate чарта создаёт новый под ДО остановки старого, а оба пода делят один PVC и один и
 # тот же on-disk leveldb-файл очереди (config.queue.TYPE: level выше) — гарантированный deadlock.
 strategy:
   type: Recreate
+
+# ADR-0013 §5/§7 — доверие к внутреннему PKI CA OpenBao (тот же CA, из которого выпущен
+# authelia-tls) — без этого HTTPS-вызовы к Authelia падают на "certificate signed by unknown
+# authority" (см. helm/values/platform/namespaces/platform/gitea/values.yaml, первый стенд).
+extraVolumes:
+  - name: aicd-platform-ca
+    secret:
+      secretName: aicd-platform-ca
+extraInitVolumeMounts:
+  - name: aicd-platform-ca
+    mountPath: /etc/ssl/certs/aicd-platform-ca.pem
+    subPath: ca.pem
+extraContainerVolumeMounts:
+  - name: aicd-platform-ca
+    mountPath: /etc/ssl/certs/aicd-platform-ca.pem
+    subPath: ca.pem
+deployment:
+  env:
+    - name: SSL_CERT_FILE
+      value: /etc/ssl/certs/aicd-platform-ca.pem
 
 # SQLite — минимальная схема (нет отдельного требования к консистентности между несколькими
 # подами Gitea, single-node k3s), без bundled Postgres/Redis subchart.

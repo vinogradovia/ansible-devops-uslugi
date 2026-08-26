@@ -7,21 +7,18 @@
 # платформы: rbac.secrets=false, rbac.helm=false, rbac.podExec=false, rbac.portForward=false,
 # read-only ClusterRole на остальные ресурсы). Явно переопределяем только сеть.
 #
-# auth.mode внутри чарта остаётся "none" (дефолт) — Radar сам никого не аутентифицирует, вход
-# защищён basic-auth на уровне Traefik Middleware (Secret radar-basic-auth, платформенный
-# ansible-код в platform/aicd-devops-labs-ru/ansible/site.yml), тот же приём, что уже применён
-# для infra_panel/reverse_proxy_traefik. Пароль — не хардкод, читается из OpenBao (secret/radar).
+# auth.mode внутри чарта остаётся "none" (дефолт) — Radar сам никого не аутентифицирует. Вход
+# защищён forwardAuth-Middleware Authelia (ADR-0013 §4/§7, authelia-forward-auth) — заменяет
+# прежний basic-auth Middleware (radar-basic-auth/secret/radar не удалены, просто больше ни на
+# что не влияют, ADR-0017 §1).
 #
 # TLS — Secret radar-tls, выпущен из внутреннего PKI CA OpenBao тем же циклом
 # (tasks/issue-tls-cert.yml), что уже используется для gitea-tls/semaphore-tls.
-#
-# Аннотация Middleware "platform-radar-basic-auth" — имя K8s-объекта (Middleware+Secret),
-# не завязано на прикладной домен, поэтому совпадает буквально с первым стендом.
 ingress:
   enabled: true
   className: traefik
   annotations:
-    traefik.ingress.kubernetes.io/router.middlewares: platform-radar-basic-auth@kubernetescrd
+    traefik.ingress.kubernetes.io/router.middlewares: platform-authelia-forward-auth@kubernetescrd
   hosts:
     - host: radar.aicd.devops-labs.ru
       paths:

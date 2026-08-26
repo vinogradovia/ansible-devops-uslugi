@@ -1,0 +1,144 @@
+# Authelia — единая авторизация, тот же приём, что helm/values/platform/namespaces/platform/authelia/
+# values.yaml (platform/aicd), домен aicd.devops-labs.ru вместо aicd.platform. Полный разбор
+# решений/находок реального прогона — docs/adr/0013-unified-auth-architecture.md §7 (комментарии
+# здесь сокращены до различий, полный текст — в файле-эталоне первого окружения).
+#
+# ВНИМАНИЕ: этот файл целиком — gomplate-шаблон (см. helm/helmwave.yml.tpl) — не используйте
+# парные квадратные скобки нигде в этом файле, даже в комментариях.
+
+[[ defineDatasource "vault" "vault:///secret/data/authelia" ]]
+
+pvcs:
+  data:
+    accessModes:
+      - ReadWriteOnce
+    size: 1Gi
+    storageClassName: local-path
+
+configMaps:
+  config:
+    data:
+      configuration.yml: |
+        theme: light
+        default_2fa_method: totp
+
+        server:
+          address: 'tcp://:9091'
+
+        log:
+          level: info
+
+        totp:
+          issuer: aicd.devops-labs.ru
+
+        authentication_backend:
+          password_reset:
+            disable: true
+          ldap:
+            implementation: 'freeipa'
+            address: 'ldap://ipa.aicd.devops-labs.ru:389'
+            base_dn: 'DC=aicd,DC=devops-labs,DC=ru'
+            user: 'UID=svc-authelia,CN=users,CN=accounts,DC=aicd,DC=devops-labs,DC=ru'
+            password: '[[ (ds "vault").data.ldap_bind_password ]]'
+
+        access_control:
+          default_policy: deny
+          rules:
+            - domain: 'sso.aicd.devops-labs.ru'
+              policy: bypass
+            - domain: 'infra-panel.aicd.devops-labs.ru'
+              policy: one_factor
+            - domain: 'radar.aicd.devops-labs.ru'
+              policy: one_factor
+
+        session:
+          secret: '[[ (ds "vault").data.session_secret ]]'
+          cookies:
+            - domain: 'aicd.devops-labs.ru'
+              authelia_url: 'https://sso.aicd.devops-labs.ru'
+              default_redirection_url: 'https://infra-panel.aicd.devops-labs.ru'
+
+        storage:
+          encryption_key: '[[ (ds "vault").data.storage_encryption_key ]]'
+          local:
+            path: /data/db.sqlite3
+
+        notifier:
+          disable_startup_check: true
+          filesystem:
+            filename: /data/notification.txt
+
+        identity_validation:
+          reset_password:
+            jwt_secret: '[[ (ds "vault").data.jwt_secret ]]'
+
+        identity_providers:
+          oidc:
+            hmac_secret: '[[ (ds "vault").data.oidc_hmac_secret ]]'
+            jwks:
+              - key_id: 'main'
+                algorithm: 'RS256'
+                use: 'sig'
+                key: "[[ (ds "vault").data.oidc_issuer_private_key | strings.ReplaceAll "\n" "\\n" ]]"
+            clients:
+              - client_id: 'semaphore'
+                client_name: 'Semaphore'
+                client_secret: '[[ (ds "vault").data.semaphore_client_secret_hash ]]'
+                public: false
+                authorization_policy: 'one_factor'
+                require_pkce: false
+                redirect_uris:
+                  - 'https://semaphore.aicd.devops-labs.ru/api/auth/oidc/authelia/redirect'
+                scopes: ['openid', 'profile', 'email']
+                response_types: ['code']
+                grant_types: ['authorization_code']
+              - client_id: 'gitea'
+                client_name: 'Gitea'
+                client_secret: '[[ (ds "vault").data.gitea_client_secret_hash ]]'
+                public: false
+                authorization_policy: 'one_factor'
+                require_pkce: false
+                redirect_uris:
+                  - 'https://gitea.aicd.devops-labs.ru/user/oauth2/authelia/callback'
+                scopes: ['openid', 'profile', 'email']
+                response_types: ['code']
+                grant_types: ['authorization_code']
+
+deployments:
+  authelia:
+    containers:
+      - name: authelia
+        image: authelia/authelia
+        imageTag: "4.39.20"
+        ports:
+          - name: http
+            containerPort: 9091
+        volumeMounts:
+          - name: data
+            mountPath: /data
+          - name: config
+            mountPath: /config/configuration.yml
+            subPath: configuration.yml
+    volumes:
+      - name: data
+        type: pvc
+      - name: config
+        type: configMap
+
+services:
+  authelia:
+    ports:
+      - name: http
+        port: 9091
+
+ingressroutes:
+  authelia:
+    entryPoints:
+      - websecure
+    routes:
+      "Host(`sso.aicd.devops-labs.ru`)":
+        services:
+          authelia-authelia:
+            port: 9091
+    tls:
+      secretName: authelia-tls
