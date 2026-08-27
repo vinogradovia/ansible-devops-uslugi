@@ -19,6 +19,14 @@
 # "secret/gitea") — обязательный префикс "data/" для KV v2 engine, тот же путь на низком уровне
 # API, что platform/aicd/ansible/site.yml использует в /v1/secret/data/gitea.
 [[ defineDatasource "vault" "vault:///secret/data/gitea" ]]
+# Найдено реальным прогоном (клик-тест логина, platform/aicd-devops-labs-ru): gitea_client_secret
+# живёт в secret/authelia (ADR-0013 §3), а не в secret/gitea — "vault" датасорс выше указывает на
+# secret/gitea, поэтому `(ds "vault").data.gitea_client_secret` резолвился в отсутствующее поле
+# и молча рендерился как литеральная строка Go-шаблонов "<no value>" (10 символов) вместо
+# реального секрета — Gitea отправляла эту строку как OAuth2 client secret, Authelia не находила
+# соответствия. Отдельный именованный датасорс — единственный способ прочитать поле из ДРУГОГО
+# пути в рамках одного gomplate-рендера.
+[[ defineDatasource "vault_authelia" "vault:///secret/data/authelia" ]]
 gitea:
   admin:
     username: gitea_admin
@@ -49,8 +57,15 @@ gitea:
     - name: authelia
       provider: openidConnect
       key: gitea
-      secret: '[[ (ds "vault").data.gitea_client_secret ]]'
+      secret: '[[ (ds "vault_authelia").data.gitea_client_secret ]]'
       autoDiscoverUrl: https://sso.aicd.platform/.well-known/openid-configuration
+      # Найдено реальным прогоном (platform/aicd-devops-labs-ru): без явного scopes Gitea
+      # запрашивает у Authelia только 'openid' (подтверждено экраном согласия — одна строка
+      # "OpenID для подтверждения личности" вместо трёх, как у Semaphore) — Auto Registration
+      # падает ("returned missing fields: email,nickname"), т.к. Authelia не выдаёт claim'ы, на
+      # которые у клиента нет разрешённого scope. 'nickname' — custom scope Authelia (см.
+      # authelia/values.yaml, claims_policies.gitea_claims), не стандартный OIDC scope.
+      scopes: "profile email nickname"
 
 # strategy.type: Recreate — найдено реальным прогоном (первый helm upgrade Gitea после Фазы 0,
 # смена admin.password/ingress.tls): дефолтный RollingUpdate чарта создаёт новый под ДО остановки

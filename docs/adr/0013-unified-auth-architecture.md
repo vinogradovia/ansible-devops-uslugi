@@ -284,34 +284,72 @@ Gitea/Semaphore, `authelia` в `platform_aicd_devops_labs_ru_core_releases`.
 `aicd-labs: changed=3`, все три — заведомо always-changed задачи: подстановка IP в kubeconfig и
 два `Helmwave up`).
 
-### 9. Реальный клик-тест логина выявил 2 бага, не покрытых прежней проверкой (2026-08-26)
+### 9. Реальный клик-тест логина (не только проверка кнопки) выявил 5 багов OIDC (2026-08-26)
 
 Прежняя «Проверено реальным прогоном» (§7/§8) подтверждала только *наличие* кнопки OIDC-входа
-(`/api/auth/login` отдаёт список провайдеров), но не проход полного цикла логина. Реальный клик
-пользователем на обоих окружениях вскрыл 2 независимых бага, оба присутствовали с самого §7:
+(`/api/auth/login` отдаёт список провайдеров, консент-экран открывается), но не полный цикл до
+рабочей сессии в самом приложении. Пользователь запросил проверку через реальный клик в браузере
+(Chrome DevTools MCP) — вскрылось 5 независимых багов, часть из них маскировала следующую (баг
+исправлялся, логин продвигался на шаг дальше и упирался в следующий). Все присутствовали в обоих
+окружениях с самого §7 — ADR был помечен «реализовано» преждевременно, до факта наличия
+работающего логина.
 
-1. **Semaphore: `invalid_client` при обмене authorization code на токен.** Authelia без явного
+1. **Неверный gomplate-datasource — оба потребителя отправляли строку `"<no value>"` вместо
+   OAuth2 client secret.** `defineDatasource "vault"` в `gitea/values.yaml`/`semaphore/values.yaml`
+   указывает на `secret/data/gitea`/`secret/data/semaphore` (для СВОИХ секретов — admin-пароль,
+   cookie-ключи), но `gitea_client_secret`/`semaphore_client_secret` живут в `secret/authelia`
+   (ADR §3). `(ds "vault").data.gitea_client_secret` резолвился в отсутствующее поле и Go-шаблоны
+   молча подставляли литеральную строку `"<no value>"` (ровно 10 символов) — оба сервиса
+   отправляли эту строку как client_secret, Authelia закономерно не находила соответствия.
+   Найдено сравнением длины поля в живом поде (10 вместо ожидаемых 48) и прямым сравнением с
+   реальным секретом из OpenBao. Исправлено вторым именованным датасорсом
+   `defineDatasource "vault_authelia" "vault:///secret/data/authelia"` в обоих файлах —
+   единственный способ прочитать поле из другого KV-пути в рамках одного gomplate-рендера.
+2. **Semaphore: `invalid_client` при обмене authorization code на токен.** Authelia без явного
    `token_endpoint_auth_method` регистрирует OIDC-клиент с дефолтным `client_secret_basic`
    (HTTP Basic Auth), а Semaphore (v2.19.8) на этот эндпоинт отправляет credentials методом
    `client_secret_post` (в теле запроса) — Authelia отвечает `invalid_client`
-   (`"token_endpoint_auth_method ... does not allow this method"`), пользователь после успешной
-   аутентификации в Authelia попадает на `404` вместо возврата в Semaphore. Исправлено явным
-   `token_endpoint_auth_method: 'client_secret_post'` на клиенте `semaphore` в конфиге Authelia.
-2. **Gitea: OIDC-вход молча проваливается для любой личности без существующего локального
-   аккаунта.** Дефолт Gitea `ENABLE_AUTO_REGISTRATION: false` — сервер отклоняет создание нового
-   аккаунта из ещё не встречавшейся OIDC-личности без единой строки в логах (просто редиректит
-   обратно на `/user/login`), выглядит как "не работает" без всякой диагностики со стороны
-   администратора. Поскольку каталог `freeipa` не заводит пользователей заранее (ADR-0011), без
-   этого флага OIDC-вход неюзабелен вообще ни для одного реального пользователя каталога.
-   Исправлено `[oauth2_client] ENABLE_AUTO_REGISTRATION: true` в конфиге Gitea.
+   (`"token_endpoint_auth_method ... does not allow this method"`). Исправлено явным
+   `token_endpoint_auth_method: 'client_secret_post'` на клиенте `semaphore`.
+3. **`email`/`email_verified` по спецификации OIDC доступны только через `/userinfo`, не
+   встраиваются в сам ID Token.** И Semaphore, и Gitea читают `email` именно из ID Token, не
+   делают отдельный запрос к userinfo — падали с `"claim 'email' missing or has bad format"`,
+   несмотря на то что LDAP-атрибут `mail` реально существует и виден bind-аккаунту svc-authelia
+   (проверено `ldapsearch` под его же bind — anonymous bind атрибут не показывает вовсе, это
+   отдельная защита FreeIPA, не связанная с багом). Исправлено `claims_policies` (официальный
+   механизм Authelia) — принудительное копирование `email`/`email_verified` в ID Token.
+4. **Gitea дополнительно требует claim `nickname`, которого Authelia не производит вовсе.**
+   `"Auto Registration ... returned missing fields: email,nickname"`. `nickname` не входит в
+   стандартный набор claim'ов Authelia — заведён через `custom_claims` как алиас на атрибут
+   `username` (НЕ `preferred_username` — это имя claim'а, а не атрибута; Authelia явно
+   валидирует и отказывается стартовать с `"claim ... has an attribute name ... which is not a
+   known attribute"` при попытке использовать имя claim'а вместо имени атрибута).
+5. **Gitea по умолчанию запрашивает у Authelia только scope `openid`**, не `profile`/`email`
+   (подтверждено экраном согласия — одна строка вместо трёх/четырёх, как у Semaphore) — Authelia
+   не выдаёт claim'ы, на которые у клиента нет РАЗРЕШЁННОГО и ЗАПРОШЕННОГО scope, независимо от
+   `claims_policies` (claims_policies лишь решает, КУДА положить УЖЕ разрешённый claim, а не
+   выдаёт на него право). Значение чарта Gitea `oauth[].scopes` — universal generic passthrough
+   (`gitea.oauth_settings` в `_helpers.tpl` чарта: каждый ключ мапы становится `--<kebab-case>
+   <value>` флагом CLI `gitea admin auth add-oauth`/`update-oauth`, задокументированный
+   `--scopes "Additional scopes to request"`) — установлено `scopes: "profile email nickname"`.
+   `nickname` — custom scope Authelia, тоже должен быть явно объявлен и разрешён клиенту.
 
-**Побочная находка при применении фикса:** оба ConfigMap (`config.yml` homer/`infra-panel`,
+**Сквозная методологическая находка:** ConfigMap-based конфиги (`config.yml` homer/`infra-panel`,
 `configuration.yml` Authelia) монтируются в под с `subPath` — Kubernetes принципиально не
-обновляет `subPath`-смонтированные файлы при изменении ConfigMap (известное ограничение, не баг
-конкретной этой реализации), под должен быть перезапущен вручную (`kubectl rollout restart`)
-после каждого такого изменения, даже когда `helm upgrade`/`Helmwave up` успешно обновил сам
-ConfigMap. Учитывать при любых будущих правках `configMaps`-секций `authelia`/`infra-panel`
-values.yaml.
+обновляет `subPath`-смонтированные файлы при изменении ConfigMap, **и это не чинится
+автоматическими рестартами контейнера** (например, в `CrashLoopBackOff`) — под должен быть
+именно **пересоздан** (`kubectl rollout restart` создаёт новый Pod, не просто новый контейнер в
+старом). Несколько раз за эту сессию правка казалась "не подействовавшей" именно по этой причине
+(живой под продолжал работать на конфиге из момента своего СОЗДАНИЯ, а не последнего изменения
+ConfigMap) — при любой будущей правке `configMaps`-секций `authelia`/`infra-panel` values.yaml
+это нужно держать в голове по умолчанию, не как редкое исключение.
+
+**Проверено реальным клик-тестом до конца (Chrome DevTools MCP, оба окружения):** тестовый
+пользователь каталога (`ipa user-add`, `admin` не годится — учётке спецаккаунта FreeIPA
+запрещён атрибут `mail`, `"attribute 'mail' not allowed"`) успешно проходит полный цикл
+Authelia → consent → возврат в приложение → рабочая сессия — и для Semaphore (`New Project`
+после логина), и для Gitea (аккаунт auto-registered, `nickname` = LDAP username, попадает на
+`Панель управления`).
 
 ## Не проработано (следующие шаги)
 

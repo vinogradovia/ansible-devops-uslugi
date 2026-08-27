@@ -123,6 +123,36 @@ configMaps:
                 algorithm: 'RS256'
                 use: 'sig'
                 key: "[[ (ds "vault").data.oidc_issuer_private_key | strings.ReplaceAll "\n" "\\n" ]]"
+            # Найдено реальным прогоном (клик-тест логина, platform/aicd-devops-labs-ru): по
+            # спецификации OIDC claims scope 'email' (email/email_verified) по умолчанию доступны
+            # только через /userinfo, НЕ встраиваются в сам ID Token — и Semaphore (v2.19.8), и
+            # Gitea читают claim 'email' именно из ID Token, не делают отдельный запрос к
+            # userinfo, поэтому получали ошибку "claim 'email' missing or has bad format" несмотря
+            # на то, что LDAP-атрибут mail реально существует и виден bind-аккаунту svc-authelia
+            # (проверено ldapsearch). claims_policies — официальный механизм Authelia
+            # (authelia.com/configuration/identity-providers/openid-connect/claims/) принудительно
+            # скопировать claim'ы в ID Token сверх стандартного поведения.
+            claims_policies:
+              email_in_id_token:
+                id_token: ['email', 'email_verified']
+              # Найдено реальным прогоном (platform/aicd-devops-labs-ru): Gitea
+              # (goth/openidConnect) требует ОБА claim'а email и nickname в ID Token, иначе
+              # "Auto Registration ... returned missing fields: email,nickname". "nickname" не
+              # входит в стандартный набор claim'ов, который отдаёт Authelia (в отличие от
+              # email/profile) — заводится через custom_claims как алиас на
+              # "preferred_username" (стандартный claim scope 'profile', который Authelia УЖЕ
+              # производит из LDAP-атрибута uid). custom-claim должен быть явно перечислен в
+              # scopes ниже, иначе Authelia не разрешит его запросить (claims_policy сам по себе
+              # не выдаёт права на claim, только переносит УЖЕ разрешённые scope'ом claim'ы в
+              # ID Token).
+              gitea_claims:
+                custom_claims:
+                  nickname:
+                    attribute: 'username'
+                id_token: ['email', 'email_verified', 'nickname']
+            scopes:
+              nickname:
+                claims: ['nickname']
             clients:
               - client_id: 'semaphore'
                 client_name: 'Semaphore'
@@ -137,6 +167,7 @@ configMaps:
                 # ("token_endpoint_auth_method... does not allow this method"). Логин зависал на
                 # редиректе после успешной аутентификации в Authelia — тот же баг здесь.
                 token_endpoint_auth_method: 'client_secret_post'
+                claims_policy: 'email_in_id_token'
                 redirect_uris:
                   - 'https://semaphore.aicd.platform/api/auth/oidc/authelia/redirect'
                 scopes: ['openid', 'profile', 'email']
@@ -148,9 +179,10 @@ configMaps:
                 public: false
                 authorization_policy: 'one_factor'
                 require_pkce: false
+                claims_policy: 'gitea_claims'
                 redirect_uris:
                   - 'https://gitea.aicd.platform/user/oauth2/authelia/callback'
-                scopes: ['openid', 'profile', 'email']
+                scopes: ['openid', 'profile', 'email', 'nickname']
                 response_types: ['code']
                 grant_types: ['authorization_code']
 

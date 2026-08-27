@@ -15,6 +15,14 @@
 # KV v2 engine, тот же путь на низком уровне API, что
 # platform/aicd-devops-labs-ru/ansible/site.yml использует в /v1/secret/data/semaphore.
 [[ defineDatasource "vault" "vault:///secret/data/semaphore" ]]
+# Найдено реальным прогоном (клик-тест логина): semaphore_client_secret живёт в secret/authelia
+# (ADR-0013 §3), а не в secret/semaphore — "vault" датасорс выше указывает на secret/semaphore,
+# поэтому `(ds "vault").data.semaphore_client_secret` резолвился в отсутствующее поле и молча
+# рендерился как литеральная строка Go-шаблонов "<no value>" (10 символов) вместо реального
+# секрета — Semaphore отправлял эту строку как OAuth2 client secret, Authelia отвечала
+# invalid_client ("provided client secret did not match"). Отдельный именованный датасорс —
+# единственный способ прочитать поле из ДРУГОГО пути в рамках одного gomplate-рендера.
+[[ defineDatasource "vault_authelia" "vault:///secret/data/authelia" ]]
 
 pvcs:
   data:
@@ -55,7 +63,7 @@ deployments:
           # этого окружения).
           - name: SEMAPHORE_OIDC_PROVIDERS
             value: >-
-              {"authelia":{"display_name":"Authelia","provider_url":"https://sso.aicd.devops-labs.ru","client_id":"semaphore","client_secret":"[[ (ds "vault").data.semaphore_client_secret ]]","redirect_url":"https://semaphore.aicd.devops-labs.ru/api/auth/oidc/authelia/redirect","scopes":["openid","profile","email"],"username_claim":"preferred_username","email_claim":"email","name_claim":"name"}}
+              {"authelia":{"display_name":"Authelia","provider_url":"https://sso.aicd.devops-labs.ru","client_id":"semaphore","client_secret":"[[ (ds "vault_authelia").data.semaphore_client_secret ]]","redirect_url":"https://semaphore.aicd.devops-labs.ru/api/auth/oidc/authelia/redirect","scopes":["openid","profile","email"],"username_claim":"preferred_username","email_claim":"email","name_claim":"name"}}
           # Доверие к внутреннему PKI CA OpenBao — без этого обмен OIDC-токеном с Authelia падает
           # на "certificate signed by unknown authority" (ADR-0013 §7).
           - name: SSL_CERT_FILE
