@@ -33,9 +33,9 @@ variable "vcpu" {
 }
 
 variable "memory" {
-  description = "RAM, MiB — поднята с 6000 до 8192 (мониторинг, docs/adr/0017-platform-cicd-default-addons.md): на 6000 нода уже была на 43% реального потребления памяти без единого мониторингового пода (metrics-server, замер 2026-08-28)"
+  description = "RAM, MiB — 6000 (изначально) -> 8192 (ADR-0017 §4, мониторинг) -> 12288 (ADR-0018, второй раунд: Nexus OSS официально требует 4GB RAM минимум, JVM) — оба раунда по одной причине, нода уже была на 43% реального потребления памяти (metrics-server) без нового компонента"
   type        = number
-  default     = 8192
+  default     = 12288
 }
 
 variable "disk_gb" {
