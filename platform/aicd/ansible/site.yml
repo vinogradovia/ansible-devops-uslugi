@@ -693,6 +693,48 @@
                 admin_password: "{{ lookup('ansible.builtin.password', '/dev/null', length=24) }}"
             status_code: [200, 204]
 
+        # docs/adr/0017-platform-cicd-default-addons.md — третий аддон (мониторинг): admin-пароль
+        # Grafana, тот же идемпотентный приём, что secret/radar/secret/infra-panel выше. В отличие
+        # от них — потребляется не basic-auth htpasswd, а напрямую k8s Secret
+        # grafana-admin-credentials-custom (ниже по playbook, GF_SECURITY_ADMIN_PASSWORD).
+        - name: "OpenBao: проверить наличие secret/grafana"
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_openbao_addr }}/v1/secret/data/grafana"
+            ca_path: "{{ platform_aicd_openbao_ca_path }}"
+            method: GET
+            headers:
+              X-Vault-Token: "{{ platform_aicd_openbao_root_token }}"
+            status_code: [200, 404]
+          register: platform_aicd_openbao_secret_grafana
+          no_log: true
+
+        - name: "OpenBao: сгенерировать и записать secret/grafana (только при первом прогоне)"
+          when: platform_aicd_openbao_secret_grafana.status == 404
+          no_log: true
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_openbao_addr }}/v1/secret/data/grafana"
+            ca_path: "{{ platform_aicd_openbao_ca_path }}"
+            method: POST
+            headers:
+              X-Vault-Token: "{{ platform_aicd_openbao_root_token }}"
+            body_format: json
+            body:
+              data:
+                admin_user: admin
+                admin_password: "{{ lookup('ansible.builtin.password', '/dev/null', length=24) }}"
+            status_code: [200, 204]
+
+        - name: "OpenBao: прочитать secret/grafana (значение нужно ниже по playbook)"
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_openbao_addr }}/v1/secret/data/grafana"
+            ca_path: "{{ platform_aicd_openbao_ca_path }}"
+            method: GET
+            headers:
+              X-Vault-Token: "{{ platform_aicd_openbao_root_token }}"
+            status_code: [200]
+          register: platform_aicd_openbao_secret_grafana_read
+          no_log: true
+
         # ADR-0013 §1 — пароли Directory Manager/admin для persistent freeipa (единый каталог
         # для Authelia), тот же идемпотентный приём, что secret/gitea/secret/radar выше.
         - name: "OpenBao: проверить наличие secret/freeipa"
@@ -786,6 +828,32 @@
                 ldap_bind_password: "{{ lookup('ansible.builtin.password', '/dev/null', length=32) }}"
                 gitea_client_secret: "{{ lookup('ansible.builtin.password', '/dev/null', length=48) }}"
                 semaphore_client_secret: "{{ lookup('ansible.builtin.password', '/dev/null', length=48) }}"
+                grafana_client_secret: "{{ lookup('ansible.builtin.password', '/dev/null', length=48) }}"
+            status_code: [200, 204]
+
+        # Ретрофит для уже забутстрапленного secret/authelia (наш реальный случай — окружение
+        # работает не первую неделю) — блок выше срабатывает только при status==404 (secret ещё
+        # не существует вовсе) и никогда не перезапустится на уже существующем secret/authelia,
+        # даже если в нём не хватает одного нового поля. Отдельная идемпотентная проверка
+        # "поле отсутствует" — тот же принцип, что уже применяется ниже для *_client_secret_hash.
+        - name: "OpenBao: добавить grafana_client_secret в существующий secret/authelia (docs/adr/0017)"
+          when: >-
+            platform_aicd_openbao_secret_authelia.status == 200
+            and 'grafana_client_secret' not in platform_aicd_openbao_secret_authelia.json.data.data
+          no_log: true
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_openbao_addr }}/v1/secret/data/authelia"
+            ca_path: "{{ platform_aicd_openbao_ca_path }}"
+            method: POST
+            headers:
+              X-Vault-Token: "{{ platform_aicd_openbao_root_token }}"
+            body_format: json
+            body:
+              data: >-
+                {{
+                  platform_aicd_openbao_secret_authelia.json.data.data
+                  | combine({'grafana_client_secret': lookup('ansible.builtin.password', '/dev/null', length=48)})
+                }}
             status_code: [200, 204]
 
         - name: "OpenBao: прочитать secret/authelia (значения нужны ниже по playbook)"
@@ -861,13 +929,58 @@
                 }}
             status_code: [200, 204]
 
+        # Ретрофит для Grafana (docs/adr/0017) — своя пара задач, а не третий loop-элемент выше:
+        # задача выше гейтится на отсутствие gitea_client_secret_hash, которое на уже
+        # забутстрапленном secret/authelia (наш случай) никогда больше не станет true — общий
+        # `when` не перезапустился бы для добавления только недостающего поля grafana.
+        - name: "Authelia: посчитать pbkdf2-хэш client_secret для Grafana (только пока его нет)"
+          when: "'grafana_client_secret_hash' not in platform_aicd_openbao_secret_authelia_read.json.data.data"
+          no_log: true
+          ansible.builtin.command:
+            argv:
+              - docker
+              - run
+              - --rm
+              - "authelia/authelia:4.39.20"
+              - authelia
+              - crypto
+              - hash
+              - generate
+              - pbkdf2
+              - --variant
+              - sha512
+              - --password
+              - "{{ platform_aicd_openbao_secret_authelia_read.json.data.data.grafana_client_secret }}"
+          register: platform_aicd_authelia_grafana_client_secret_hash_raw
+          changed_when: false
+
+        - name: "Authelia: сохранить посчитанный хэш Grafana в secret/authelia (только пока его нет)"
+          when: "'grafana_client_secret_hash' not in platform_aicd_openbao_secret_authelia_read.json.data.data"
+          no_log: true
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_openbao_addr }}/v1/secret/data/authelia"
+            ca_path: "{{ platform_aicd_openbao_ca_path }}"
+            method: POST
+            headers:
+              X-Vault-Token: "{{ platform_aicd_openbao_root_token }}"
+            body_format: json
+            body:
+              data: >-
+                {{
+                  platform_aicd_openbao_secret_authelia_read.json.data.data
+                  | combine({
+                      'grafana_client_secret_hash': platform_aicd_authelia_grafana_client_secret_hash_raw.stdout | regex_search('(?<=Digest: ).+'),
+                  })
+                }}
+            status_code: [200, 204]
+
         # TLS-сертификаты — перевыпускаются автоматически при приближении к сроку истечения
         # (docs/adr/0016-openbao-secrets-pki.md §4, аннотация renew-after-epoch в
         # tasks/issue-tls-cert.yml), TTL 2160h (90 дней), renew за 30 дней до истечения.
         # openbao.aicd.platform/openbao-ingress-tls — docs/adr/0017-platform-cicd-default-addons.md
         # §3, внешний Ingress-сертификат OpenBao (отдельный от внутреннего bootstrap-сертификата
         # openbao-server-tls самого listener'а).
-        - name: "OpenBao: выпустить/перевыпустить TLS-сертификаты (gitea, semaphore, radar, infra-panel, openbao, authelia)"
+        - name: "OpenBao: выпустить/перевыпустить TLS-сертификаты (gitea, semaphore, radar, infra-panel, openbao, authelia, grafana)"
           no_log: true
           ansible.builtin.include_tasks: tasks/issue-tls-cert.yml
           loop:
@@ -877,6 +990,7 @@
             - {host: infra-panel.aicd.platform, secret: infra-panel-tls}
             - {host: openbao.aicd.platform, secret: openbao-ingress-tls}
             - {host: sso.aicd.platform, secret: authelia-tls}
+            - {host: grafana.aicd.platform, secret: grafana-tls}
           loop_control:
             label: "{{ item.host }}"
 
@@ -1128,6 +1242,78 @@
           type: Opaque
           stringData:
             ca.pem: "{{ platform_aicd_pki_ca_pem.content }}"
+
+    # docs/adr/0017-platform-cicd-default-addons.md — третий аддон (мониторинг). Namespace monitoring
+    # заводится явно (а не полагаемся на create_namespace: true у helmwave, как для остальных
+    # релизов) — Secret'ы ниже должны существовать в этом namespace ДО того, как Helmwave up
+    # запланирует туда под Grafana, тот же порядок, что раньше был у roles/monitoring_server
+    # (namespace → Secret grafana-admin-credentials-custom → Helmwave up).
+    - name: "Namespace monitoring"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        KUBECONFIG: "{{ platform_aicd_kubeconfig.dest }}"
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+      kubernetes.core.k8s:
+        kubeconfig: "{{ platform_aicd_kubeconfig.dest }}"
+        name: monitoring
+        api_version: v1
+        kind: Namespace
+        state: present
+
+    # Secret'ы — namespace-scoped: aicd-platform-ca выше существует только в namespace "platform",
+    # Grafana (namespace "monitoring") нуждается в собственной копии для доверия к
+    # https://sso.aicd.platform при обмене OIDC-токеном (тот же CA, тот же приём, что у
+    # Gitea/Semaphore).
+    - name: "Secret aicd-platform-ca в namespace monitoring (для OIDC-обмена Grafana с Authelia)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        KUBECONFIG: "{{ platform_aicd_kubeconfig.dest }}"
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+      kubernetes.core.k8s:
+        kubeconfig: "{{ platform_aicd_kubeconfig.dest }}"
+        state: present
+        kind: Secret
+        name: aicd-platform-ca
+        namespace: monitoring
+        definition:
+          apiVersion: v1
+          metadata:
+            labels:
+              app.kubernetes.io/managed-by: ansible
+          type: Opaque
+          stringData:
+            ca.pem: "{{ platform_aicd_pki_ca_pem.content }}"
+
+    - name: "Secret grafana-admin-credentials-custom (пароль из secret/grafana в OpenBao)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      no_log: true
+      environment:
+        KUBECONFIG: "{{ platform_aicd_kubeconfig.dest }}"
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+      kubernetes.core.k8s:
+        kubeconfig: "{{ platform_aicd_kubeconfig.dest }}"
+        state: present
+        kind: Secret
+        name: grafana-admin-credentials-custom
+        namespace: monitoring
+        definition:
+          apiVersion: v1
+          metadata:
+            labels:
+              app.kubernetes.io/managed-by: ansible
+          type: Opaque
+          stringData:
+            GF_SECURITY_ADMIN_USER: "{{ platform_aicd_openbao_secret_grafana_read.json.data.data.admin_user }}"
+            GF_SECURITY_ADMIN_PASSWORD: "{{ platform_aicd_openbao_secret_grafana_read.json.data.data.admin_password }}"
 
     # docs/adr/0017-platform-cicd-default-addons.md — --tags ограничивает второй helmwave up
     # обязательными релизами (platform_aicd_core_releases) плюс включённым набором аддонов

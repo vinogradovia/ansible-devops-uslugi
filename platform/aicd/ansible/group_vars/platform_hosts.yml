@@ -20,9 +20,13 @@ platform_aicd_core_releases:
   - flux2
 
 # Стандартный набор дополнительных инструментов, ставится по умолчанию.
+# vm/grafana-operator — третий аддон (мониторинг, урезанная версия референсного k3s-пути
+# roles/monitoring_server, см. docs/adr/0017-platform-cicd-default-addons.md).
 platform_aicd_default_addons:
   - radar
   - infra-panel
+  - vm
+  - grafana-operator
 
 # Оверрайды: добавить аддон сверх дефолтного набора / исключить аддон из дефолтного набора.
 platform_aicd_extra_addons: []
