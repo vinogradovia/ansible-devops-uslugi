@@ -129,10 +129,26 @@ Bootstrap (idempotent, тот же приём, что OpenBao/Gitea в этом 
    если нужного имени нет → `POST /service/rest/v1/repositories/<format>/proxy`): `docker-hub-proxy`
    (`remoteUrl: https://registry-1.docker.io`), `k3s-releases-proxy` (формат `raw`, `remoteUrl:
    https://github.com/`), `nvidia-toolkit-apt-proxy`/`gvisor-apt-proxy` (формат `apt`, реальные
-   репозитории `roles/k3s_gpu_node`). **Не проверено эмпирически** — известны истории проблем
-   Nexus `apt`-proxy именно с HTTPS-бэкендами; если не заведётся корректно для этих двух — не
-   блокирует остальное (docker/raw), откат на прямой доступ для этих двух конкретных репозиториев.
+   репозитории `roles/k3s_gpu_node`).
 4. LDAP-realm — см. §5.
+
+**Обновление по итогам живого прогона `platform/aicd-devops-labs-ru` (2026-08-28), реальные
+находки (не гипотетические):** REST-схема Nexus 3.95.3 отличается от community-рекомендаций,
+на которые изначально опирался этот раздел — `POST .../repositories/docker/proxy` требует
+дополнительный обязательный блок `dockerProxy.indexType` (иначе 400), `PUT
+.../security/realms/active` не принимает `NexusAuthorizingRealm` (такого realm в этой версии не
+существует — актуальный список только `NexusAuthenticatingRealm`/`LdapRealm`/токен-реалмы форматов,
+проверено через `GET /service/rest/v1/security/realms/available`), а без `force_basic_auth: true`
+у `ansible.builtin.uri` POST/PUT-запросы с телом падали 401 (GET-проверки "проходили" 200 случайно,
+за счёт анонимного чтения `/repositories`, а не за счёт реальной проверки пароля). Все три
+исправлены в коде. Отдельно подтверждено эмпирически: анонимный доступ к `apt`-proxy репозиториям
+(`nvidia-toolkit-apt-proxy`/`gvisor-apt-proxy`) действительно не работает (401 Unauthorized) — в
+отличие от `docker`/`raw`-форматов, которые анонимный pull проксируют корректно. Откат на прямой
+источник для этих двух репозиториев (заранее заложенный этим пунктом) реализован через
+`block`/`rescue` в `roles/k3s_gpu_node/tasks/{nvidia,gvisor}.yml` и подтверждён живым прогоном —
+GPU-нода `llm1` собирается полностью, просто без выгоды от кеша для этих двух apt-репозиториев.
+Причина 401 именно для `apt`-формата (в отличие от `docker`/`raw`) не расследовалась дальше —
+не блокирует остальное, как и предполагалось изначально.
 
 Клиентская сторона:
 
