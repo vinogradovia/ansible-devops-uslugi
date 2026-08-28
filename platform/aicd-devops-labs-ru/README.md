@@ -24,6 +24,10 @@ libvirt, под доменом `aicd.devops-labs.ru` вместо `aicd.platform
   10.10.10.249 radar.aicd.devops-labs.ru
   10.10.10.249 infra-panel.aicd.devops-labs.ru
   10.10.10.249 openbao.aicd.devops-labs.ru
+  10.10.10.249 sso.aicd.devops-labs.ru
+  10.10.10.249 grafana.aicd.devops-labs.ru
+  10.10.10.249 nexus.aicd.devops-labs.ru
+  10.10.10.249 nexus-cache.aicd.devops-labs.ru
   ```
 - **Var-префикс ansible:** `platform_aicd_devops_labs_ru_*` (по имени каталога, та же
   конвенция, что `platform_aicd_*` у первого стенда).
@@ -231,3 +235,19 @@ hostname гостя) вместо `aicd-labs`, под которым она бы
 push образа dcgm-exporter и `ansible-playbook site.yml` на этом стенде требуют сетевого доступа
 (порты 443/30820), недоступного из окружения, где велась разработка; см. ADR-0017 §4. Код
 провалидирован `ansible-lint --profile production` + `--syntax-check`.
+
+## Кеширующий прокси (docs/adr/0018-internal-caching-proxy.md)
+
+Тот же приём, что `platform/aicd` (Nexus Repository OSS, `https://nexus.aicd.devops-labs.ru` UI
+через LDAP-логин, `https://nexus-cache.aicd.devops-labs.ru` — анонимные proxy-эндпоинты). RAM
+`aicd-labs` поднята второй раз (8192→12288 MiB).
+
+**Дополнительно только здесь — apt-кеш на llm1.** `k3s_gpu_node_apt_cache_url` перенаправляет
+apt-источники `nvidia-container-toolkit`/gVisor через `nexus-cache.aicd.devops-labs.ru` ещё ДО
+join `llm1` в кластер (та же `/etc/hosts`-запись на control-plane IP, что уже используется для
+`gitea.aicd.devops-labs.ru`). `registries.yaml` (Docker/OCI-зеркало) пишется на `llm1` до первого
+старта `k3s-agent` — рестарт не нужен.
+
+**Не проверено реальным прогоном** — та же сетевая оговорка, что выше. Код провалидирован
+`ansible-lint --profile production` + `--syntax-check`. Операторам — добавить в свой `/etc/hosts`
+(см. полный список выше, добавлены `nexus`/`nexus-cache`).

@@ -306,3 +306,25 @@ ClusterIP-сервиса, см. ADR-0013 §7 для деталей и остал
 на этой сети упирается в блокировку `release-assets.githubusercontent.com` (`xanmanning.k3s`
 безусловно перепроверяет checksum k3s на каждом прогоне), см. ADR-0017 §4. Код провалидирован
 `ansible-lint --profile production` + `--syntax-check`, живой прогон — предстоит оператору.
+
+## Кеширующий прокси (docs/adr/0018-internal-caching-proxy.md)
+
+Nexus Repository OSS — один сервис на Docker/OCI-образы (docker.io), k3s-бинарь+checksum (GitHub
+Releases) и apt-пакеты (`nvidia-container-toolkit`/gVisor — актуально только для GPU-хостов
+второго окружения). Два хоста: `https://nexus.aicd.platform` (человеческий UI, логин
+платформенной LDAP-учёткой через `freeipa`, не forwardAuth — Nexus OSS не умеет OIDC нативно,
+только LDAP-realm) и `https://nexus-cache.aicd.platform` (docker/apt/raw proxy-эндпоинты,
+анонимный доступ для containerd/apt/`xanmanning.k3s`, без какой-либо аутентификации). Добавлен в
+`infra_panel`.
+
+RAM `cicd` поднята второй раз (6144→10240 MiB, `platform/aicd/terraform/vms.tf`) — Nexus OSS
+официально требует 4GB RAM минимум (JVM).
+
+**Не проверено реальным прогоном** — та же сетевая оговорка, что у раздела «Мониторинг» выше
+(`ansible-playbook site.yml` упирается в блокировку `release-assets.githubusercontent.com` до
+того, как Nexus вообще успевает подняться и начать помогать). Код провалидирован
+`ansible-lint --profile production` + `--syntax-check`. Операторам — добавить в свой `/etc/hosts`:
+```
+<IP control-plane> nexus.aicd.platform
+<IP control-plane> nexus-cache.aicd.platform
+```
