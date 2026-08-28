@@ -41,6 +41,22 @@
         k3s_build_cluster: false
         k3s_become: true
 
+    # ADR-0015 (Фаза 1) — нужен, чтобы присоединить GPU-ноду llm1 как agent-узел к этому же
+    # кластеру (play "GPU-нода llm1" ниже) — тот же приём (delegate_to + slurp + set_fact), что
+    # уже применяется в этом репозитории для передачи секретов между хостами одного прогона
+    # (например, kinit-пароли freeipa). no_log — этим токеном может присоединиться к кластеру
+    # любой узел, который его получит.
+    - name: Прочитать node-token control-plane (для присоединения GPU-ноды)
+      ansible.builtin.slurp:
+        src: /var/lib/rancher/k3s/server/node-token
+      register: platform_aicd_devops_labs_ru_k3s_node_token_raw
+      no_log: true
+
+    - name: Сохранить node-token control-plane как факт хоста
+      ansible.builtin.set_fact:
+        platform_aicd_devops_labs_ru_k3s_node_token: "{{ (platform_aicd_devops_labs_ru_k3s_node_token_raw.content | b64decode).strip() }}"
+      no_log: true
+
     - name: Снять kubeconfig с control-хоста
       ansible.builtin.fetch:
         src: /etc/rancher/k3s/k3s.yaml
@@ -1509,3 +1525,388 @@
     - name: Вывод helmwave up
       ansible.builtin.debug:
         var: platform_aicd_devops_labs_ru_helmwave_up.stderr_lines
+
+# ADR-0015 (Фаза 1) — GPU-нода llm1, второй узел ЭТОГО ЖЕ k3s-кластера (не отдельный, см. ADR §10).
+# Отдельная play, а не расширение hosts: у play выше на группу k3s_gpu_agents — намеренно:
+#
+# Разобрано реальным чтением исходников xanmanning.k3s (v3.6.4): роль поддерживает join нового
+# агента к уже существующему кластеру только одним штатным способом — "Extending a cluster"
+# (documentation/operations/extending-a-cluster.md): новый хост добавляется В ТУ ЖЕ inventory-
+# группу/play, что и уже работающий control-план, и весь combined play перезапускается целиком,
+# чтобы собственная auto-clustering логика роли (выбор control-делegate по ansible_play_hosts,
+# k3s_controller_list и т.п.) отработала заново для обоих хостов разом. Наш control-план
+# (aicd-labs) изначально ставился с k3s_build_cluster: false (полностью автономный single-node,
+# без участия этой auto-clustering машинерии вообще) — затащить его в тот же play с llm1 означало
+# бы: (а) перезапускать ВЕСЬ огромный существующий play (Gitea/Semaphore/Authelia/helmwave) ещё
+# раз против уже работающего продового узла ради присоединения второго хоста, и (б) заново
+# полагаться на автовыбор control-node роли, который в изолированном single-host play (наш
+# исходный план) при явном k3s_control_node: false + k3s_build_cluster: true неожиданно
+# ПЕРЕОПРЕДЕЛЯЕТ k3s_control_node обратно в true для единственного хоста play (task "Set the
+# control host" в ensure_pre_configuration.yml не проверяет, что переменная уже задана) — то есть
+# llm1 попытался бы стартовать как k3s SERVER, а не agent. Оба пути рискованны для уже работающего
+# продового кластера ради join одного нового worker'а.
+#
+# Вместо этого — официальный install-скрипт k3s напрямую (INSTALL_K3S_EXEC=agent,
+# K3S_URL/K3S_TOKEN), тот же метод, что рекомендует сам k3s для присоединения агента к внешнему,
+# управляемому не этим прогоном control-плану (docs.k3s.io/quick-start) — полностью изолированно
+# от control-плана, без единого изменения на aicd-labs. Версия — тот же пин, что у control-плана
+# выше (k3s_release_version: v1.35.1+k3s1) — если он изменится, обновить оба места разом.
+- name: GPU-нода llm1 (ADR-0015 Фаза 1) — host bootstrap + join к k3s
+  hosts: k3s_gpu_agents
+  become: true
+  pre_tasks:
+    - name: Дождаться завершения cloud-init
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+      failed_when: false
+
+  tasks:
+    # Найдено реальным прогоном: kubelet на llm1 тянет образы напрямую (containerd на хосте, не
+    # через под) — используется DNS/доверие ОС этого хоста, а не coredns-custom ConfigMap кластера
+    # (который резолвит aicd.devops-labs.ru только ВНУТРИ пода, см. комментарий выше про "Определить
+    # ClusterIP встроенного в k3s Traefik"). gitea.aicd.devops-labs.ru — приватный домен без
+    # реального DNS (README, «/etc/hosts операторов»), поэтому нужна отдельная запись прямо на
+    # llm1, иначе последующий pull образа из встроенного реестра Gitea не резолвится вообще.
+    - name: "/etc/hosts: gitea.aicd.devops-labs.ru (для pull образов kubelet'ом на llm1)"
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        line: "{{ hostvars['aicd-labs']['ansible_host'] }} gitea.aicd.devops-labs.ru"
+        regexp: '\sgitea\.aicd\.devops-labs\.ru$'
+
+    # Тот же CA, которым уже доверяет сама Gitea (Secret aicd-platform-ca, play выше) — без этого
+    # containerd на llm1 не сможет затянуть образ по HTTPS ("certificate signed by unknown
+    # authority"), TLS Gitea выпущен из этого внутреннего PKI CA OpenBao, а не публичного.
+    - name: "Установить внутренний PKI CA в системный trust store llm1 (доверие к Gitea registry)"
+      ansible.builtin.copy:
+        content: "{{ hostvars['aicd-labs']['platform_aicd_devops_labs_ru_pki_ca_pem']['content'] }}"
+        dest: /usr/local/share/ca-certificates/aicd-platform-ca.crt
+        owner: root
+        group: root
+        mode: '0644'
+      notify: "CA обновлён на llm1"
+
+    - name: Подготовить хост к работе с GPU (NVIDIA driver + toolkit + gVisor)
+      ansible.builtin.include_role:
+        name: k3s_gpu_node
+
+    - name: Скачать install-скрипт k3s
+      ansible.builtin.get_url:
+        url: https://get.k3s.io
+        dest: /usr/local/bin/k3s-install.sh
+        mode: '0755'
+
+    # K3S_TOKEN — из факта, сохранённого в play выше (platform_hosts, aicd-labs) в этом же
+    # прогоне ansible-playbook (hostvars персистентны между play в рамках одного запуска).
+    # creates: — install-скрипт сам по себе не полностью идемпотентен по выводу (полезно для
+    # ansible changed_when), но заведомо создаёт этот юнит при первом успешном запуске в agent-
+    # режиме (INSTALL_K3S_EXEC=agent), и не пытается переустановить при повторных прогонах.
+    - name: Установить k3s agent и присоединить к control-плану aicd-labs
+      ansible.builtin.command: /usr/local/bin/k3s-install.sh
+      environment:
+        INSTALL_K3S_VERSION: v1.35.1+k3s1
+        INSTALL_K3S_EXEC: agent
+        K3S_URL: "https://{{ hostvars['aicd-labs']['ansible_host'] }}:6443"
+        K3S_TOKEN: "{{ hostvars['aicd-labs']['platform_aicd_devops_labs_ru_k3s_node_token'] }}"
+      args:
+        creates: /etc/systemd/system/k3s-agent.service
+      no_log: true
+
+  handlers:
+    - name: Обновить системный trust store llm1
+      listen: "CA обновлён на llm1"
+      ansible.builtin.command: update-ca-certificates
+      changed_when: true
+
+    # Найдено реальным прогоном: containerd (embedded в k3s-agent) кэширует системный пул
+    # доверенных CA на момент своего СТАРТА — если k3s-agent на этом хосте уже был запущен
+    # ДО того, как появился новый CA (например, повторный прогон после добавления нового CA к уже
+    # присоединённой ноде), простого update-ca-certificates недостаточно: под nvidia-device-plugin
+    # падал в ImagePullBackOff с "certificate signed by unknown authority", хотя файл CA уже был
+    # на диске и update-ca-certificates отработал. failed_when: false — на СВЕЖЕМ хосте (первый
+    # прогон, k3s ещё не установлен на момент этой задачи) юнит k3s-agent ещё не существует,
+    # рестарт несуществующего сервиса — ожидаемый no-op, а не ошибка.
+    - name: Перезапустить k3s-agent (подхватить новый CA в containerd) llm1
+      listen: "CA обновлён на llm1"
+      ansible.builtin.systemd:
+        name: k3s-agent
+        state: restarted
+      failed_when: false
+
+# ADR-0015 (Фаза 1) — кластерные объекты (RuntimeClass/device-plugin/namespace-каркас/
+# NetworkPolicy/taint), задачи kubectl через delegate_to: localhost на control-плане — та же play
+# "hosts: platform_hosts", что в самом начале файла (не отдельная play): переиспользует факт
+# platform_aicd_devops_labs_ru_kubeconfig.dest, снятый там (hostvars одного и того же хоста
+# aicd-labs персистентны между play в рамках одного прогона ansible-playbook), не нужно заново
+# передавать его через hostvars[...] индирекцию. Это кластерные примитивы, а не приложение — не
+# заводятся Helm-релизом/helmwave, тем же принципом, что RuntimeClass/NetworkPolicy не были
+# helmwave-релизами и в roles/monitoring_server (k3s-оркестратор).
+- name: ADR-0015 (Фаза 1) — RuntimeClass, device-plugin, namespace-каркас, изоляция
+  hosts: platform_hosts
+  become: true
+  environment:
+    KUBECONFIG: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+    NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+    no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+  tasks:
+    - name: Дождаться регистрации ноды llm1 в кластере (Ready)
+      delegate_to: localhost
+      become: false
+      run_once: true
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        api_version: v1
+        kind: Node
+        name: llm1
+      register: platform_aicd_devops_labs_ru_llm1_node
+      until: >-
+        platform_aicd_devops_labs_ru_llm1_node.resources | length > 0 and
+        platform_aicd_devops_labs_ru_llm1_node.resources[0].status.conditions
+          | selectattr('type', 'equalto', 'Ready') | map(attribute='status') | first == 'True'
+      retries: 30
+      delay: 10
+
+    # Изоляция от уже работающих на control-плане подов платформы (Gitea/Semaphore/OpenBao/
+    # Authelia/Radar/infra-panel/freeipa) — без toleration они никогда не попадут на llm1, и
+    # наоборот, будущие GPU/agent-поды получают явный toleration + nodeSelector на этот узел
+    # (ADR-0015 §7/§10). kubernetes.core.k8s_taint идемпотентен — не дублирует существующий taint
+    # при повторном прогоне.
+    - name: "Taint ноды llm1: dedicated=agents:NoSchedule"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      kubernetes.core.k8s_taint:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        name: llm1
+        state: present
+        taints:
+          - key: dedicated
+            value: agents
+            effect: NoSchedule
+
+    - name: "RuntimeClass: nvidia"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      kubernetes.core.k8s:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        state: present
+        definition:
+          apiVersion: node.k8s.io/v1
+          kind: RuntimeClass
+          metadata:
+            name: nvidia
+            labels:
+              app.kubernetes.io/managed-by: ansible
+          handler: nvidia
+
+    # Обработчик runsc — тот же handler-name, что дописан в config.toml.tmpl роли k3s_gpu_node
+    # (templates/containerd-config.toml.tmpl.j2) на самом хосте llm1.
+    - name: "RuntimeClass: runsc"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      kubernetes.core.k8s:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        state: present
+        definition:
+          apiVersion: node.k8s.io/v1
+          kind: RuntimeClass
+          metadata:
+            name: runsc
+            labels:
+              app.kubernetes.io/managed-by: ansible
+          handler: runsc
+
+    # NVIDIA device plugin — референсный манифест проекта (github.com/NVIDIA/k8s-device-plugin),
+    # без time-slicing (ADR-0015 §8: time-slicing — решение для дальнейшей фазы, когда появится
+    # больше одного потребителя карты; сейчас карта одна и потребителей ещё нет вовсе, эту
+    # оптимизацию рано включать). nodeSelector — по имени ноды напрямую (llm1), а не по авто-labels
+    # от Node Feature Discovery (NFD не разворачивается в этой фазе — единственная GPU-нода
+    # известна заранее).
+    #
+    # Найдено реальным прогоном: nvcr.io целиком недоступен из сети этого стенда (403 Forbidden
+    # даже на корневом пути, TLS-хендшейк проходит — блок на уровне CDN/edge, тот же класс проблем,
+    # что уже задокументирован для github.com release-assets и vagrantcloud.com в этой коллекции).
+    # docker.io/nvidia/k8s-device-plugin не альтернатива — там нет тегов новее v0.5.0 (2020 год),
+    # актуальные версии NVIDIA публикует только в nvcr.io. Обходной путь — образ зазеркалирован
+    # вручную во встроенный OCI-реестр Gitea этого же стенда (организация nvcr.io, публичный
+    # пакет, сохраняет оригинальный путь nvcr.io/nvidia/... как имя пакета):
+    #   docker pull nvcr.io/nvidia/k8s-device-plugin:v0.17.1
+    #   docker tag nvcr.io/nvidia/k8s-device-plugin:v0.17.1 gitea.aicd.devops-labs.ru/nvcr.io/nvidia/k8s-device-plugin:v0.17.1
+    #   docker push gitea.aicd.devops-labs.ru/nvcr.io/nvidia/k8s-device-plugin:v0.17.1
+    # Требует записи /etc/hosts и доверия к внутреннему PKI CA на llm1 — заведены задачами выше в
+    # этой же play (containerd тянет образ напрямую с хоста, не через coredns-custom кластера).
+    - name: "NVIDIA device plugin: DaemonSet"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      kubernetes.core.k8s:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: DaemonSet
+          metadata:
+            name: nvidia-device-plugin
+            namespace: kube-system
+            labels:
+              app.kubernetes.io/managed-by: ansible
+          spec:
+            selector:
+              matchLabels:
+                name: nvidia-device-plugin
+            template:
+              metadata:
+                labels:
+                  name: nvidia-device-plugin
+              spec:
+                # Найдено реальным прогоном: без явного runtimeClassName под стартует под runc
+                # (дефолт узла) — nvidia-container-toolkit не инжектирует ни /dev/nvidia*, ни
+                # библиотеки драйвера, device-plugin падает в CrashLoopBackOff ("Incompatible
+                # strategy detected auto" / "did you configure the NVIDIA Container Toolkit?").
+                # Тот же RuntimeClass, что заведён задачей выше в этой же play.
+                runtimeClassName: nvidia
+                nodeSelector:
+                  kubernetes.io/hostname: llm1
+                tolerations:
+                  - key: dedicated
+                    operator: Equal
+                    value: agents
+                    effect: NoSchedule
+                priorityClassName: system-node-critical
+                containers:
+                  - name: nvidia-device-plugin-ctr
+                    image: gitea.aicd.devops-labs.ru/nvcr.io/nvidia/k8s-device-plugin:v0.17.1
+                    securityContext:
+                      privileged: true
+                    volumeMounts:
+                      - name: device-plugin
+                        mountPath: /var/lib/kubelet/device-plugins
+                volumes:
+                  - name: device-plugin
+                    hostPath:
+                      path: /var/lib/kubelet/device-plugins
+
+    - name: "Проверить nvidia.com/gpu в Allocatable ноды llm1"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        api_version: v1
+        kind: Node
+        name: llm1
+      register: platform_aicd_devops_labs_ru_llm1_gpu_check
+      until: "'nvidia.com/gpu' in platform_aicd_devops_labs_ru_llm1_gpu_check.resources[0].status.allocatable"
+      retries: 30
+      delay: 10
+
+    # Каркас namespace агентного стека (ADR-0015 §7) — сами workload'ы (vLLM/LiteLLM/Temporal/
+    # Langfuse/CloudNativePG/MinIO/egress-proxy) вне периметра этой фазы, здесь только границы
+    # безопасности, готовые принять их позже.
+    - name: "Namespace-каркас агентного стека: llm/gateway/agents/data/obs/egress"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      loop:
+        - llm
+        - gateway
+        - agents
+        - data
+        - obs
+        - egress
+      kubernetes.core.k8s:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ item }}"
+            labels:
+              app.kubernetes.io/managed-by: ansible
+
+    # Pod Security restricted — только agents (ADR-0015 §7): единственный namespace, где
+    # исполняется код, полученный от внешнего источника (agent-job/chromium/git/shell в
+    # песочнице). Остальные пять — инфраструктурные сервисы, которыми управляем мы сами.
+    - name: "Namespace agents: Pod Security restricted"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      kubernetes.core.k8s:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: agents
+            labels:
+              app.kubernetes.io/managed-by: ansible
+              pod-security.kubernetes.io/enforce: restricted
+              pod-security.kubernetes.io/audit: restricted
+              pod-security.kubernetes.io/warn: restricted
+
+    # Default-deny ingress+egress в agents (ADR-0015 §7) — разрешающие правила на конкретные
+    # четыре адреса (kube-dns, litellm.gateway, mcp-gateway.gateway, egress-proxy.egress) заводятся
+    # вместе со своими namespace/сервисами в следующей фазе (сейчас там ничего, кроме kube-dns,
+    # нет физически) — сама форма политики (запрещено всё, кроме явно перечисленного) верна уже
+    # сейчас и проверяется тестовым подом (ADR-0015 §10 верификация).
+    - name: "Namespace agents: default-deny NetworkPolicy"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      kubernetes.core.k8s:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        state: present
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: NetworkPolicy
+          metadata:
+            name: default-deny
+            namespace: agents
+            labels:
+              app.kubernetes.io/managed-by: ansible
+          spec:
+            podSelector: {}
+            policyTypes:
+              - Ingress
+              - Egress
+
+    # Единственное разрешающее правило, реализуемое уже в этой фазе (ADR-0015 §7 говорит про
+    # четыре адреса — litellm.gateway/mcp-gateway.gateway/egress-proxy.egress появятся вместе со
+    # своими namespace/сервисами в следующей фазе, их сейчас физически нет). Без этого правила
+    # default-deny выше блокирует вообще всё, включая DNS — под в agents не смог бы даже
+    # зарезолвить kube-dns для проверки.
+    - name: "Namespace agents: allow egress к kube-dns"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      kubernetes.core.k8s:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        state: present
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: NetworkPolicy
+          metadata:
+            name: allow-egress-kube-dns
+            namespace: agents
+            labels:
+              app.kubernetes.io/managed-by: ansible
+          spec:
+            podSelector: {}
+            policyTypes:
+              - Egress
+            egress:
+              - to:
+                  - namespaceSelector:
+                      matchLabels:
+                        kubernetes.io/metadata.name: kube-system
+                    podSelector:
+                      matchLabels:
+                        k8s-app: kube-dns
+                ports:
+                  - protocol: UDP
+                    port: 53
+                  - protocol: TCP
+                    port: 53

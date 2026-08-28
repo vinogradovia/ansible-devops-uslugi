@@ -1,0 +1,41 @@
+---
+# defaults file for k3s_gpu_node
+#
+# ADR-0015 §9 — фиксированный порядок bootstrap: NVIDIA driver + nvidia-container-toolkit + runsc
+# ставятся на хост ДО установки/запуска k3s (k3s сканирует PATH на nvidia-рантаймы при своём
+# старте — если toolkit ставится после, рантайм не подхватывается автоматически, лечится только
+# рестартом k3s). Эта роль покрывает только сам хост — присоединение к кластеру
+# (xanmanning.k3s, agent mode) выполняется отдельно в site.yml окружения (ADR-0015 §10).
+#
+# Только Ubuntu (apt) — тот же охват, что у roles/docker (ADR-0002 §4); GPU-хосты платформы на
+# данный момент только Ubuntu cloud-init образы (llm1).
+
+# ubuntu-drivers autoinstall выбирает рекомендованный проприетарный драйвер сам, без явного пина
+# версии — в отличие от roles/docker (docker_ce_version зафиксирован явно), версия NVIDIA driver
+# должна соответствовать конкретной модели карты и ядру хоста, единого "правильного" номера для
+# всей коллекции нет. Если понадобится зафиксировать версию явно на конкретном стенде — override
+# k3s_gpu_node_nvidia_driver_package конкретным пакетом (например "nvidia-driver-550").
+k3s_gpu_node_nvidia_driver_autoinstall: true
+k3s_gpu_node_nvidia_driver_package: ""
+
+# nvidia-container-toolkit — официальный репозиторий NVIDIA (не Ubuntu universe, там версия
+# сильно отстаёт). Версия не пинится явно (в отличие от docker_ce_version) — в отличие от Docker
+# Engine, у toolkit нет ADR-обоснованного требования к конкретной версии; апстрим-репозиторий
+# сам поддерживает только актуальный релиз.
+k3s_gpu_node_nvidia_container_toolkit_repo_gpg_url: "https://nvidia.github.io/libnvidia-container/gpgkey"
+k3s_gpu_node_nvidia_container_toolkit_repo_list_url: "https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list"
+
+# gVisor (runsc) — официальный apt-репозиторий проекта (gvisor.dev/docs/user_guide/install), канал
+# release (не nightly) — та же логика, что nvidia-container-toolkit: апстрим не хранит старые
+# версии в репозитории, явный пин не имеет смысла.
+k3s_gpu_node_gvisor_repo_gpg_url: "https://gvisor.dev/archive.key"
+k3s_gpu_node_gvisor_repo_base_url: "https://storage.googleapis.com/gvisor/releases"
+k3s_gpu_node_gvisor_repo_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}.get(ansible_architecture, ansible_architecture) }}"
+
+# Путь к ШАБЛОНУ конфига containerd k3s (не системного containerd — k3s использует собственный
+# embedded containerd с отдельным конфигом). k3s читает config.toml.tmpl (если он существует) при
+# генерации своего config.toml — это происходит на первом же старте сервиса, поэтому каталог/файл
+# должны быть на месте ДО первого запуска xanmanning.k3s (agent mode) в site.yml — та же логика
+# порядка, что "toolkit до k3s" у NVIDIA (ADR-0015 §9), поэтому кладём файл здесь же, в этой роли,
+# а не отдельной задачей после установки k3s.
+k3s_gpu_node_containerd_config_tmpl_path: /var/lib/rancher/k3s/agent/etc/containerd/config.toml.tmpl

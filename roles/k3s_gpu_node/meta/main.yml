@@ -1,0 +1,11 @@
+---
+galaxy_info:
+  author: Ivan Vinogradov <vinogradovia@gmail.com>
+  description: подготовка GPU-хоста к работе как узла k3s (NVIDIA driver + nvidia-container-toolkit + gVisor/runsc) — ADR-0015 §9
+  license: WTFPL
+  min_ansible_version: "2.2"
+  galaxy_tags:
+    - k3s
+    - gpu
+    - nvidia
+dependencies: []

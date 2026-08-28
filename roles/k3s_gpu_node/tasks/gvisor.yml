@@ -1,0 +1,59 @@
+---
+# gVisor (runsc) — песочница для agent-подов (ADR-0015 §6/§9), устанавливается ДО k3s. В отличие
+# от NVIDIA — k3s не подхватывает gVisor автоматически, поэтому шаблон containerd-конфига (ниже)
+# кладём тоже здесь, а не после установки k3s (агент ещё не поставлен на этом шаге).
+
+- name: "[gvisor] Создать каталог для apt keyring'ов"
+  ansible.builtin.file:
+    path: /usr/share/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+# Тот же приём, что nvidia.yml/roles/docker — ASCII-armored ключ используется APT напрямую через
+# signed-by, без dearmor.
+- name: "[gvisor] Скачать GPG-ключ репозитория gVisor"
+  ansible.builtin.get_url:
+    url: "{{ k3s_gpu_node_gvisor_repo_gpg_url }}"
+    dest: /usr/share/keyrings/gvisor-archive-keyring.asc
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: "[gvisor] Подключить репозиторий gVisor (канал release)"
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [arch={{ k3s_gpu_node_gvisor_repo_arch }} signed-by=/usr/share/keyrings/gvisor-archive-keyring.asc]
+      {{ k3s_gpu_node_gvisor_repo_base_url }} release main
+    state: present
+    filename: gvisor
+    update_cache: true
+
+# Найдено реальным прогоном: официальный apt-репозиторий gVisor (storage.googleapis.com/gvisor/
+# releases, канал release/main) на момент реализации содержит только пакет runsc — отдельного
+# пакета containerd-shim-runsc-v1 в нём нет (в отличие от того, что документируют некоторые
+# сторонние гайды по k3s+gVisor). Сам runsc — единственный бинарник, обработчик containerd
+# (io.containerd.runsc.v1, см. containerd-config.toml.tmpl.j2) вызывает именно его напрямую по
+# пути, без отдельного containerd-shim.
+- name: "[gvisor] Установить runsc"
+  ansible.builtin.apt:
+    name: runsc
+    state: present
+    update_cache: true
+
+- name: "[gvisor] Создать каталог для конфига containerd k3s"
+  ansible.builtin.file:
+    path: "{{ k3s_gpu_node_containerd_config_tmpl_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: "[gvisor] Уложить config.toml.tmpl с обработчиком runsc (до первого старта k3s)"
+  ansible.builtin.template:
+    src: containerd-config.toml.tmpl.j2
+    dest: "{{ k3s_gpu_node_containerd_config_tmpl_path }}"
+    owner: root
+    group: root
+    mode: '0644'

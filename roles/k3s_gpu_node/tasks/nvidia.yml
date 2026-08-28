@@ -1,0 +1,100 @@
+---
+# NVIDIA driver + nvidia-container-toolkit — оба ДО установки k3s (ADR-0015 §9): k3s сканирует
+# PATH на nvidia-рантаймы при собственном старте, toolkit после k3s не подхватывается
+# автоматически (лечится только рестартом k3s, диагностируется небыстро).
+
+- name: "[nvidia] Проверить, установлен ли уже проприетарный драйвер"
+  ansible.builtin.command: nvidia-smi
+  register: k3s_gpu_node_nvidia_smi_check
+  changed_when: false
+  failed_when: false
+
+- name: "[nvidia] Установить ubuntu-drivers-common"
+  when:
+    - k3s_gpu_node_nvidia_smi_check.rc != 0
+    - k3s_gpu_node_nvidia_driver_package | length == 0
+  ansible.builtin.apt:
+    name: ubuntu-drivers-common
+    state: present
+    update_cache: true
+
+# ubuntu-drivers autoinstall сам определяет PCI ID карты и ставит рекомендованный
+# proprietary-driver пакет — идемпотентности самой команды не гарантирует апстрим, поэтому guard
+# по nvidia-smi выше — единственный источник идемпотентности здесь.
+- name: "[nvidia] Установить рекомендованный проприетарный драйвер (ubuntu-drivers autoinstall)"
+  when:
+    - k3s_gpu_node_nvidia_smi_check.rc != 0
+    - k3s_gpu_node_nvidia_driver_package | length == 0
+    - k3s_gpu_node_nvidia_driver_autoinstall
+  ansible.builtin.command: ubuntu-drivers autoinstall
+  register: k3s_gpu_node_nvidia_autoinstall
+  changed_when: "'no drivers found' not in k3s_gpu_node_nvidia_autoinstall.stdout | lower"
+
+- name: "[nvidia] Установить явно зафиксированный пакет драйвера (override)"
+  when:
+    - k3s_gpu_node_nvidia_smi_check.rc != 0
+    - k3s_gpu_node_nvidia_driver_package | length > 0
+  ansible.builtin.apt:
+    name: "{{ k3s_gpu_node_nvidia_driver_package }}"
+    state: present
+    update_cache: true
+  register: k3s_gpu_node_nvidia_pinned_install
+
+# Драйвер грузится модулем ядра — без перезагрузки nvidia-smi продолжит падать даже после
+# успешной установки пакета (модуль ещё не загружен, возможен конфликт с nouveau). Условие — сам
+# факт "nvidia-smi изначально не работал" (а не "changed" у задачи установки пакета выше): при
+# повторном прогоне после прерванного первого (пакет уже стоит, но хост ещё не перезагружен)
+# `ubuntu-drivers autoinstall` может отрапортовать "ничего делать не нужно" (changed=false), но
+# перезагрузка всё равно нужна — иначе драйвер так и останется незагруженным модулем ядра.
+- name: "[nvidia] Перезагрузить хост после установки драйвера"
+  when: k3s_gpu_node_nvidia_smi_check.rc != 0
+  ansible.builtin.reboot:
+    reboot_timeout: 600
+
+- name: "[nvidia] Проверить nvidia-smi после установки/перезагрузки"
+  ansible.builtin.command: nvidia-smi
+  changed_when: false
+  register: k3s_gpu_node_nvidia_smi_verify
+  when: k3s_gpu_node_nvidia_smi_check.rc != 0
+
+- name: "[nvidia] Создать каталог для apt keyring'ов"
+  ansible.builtin.file:
+    path: /usr/share/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+# GPG-ключ NVIDIA отдаётся в ASCII-armored формате, но APT (signed-by) принимает .asc-файл
+# напрямую — тот же приём, что roles/docker/tasks/install-repo.yml (docker.asc), dearmor не
+# требуется.
+- name: "[nvidia] Скачать GPG-ключ репозитория nvidia-container-toolkit"
+  ansible.builtin.get_url:
+    url: "{{ k3s_gpu_node_nvidia_container_toolkit_repo_gpg_url }}"
+    dest: /usr/share/keyrings/nvidia-container-toolkit-keyring.asc
+    owner: root
+    group: root
+    mode: '0644'
+
+# Официальный .list от NVIDIA не содержит signed-by (полагается на apt-key, устаревший путь) —
+# дописываем его после скачивания тем же приёмом, что официальная инструкция NVIDIA использует
+# через sed.
+- name: "[nvidia] Скачать список репозитория nvidia-container-toolkit"
+  ansible.builtin.get_url:
+    url: "{{ k3s_gpu_node_nvidia_container_toolkit_repo_list_url }}"
+    dest: /etc/apt/sources.list.d/nvidia-container-toolkit.list
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: "[nvidia] Добавить signed-by в список репозитория"
+  ansible.builtin.replace:
+    path: /etc/apt/sources.list.d/nvidia-container-toolkit.list
+    regexp: '^deb https://'
+    replace: 'deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.asc] https://'
+
+- name: "[nvidia] Установить nvidia-container-toolkit"
+  ansible.builtin.apt:
+    name: nvidia-container-toolkit
+    state: present
+    update_cache: true

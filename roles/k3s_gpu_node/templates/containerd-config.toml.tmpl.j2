@@ -1,0 +1,16 @@
+{{ '{{' }} template "base" . {{ '}}' }}
+
+# gVisor (runsc) RuntimeClass handler — ADR-0015 §9/agent-stack-k3s.md §07. k3s НЕ подхватывает
+# gVisor автоматически (в отличие от NVIDIA, которую k3s находит в PATH сам) — этот файл должен
+# существовать ДО первого старта сервиса k3s на этом хосте (k3s использует config.toml.tmpl как
+# шаблон при генерации своего config.toml, только на старте).
+#
+# НЕ ПРОВЕРЕНО РЕАЛЬНЫМ ПРОГОНОМ: путь плагина ("io.containerd.grpc.v1.cri") соответствует
+# containerd v1 CRI-плагину, использовавшемуся k3s на момент написания этого файла — начиная с
+# containerd v2 путь меняется на "io.containerd.cri.v1.runtime". Версия containerd, которую
+# реально встраивает k3s v1.35.1+k3s1 (site.yml окружения), не проверена вживую — перед первым
+# реальным прогоном сверить актуальный путь плагина в уже сгенерированном k3s'ом
+# config.toml (после самого первого старта, ДО применения этого шаблона):
+#   grep -A3 'plugins\..*cri.*\.runtimes' /var/lib/rancher/k3s/agent/etc/containerd/config.toml
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runsc]
+  runtime_type = "io.containerd.runsc.v1"

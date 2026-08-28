@@ -1,0 +1,13 @@
+---
+# tasks file for k3s_gpu_node
+#
+# Порядок важен и совпадает с ADR-0015 §9: сначала NVIDIA (driver + toolkit), потом gVisor —
+# оба ДО того, как в site.yml окружения запускается xanmanning.k3s (agent mode) на этом хосте.
+
+- name: Include nvidia tasks
+  ansible.builtin.include_tasks:
+    file: nvidia.yml
+
+- name: Include gvisor tasks
+  ansible.builtin.include_tasks:
+    file: gvisor.yml
