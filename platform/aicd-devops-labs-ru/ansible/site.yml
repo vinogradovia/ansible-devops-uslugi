@@ -2245,6 +2245,16 @@
       ansible.builtin.debug:
         var: platform_aicd_devops_labs_ru_helmwave_up.stderr_lines
 
+  handlers:
+    # Ansible-хендлеры привязаны к play, а не глобальны — задача "Containerd: зеркалировать
+    # docker.io через Nexus (registries.yaml)" выше в этом play не может дотянуться до хендлера,
+    # объявленного в handlers: первого play (найдено реальным прогоном 2026-08-28: "The requested
+    # handler ... was not found"). Тот же хендлер, что там, продублирован здесь для этого play.
+    - name: "Перезапустить k3s (подхватить registries.yaml)"
+      ansible.builtin.systemd:
+        name: k3s
+        state: restarted
+
 # ADR-0015 (Фаза 1) — GPU-нода llm1, второй узел ЭТОГО ЖЕ k3s-кластера (не отдельный, см. ADR §10).
 # Отдельная play, а не расширение hosts: у play выше на группу k3s_gpu_agents — намеренно:
 #
