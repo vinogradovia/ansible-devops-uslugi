@@ -1,8 +1,12 @@
 ---
-# Один хост за вызов (item: {host, secret}) — вынесено из site.yml отдельным файлом, потому что
-# ansible.builtin.include_tasks поддерживает loop, а block — нет (docs/adr/0016-openbao-secrets-pki.md
-# §3, TLS-сертификаты выпускаются по одному на host). delegate_to/environment не наследуются
-# надёжно через include_tasks (в отличие от block) — заданы явно в каждой задаче ниже.
+# Один хост за вызов (item: {host, secret, [namespace]}) — вынесено из site.yml отдельным файлом,
+# потому что ansible.builtin.include_tasks поддерживает loop, а block — нет
+# (docs/adr/0016-openbao-secrets-pki.md §3, TLS-сертификаты выпускаются по одному на host).
+# delegate_to/environment не наследуются надёжно через include_tasks (в отличие от block) —
+# заданы явно в каждой задаче ниже.
+#
+# item.namespace — опционально, по умолчанию "platform" (тот же приём и та же находка, что
+# platform/aicd/ansible/tasks/issue-tls-cert.yml — grafana-tls нужен в namespace monitoring).
 
 - name: "Проверить существование Secret {{ item.secret }}"
   delegate_to: localhost
@@ -14,7 +18,7 @@
   kubernetes.core.k8s_info:
     api_version: v1
     kind: Secret
-    namespace: platform
+    namespace: "{{ item.namespace | default('platform') }}"
     name: "{{ item.secret }}"
   register: platform_aicd_devops_labs_ru_tls_secret_check
 
@@ -71,7 +75,7 @@
     state: present
     kind: Secret
     name: "{{ item.secret }}"
-    namespace: platform
+    namespace: "{{ item.namespace | default('platform') }}"
     definition:
       apiVersion: v1
       metadata:

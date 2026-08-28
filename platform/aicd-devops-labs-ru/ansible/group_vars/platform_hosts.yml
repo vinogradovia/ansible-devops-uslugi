@@ -13,6 +13,8 @@
 # разбора находки (без этого --tags второго helmwave up не включал релиз authelia вовсе).
 platform_aicd_devops_labs_ru_core_releases:
   - openbao
+  # nexus (docs/adr/0018-internal-caching-proxy.md) — тот же приём, что platform/aicd.
+  - nexus
   - authelia
   - gitea
   - semaphore

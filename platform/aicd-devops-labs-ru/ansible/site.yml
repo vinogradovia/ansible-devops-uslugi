@@ -30,6 +30,21 @@
       failed_when: false
 
   tasks:
+    # docs/adr/0018-internal-caching-proxy.md — тот же приём, что platform/aicd/ansible/site.yml.
+    - name: "Проверить доступность Nexus raw-proxy (для k3s-бинаря)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      ansible.builtin.uri:
+        url: "https://nexus-cache.aicd.devops-labs.ru/repository/k3s-releases-proxy/"
+        ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        method: GET
+        status_code: [200, 403, 404]
+        timeout: 5
+      register: platform_aicd_devops_labs_ru_nexus_cache_check
+      failed_when: false
+      ignore_errors: true
+
     # Версия — тот же пин, что roles/monitoring_server/meta/main.yml, чтобы не плодить второй
     # независимый источник правды о версии k3s в коллекции.
     - name: Установить K3s (single-node)
@@ -38,6 +53,12 @@
       vars:
         k3s_state: installed
         k3s_release_version: v1.35.1+k3s1
+        # k3s_binary_url/k3s_hash_url НЕ переопределяются напрямую — см. комментарий в
+        # platform/aicd/ansible/site.yml (xanmanning.k3s безусловно их пересчитывает).
+        k3s_github_download_url: >-
+          {{ 'https://nexus-cache.aicd.devops-labs.ru/repository/k3s-releases-proxy/k3s-io/k3s/releases/download'
+             if (platform_aicd_devops_labs_ru_nexus_cache_check.status | default(0)) in [200, 403, 404]
+             else omit }}
         k3s_build_cluster: false
         k3s_become: true
 
@@ -654,6 +675,50 @@
                 access_key_encryption: "{{ lookup('ansible.builtin.password', '/dev/null', length=32) | b64encode }}"
             status_code: [200, 204]
 
+        # docs/adr/0018-internal-caching-proxy.md — тот же приём, что platform/aicd/ansible/site.yml.
+        - name: "OpenBao: проверить наличие secret/nexus"
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/nexus"
+            ca_path: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
+            method: GET
+            headers:
+              X-Vault-Token: "{{ platform_aicd_devops_labs_ru_openbao_root_token }}"
+            status_code: [200, 404]
+          register: platform_aicd_devops_labs_ru_openbao_secret_nexus
+          no_log: true
+
+        - name: "OpenBao: сгенерировать и записать secret/nexus (только при первом прогоне)"
+          when: platform_aicd_devops_labs_ru_openbao_secret_nexus.status == 404
+          no_log: true
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/nexus"
+            ca_path: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
+            method: POST
+            headers:
+              X-Vault-Token: "{{ platform_aicd_devops_labs_ru_openbao_root_token }}"
+            body_format: json
+            body:
+              data:
+                admin_password: "{{ lookup('ansible.builtin.password', '/dev/null', length=24) }}"
+                ldap_bind_password: "{{ lookup('ansible.builtin.password', '/dev/null', length=32) }}"
+            status_code: [200, 204]
+
+        - name: "OpenBao: прочитать secret/nexus (ldap_bind_password нужен play freeipa_hosts ниже)"
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/nexus"
+            ca_path: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
+            method: GET
+            headers:
+              X-Vault-Token: "{{ platform_aicd_devops_labs_ru_openbao_root_token }}"
+            status_code: [200]
+          register: platform_aicd_devops_labs_ru_openbao_secret_nexus_read
+          no_log: true
+
+        - name: Опубликовать ldap_bind_password Nexus как факт хоста (для play freeipa_hosts, hostvars)
+          ansible.builtin.set_fact:
+            platform_aicd_devops_labs_ru_nexus_ldap_bind_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_nexus_read.json.data.data.ldap_bind_password }}"
+          no_log: true
+
         # docs/adr/0017-platform-cicd-default-addons.md — пароль basic-auth для Radar (первый
         # стандартный аддон), тем же идемпотентным приёмом, что secret/gitea/secret/semaphore
         # выше: генерируется только при первом прогоне, не меняется при повторных (иначе htpasswd
@@ -991,7 +1056,7 @@
         # openbao.aicd.devops-labs.ru/openbao-ingress-tls — docs/adr/0017-platform-cicd-default-addons.md
         # §3, внешний Ingress-сертификат OpenBao (отдельный от внутреннего bootstrap-сертификата
         # openbao-server-tls самого listener'а).
-        - name: "OpenBao: выпустить/перевыпустить TLS-сертификаты (gitea, semaphore, radar, infra-panel, openbao, authelia, grafana)"
+        - name: "OpenBao: выпустить/перевыпустить TLS-сертификаты (gitea, semaphore, radar, infra-panel, openbao, authelia, grafana, nexus)"
           no_log: true
           ansible.builtin.include_tasks: tasks/issue-tls-cert.yml
           loop:
@@ -1001,7 +1066,11 @@
             - {host: infra-panel.aicd.devops-labs.ru, secret: infra-panel-tls}
             - {host: openbao.aicd.devops-labs.ru, secret: openbao-ingress-tls}
             - {host: sso.aicd.devops-labs.ru, secret: authelia-tls}
-            - {host: grafana.aicd.devops-labs.ru, secret: grafana-tls}
+            # namespace: monitoring/cache — тот же фикс, что platform/aicd/ansible/site.yml
+            # (Secret обязан жить там же, где IngressRoute/Ingress, который его использует).
+            - {host: grafana.aicd.devops-labs.ru, secret: grafana-tls, namespace: monitoring}
+            - {host: nexus.aicd.devops-labs.ru, secret: nexus-tls, namespace: cache}
+            - {host: nexus-cache.aicd.devops-labs.ru, secret: nexus-cache-tls, namespace: cache}
           loop_control:
             label: "{{ item.host }}"
 
@@ -1107,6 +1176,13 @@
             platform_aicd_devops_labs_ru_openbao_render_token_value: >-
               {{ platform_aicd_devops_labs_ru_openbao_render_token_secret.resources[0].data.token | b64decode }}
 
+  handlers:
+    # docs/adr/0018-internal-caching-proxy.md — тот же приём, что platform/aicd/ansible/site.yml.
+    - name: "Перезапустить k3s (подхватить registries.yaml)"
+      ansible.builtin.systemd:
+        name: k3s
+        state: restarted
+
 # ADR-0013 §1 — persistent freeipa, единый каталог для Authelia. Отдельный play (не часть play
 # выше): другой хост (freeipa_hosts, не platform_hosts). Намеренно идёт СРАЗУ ПОСЛЕ play выше (не
 # в конце файла) — найдено реальным прогоном: Authelia (устанавливается в следующем play,
@@ -1201,6 +1277,25 @@
         stdin: "{{ hostvars['aicd-labs'].platform_aicd_devops_labs_ru_authelia_ldap_bind_password }}\n{{ hostvars['aicd-labs'].platform_aicd_devops_labs_ru_authelia_ldap_bind_password }}\n"
       # Задача только под when: ...rc != 0 (только первый прогон, реально создаёт аккаунт) —
       # changed_when: true корректен, тот же приём, что helmwave up (always-changed по design).
+      changed_when: true
+      no_log: true
+
+    # docs/adr/0018-internal-caching-proxy.md — тот же приём, что platform/aicd/ansible/site.yml.
+    - name: "Проверить наличие сервисного bind-аккаунта svc-nexus"
+      ansible.builtin.command: ipa user-show svc-nexus
+      register: platform_aicd_devops_labs_ru_ipa_svc_nexus_check
+      changed_when: false
+      failed_when: false
+
+    - name: "Создать сервисный bind-аккаунт svc-nexus (только при первом прогоне)"
+      when: platform_aicd_devops_labs_ru_ipa_svc_nexus_check.rc != 0
+      ansible.builtin.command:
+        cmd: >-
+          ipa user-add svc-nexus
+          --first=Service --last=Nexus
+          --password-expiration=20351231235959Z
+          --password
+        stdin: "{{ hostvars['aicd-labs'].platform_aicd_devops_labs_ru_nexus_ldap_bind_password }}\n{{ hostvars['aicd-labs'].platform_aicd_devops_labs_ru_nexus_ldap_bind_password }}\n"
       changed_when: true
       no_log: true
 
@@ -1380,6 +1475,310 @@
           - "{{ (platform_aicd_devops_labs_ru_core_releases + platform_aicd_devops_labs_ru_enabled_addons) | join(',') }}"
       register: platform_aicd_devops_labs_ru_helmwave_up
       changed_when: true
+
+    # docs/adr/0018-internal-caching-proxy.md — bootstrap Nexus, тот же приём, что
+    # platform/aicd/ansible/site.yml.
+    - name: "Записать внутренний PKI CA локально (для запросов к REST API Nexus)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      ansible.builtin.copy:
+        dest: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        content: "{{ platform_aicd_devops_labs_ru_pki_ca_pem.content }}"
+        mode: '0644'
+
+    - name: "Дождаться готовности пода Nexus"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        api_version: v1
+        kind: Pod
+        namespace: cache
+        label_selectors:
+          - "app.kubernetes.io/instance=nexus"
+      register: platform_aicd_devops_labs_ru_nexus_pod
+      until: >-
+        platform_aicd_devops_labs_ru_nexus_pod.resources | length > 0 and
+        (platform_aicd_devops_labs_ru_nexus_pod.resources[0].status.containerStatuses | default([])
+          | selectattr('ready', 'equalto', true) | list | length > 0)
+      retries: 60
+      delay: 10
+
+    - name: "Nexus: проверить, актуален ли admin-пароль"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      ansible.builtin.uri:
+        url: "https://nexus.aicd.devops-labs.ru/service/rest/v1/repositories"
+        ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        method: GET
+        url_username: admin
+        url_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        status_code: [200, 401]
+      register: platform_aicd_devops_labs_ru_nexus_auth_check
+      no_log: true
+
+    - name: "Nexus: прочитать сгенерированный при первом старте admin-пароль"
+      when: platform_aicd_devops_labs_ru_nexus_auth_check.status == 401
+      delegate_to: localhost
+      become: false
+      run_once: true
+      kubernetes.core.k8s_exec:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        namespace: cache
+        pod: "{{ platform_aicd_devops_labs_ru_nexus_pod.resources[0].metadata.name }}"
+        command: cat /nexus-data/admin.password
+      register: platform_aicd_devops_labs_ru_nexus_initial_password
+      no_log: true
+
+    - name: "Nexus: сменить admin-пароль на сгенерированный в secret/nexus"
+      when: platform_aicd_devops_labs_ru_nexus_auth_check.status == 401
+      delegate_to: localhost
+      become: false
+      run_once: true
+      no_log: true
+      ansible.builtin.uri:
+        url: "https://nexus.aicd.devops-labs.ru/service/rest/v1/security/users/admin/change-password"
+        ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        method: PUT
+        url_username: admin
+        url_password: "{{ platform_aicd_devops_labs_ru_nexus_initial_password.stdout }}"
+        body_format: raw
+        headers:
+          Content-Type: text/plain
+        body: "{{ platform_aicd_devops_labs_ru_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        status_code: [204]
+
+    - name: "Nexus: получить список существующих repositories"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      ansible.builtin.uri:
+        url: "https://nexus.aicd.devops-labs.ru/service/rest/v1/repositories"
+        ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        method: GET
+        url_username: admin
+        url_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        return_content: true
+        status_code: [200]
+      register: platform_aicd_devops_labs_ru_nexus_repos
+      no_log: true
+
+    - name: "Nexus: создать docker-hub-proxy (если ещё нет)"
+      when: "'docker-hub-proxy' not in (platform_aicd_devops_labs_ru_nexus_repos.json | map(attribute='name') | list)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      no_log: true
+      ansible.builtin.uri:
+        url: "https://nexus.aicd.devops-labs.ru/service/rest/v1/repositories/docker/proxy"
+        ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        method: POST
+        url_username: admin
+        url_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        body_format: json
+        body:
+          name: docker-hub-proxy
+          online: true
+          storage:
+            blobStoreName: default
+            strictContentTypeValidation: true
+          docker:
+            v1Enabled: false
+            forceBasicAuth: false
+            httpPort: 8083
+          proxy:
+            remoteUrl: https://registry-1.docker.io
+            contentMaxAge: 1440
+            metadataMaxAge: 1440
+          negativeCache:
+            enabled: true
+            timeToLive: 1440
+          httpClient:
+            blocked: false
+            autoBlock: true
+        status_code: [201]
+
+    - name: "Nexus: создать k3s-releases-proxy (если ещё нет)"
+      when: "'k3s-releases-proxy' not in (platform_aicd_devops_labs_ru_nexus_repos.json | map(attribute='name') | list)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      no_log: true
+      ansible.builtin.uri:
+        url: "https://nexus.aicd.devops-labs.ru/service/rest/v1/repositories/raw/proxy"
+        ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        method: POST
+        url_username: admin
+        url_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        body_format: json
+        body:
+          name: k3s-releases-proxy
+          online: true
+          storage:
+            blobStoreName: default
+            strictContentTypeValidation: false
+          proxy:
+            remoteUrl: https://github.com/
+            contentMaxAge: 1440
+            metadataMaxAge: 1440
+          negativeCache:
+            enabled: true
+            timeToLive: 1440
+          httpClient:
+            blocked: false
+            autoBlock: true
+        status_code: [201]
+
+    # apt-формат — не проверено эмпирически (ADR-0018 §6), не блокирует остальное, если не
+    # заведётся.
+    - name: "Nexus: создать nvidia-toolkit-apt-proxy (если ещё нет)"
+      when: "'nvidia-toolkit-apt-proxy' not in (platform_aicd_devops_labs_ru_nexus_repos.json | map(attribute='name') | list)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      no_log: true
+      failed_when: false
+      ansible.builtin.uri:
+        url: "https://nexus.aicd.devops-labs.ru/service/rest/v1/repositories/apt/proxy"
+        ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        method: POST
+        url_username: admin
+        url_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        body_format: json
+        body:
+          name: nvidia-toolkit-apt-proxy
+          online: true
+          storage:
+            blobStoreName: default
+            strictContentTypeValidation: true
+          apt:
+            distribution: stable
+            flat: false
+          proxy:
+            remoteUrl: https://nvidia.github.io/libnvidia-container
+            contentMaxAge: 1440
+            metadataMaxAge: 1440
+          negativeCache:
+            enabled: true
+            timeToLive: 1440
+          httpClient:
+            blocked: false
+            autoBlock: true
+        status_code: [201]
+
+    - name: "Nexus: создать gvisor-apt-proxy (если ещё нет)"
+      when: "'gvisor-apt-proxy' not in (platform_aicd_devops_labs_ru_nexus_repos.json | map(attribute='name') | list)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      no_log: true
+      failed_when: false
+      ansible.builtin.uri:
+        url: "https://nexus.aicd.devops-labs.ru/service/rest/v1/repositories/apt/proxy"
+        ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        method: POST
+        url_username: admin
+        url_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        body_format: json
+        body:
+          name: gvisor-apt-proxy
+          online: true
+          storage:
+            blobStoreName: default
+            strictContentTypeValidation: true
+          apt:
+            distribution: release
+            flat: false
+          proxy:
+            remoteUrl: https://storage.googleapis.com/gvisor/releases
+            contentMaxAge: 1440
+            metadataMaxAge: 1440
+          negativeCache:
+            enabled: true
+            timeToLive: 1440
+          httpClient:
+            blocked: false
+            autoBlock: true
+        status_code: [201]
+
+    - name: "Nexus: получить список существующих LDAP-серверов"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      ansible.builtin.uri:
+        url: "https://nexus.aicd.devops-labs.ru/service/rest/v1/security/ldap"
+        ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        method: GET
+        url_username: admin
+        url_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        return_content: true
+        status_code: [200]
+      register: platform_aicd_devops_labs_ru_nexus_ldap_servers
+      no_log: true
+
+    - name: "Nexus: создать LDAP-сервер freeipa (если ещё нет)"
+      when: "'freeipa' not in (platform_aicd_devops_labs_ru_nexus_ldap_servers.json | map(attribute='name') | list)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      no_log: true
+      ansible.builtin.uri:
+        url: "https://nexus.aicd.devops-labs.ru/service/rest/v1/security/ldap"
+        ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        method: POST
+        url_username: admin
+        url_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        body_format: json
+        body:
+          name: freeipa
+          protocol: LDAP
+          host: ipa.aicd.devops-labs.ru
+          port: 389
+          searchBase: "DC=aicd,DC=devops-labs,DC=ru"
+          authScheme: SIMPLE
+          authUsername: "UID=svc-nexus,CN=users,CN=accounts,DC=aicd,DC=devops-labs,DC=ru"
+          authPassword: "{{ hostvars['aicd-labs'].platform_aicd_devops_labs_ru_nexus_ldap_bind_password }}"
+          connectionTimeoutSeconds: 30
+          connectionRetryDelaySeconds: 30
+          maxIncidentsCount: 3
+          userBaseDn: "CN=users,CN=accounts"
+          userSubtree: true
+          userObjectClass: person
+          userLdapFilter: ""
+          userIdAttribute: uid
+          userRealNameAttribute: cn
+          userEmailAddressAttribute: mail
+          userPasswordAttribute: ""
+          groupType: dynamic
+          userMemberOfAttribute: memberOf
+        status_code: [201]
+
+    - name: "Nexus: активировать LDAP-realm"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      no_log: true
+      ansible.builtin.uri:
+        url: "https://nexus.aicd.devops-labs.ru/service/rest/v1/security/realms/active"
+        ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        method: PUT
+        url_username: admin
+        url_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        body_format: json
+        body: ["NexusAuthenticatingRealm", "NexusAuthorizingRealm", "LdapRealm"]
+        status_code: [204]
+
+    - name: "Containerd: зеркалировать docker.io через Nexus (registries.yaml)"
+      ansible.builtin.template:
+        src: templates/registries.yaml.j2
+        dest: /etc/rancher/k3s/registries.yaml
+        owner: root
+        group: root
+        mode: '0644'
+      notify: "Перезапустить k3s (подхватить registries.yaml)"
 
     # gitops-git-auth (flux-system) — basic-auth для Flux GitRepository "gitops"
     # (platform/aicd-devops-labs-ru/flux/gitrepository.yaml), тот же admin-аккаунт Gitea. Секрет заведён вручную
@@ -1744,6 +2143,15 @@
         line: "{{ hostvars['aicd-labs']['ansible_host'] }} gitea.aicd.devops-labs.ru"
         regexp: '\sgitea\.aicd\.devops-labs\.ru$'
 
+    # docs/adr/0018-internal-caching-proxy.md — тот же приём, что запись gitea выше: Nexus живёт
+    # на control-plane ноде (aicd-labs), llm1 должен достучаться до него по IP/hosts ДО своего
+    # join в кластер (apt-задачи k3s_gpu_node ниже и containerd на самом llm1 после join).
+    - name: "/etc/hosts: nexus-cache.aicd.devops-labs.ru (для apt/docker-кеша на llm1)"
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        line: "{{ hostvars['aicd-labs']['ansible_host'] }} nexus-cache.aicd.devops-labs.ru"
+        regexp: '\snexus-cache\.aicd\.devops-labs\.ru$'
+
     # Тот же CA, которым уже доверяет сама Gitea (Secret aicd-platform-ca, play выше) — без этого
     # containerd на llm1 не сможет затянуть образ по HTTPS ("certificate signed by unknown
     # authority"), TLS Gitea выпущен из этого внутреннего PKI CA OpenBao, а не публичного.
@@ -1756,9 +2164,34 @@
         mode: '0644'
       notify: "CA обновлён на llm1"
 
+    # apt_cache_url — /etc/hosts выше уже гарантирует резолвинг nexus-cache.aicd.devops-labs.ru
+    # с этого хоста ДО join в кластер (тот же приём, что gitea.aicd.devops-labs.ru).
     - name: Подготовить хост к работе с GPU (NVIDIA driver + toolkit + gVisor)
       ansible.builtin.include_role:
         name: k3s_gpu_node
+      vars:
+        k3s_gpu_node_apt_cache_url: "https://nexus-cache.aicd.devops-labs.ru"
+
+    # docs/adr/0018-internal-caching-proxy.md — containerd, встроенный в k3s-agent, читает
+    # registries.yaml на СВОЁМ первом старте (тот же принцип, что config.toml.tmpl для gVisor,
+    # ADR-0015) — пишем ДО первого запуска install-скрипта ниже, рестарт не нужен вовсе.
+    # /etc/rancher/k3s обычно создаётся самим install-скриптом k3s — на свежем хосте (до первого
+    # запуска) каталога ещё нет, а registries.yaml пишется именно ДО него (см. комментарий выше).
+    - name: "Каталог /etc/rancher/k3s"
+      ansible.builtin.file:
+        path: /etc/rancher/k3s
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: "Containerd: зеркалировать docker.io через Nexus (registries.yaml)"
+      ansible.builtin.template:
+        src: templates/registries.yaml.j2
+        dest: /etc/rancher/k3s/registries.yaml
+        owner: root
+        group: root
+        mode: '0644'
 
     - name: Скачать install-скрипт k3s
       ansible.builtin.get_url:
