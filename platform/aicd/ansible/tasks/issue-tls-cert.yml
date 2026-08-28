@@ -1,8 +1,15 @@
 ---
-# Один хост за вызов (item: {host, secret}) — вынесено из site.yml отдельным файлом, потому что
-# ansible.builtin.include_tasks поддерживает loop, а block — нет (docs/adr/0016-openbao-secrets-pki.md
-# §3, TLS-сертификаты выпускаются по одному на host). delegate_to/environment не наследуются
-# надёжно через include_tasks (в отличие от block) — заданы явно в каждой задаче ниже.
+# Один хост за вызов (item: {host, secret, [namespace]}) — вынесено из site.yml отдельным файлом,
+# потому что ansible.builtin.include_tasks поддерживает loop, а block — нет
+# (docs/adr/0016-openbao-secrets-pki.md §3, TLS-сертификаты выпускаются по одному на host).
+# delegate_to/environment не наследуются надёжно через include_tasks (в отличие от block) —
+# заданы явно в каждой задаче ниже.
+#
+# item.namespace — опционально, по умолчанию "platform" (все вызовы до docs/adr/0018 жили в этом
+# namespace). Secret обязан быть в ТОМ ЖЕ namespace, что и IngressRoute/Ingress, который на него
+# ссылается (Kubernetes Secret — namespace-scoped) — найдено реальным прогоном: grafana-tls
+# заведён этим циклом без namespace: monitoring, где реально живёт Ingress самого Grafana CR
+# (grafana-operator), из-за чего Secret создавался не там и не подхватывался.
 
 - name: "Проверить существование Secret {{ item.secret }}"
   delegate_to: localhost
@@ -14,7 +21,7 @@
   kubernetes.core.k8s_info:
     api_version: v1
     kind: Secret
-    namespace: platform
+    namespace: "{{ item.namespace | default('platform') }}"
     name: "{{ item.secret }}"
   register: platform_aicd_tls_secret_check
 
@@ -71,7 +78,7 @@
     state: present
     kind: Secret
     name: "{{ item.secret }}"
-    namespace: platform
+    namespace: "{{ item.namespace | default('platform') }}"
     definition:
       apiVersion: v1
       metadata:

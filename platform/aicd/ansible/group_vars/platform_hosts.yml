@@ -14,6 +14,10 @@
 # Gitea/Semaphore при попытке OIDC-discovery получали TLS-сертификат дефолтного хоста Traefik.
 platform_aicd_core_releases:
   - openbao
+  # nexus (docs/adr/0018-internal-caching-proxy.md) — кеширующий прокси, инфраструктурная
+  # зависимость для остальных релизов (снижает частоту обращений наружу за их образами), поэтому
+  # тоже здесь, а не в опциональных аддонах — и до gitea/semaphore ниже.
+  - nexus
   - authelia
   - gitea
   - semaphore

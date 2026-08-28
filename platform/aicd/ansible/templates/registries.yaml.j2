@@ -1,0 +1,11 @@
+{#
+  docs/adr/0018-internal-caching-proxy.md — зеркалирование docker.io через Nexus
+  (docker-hub-proxy). Нативный формат containerd/k3s (docs.k3s.io/installation/registry-mirror),
+  без правок кода — просто /etc/rancher/k3s/registries.yaml. nexus-cache — та же IngressRoute
+  Traefik, что и остальные хосты платформы, обычный 443 (PathPrefix(/v2) внутри маршрутизирует на
+  докер-коннектор Nexus, порт 8083 — деталь реализации, снаружи не видна).
+#}
+mirrors:
+  "docker.io":
+    endpoint:
+      - "https://nexus-cache.aicd.platform"
