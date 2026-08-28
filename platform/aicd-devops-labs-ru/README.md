@@ -201,3 +201,33 @@ DaemonSet, каркас namespace `llm`/`gateway`/`agents`/`data`/`obs`/`egress`
 `NetworkPolicy` в `agents` подтверждены живыми тестовыми подами (DNS резолвится, доступ к
 API-серверу кластера блокируется), повторный прогон `site.yml` полностью идемпотентен
 (`llm1: changed=0`).
+
+## Мониторинг (docs/adr/0017-platform-cicd-default-addons.md §4)
+
+Третий стандартный аддон, тот же приём, что `platform/aicd` (`vm` + `grafana-operator`, native
+OIDC через Authelia, `https://grafana.aicd.devops-labs.ru`) — см. README `platform/aicd` за общим
+описанием и полное обоснование в ADR-0017 §4 (почему не `roles/monitoring_server` напрямую, почему
+без Loki/`grafana-alloy`/VMAlert). RAM `aicd-labs` поднята 6000→8192 MiB.
+
+**Дополнительно только здесь — GPU-метрики llm1.** DaemonSet `dcgm-exporter` (по образцу
+`nvidia-device-plugin` выше), сознательно **без** `resources.limits.nvidia.com/gpu` — иначе
+единственная карта llm1 (`Allocatable nvidia.com/gpu: 1`) оказалась бы занята мониторингом и
+недоступна для реальных AI/agent workload'ов. Вместо этого — `NVIDIA_VISIBLE_DEVICES=all` в обход
+device-plugin allocation. Образ `nvidia/dcgm-exporter` — в отличие от `k8s-device-plugin`, есть
+актуально на Docker Hub напрямую, сборка из исходников не понадобилась — просто ретег/push в тот же
+Gitea-реестр (`gitea.aicd.devops-labs.ru/nvcr.io/...`).
+
+**Живой resize RAM (2026-08-28) — найдена и устранена старая проблема с hostname.** После resize
+control-plane нода перерегистрировалась в кластере под именем `aicd-devops-labs-ru` (реальный
+hostname гостя) вместо `aicd-labs`, под которым она была изначально видна `kubectl` — `var.vm_name`
+в Terraform уже был `"aicd-devops-labs-ru"` (переименование VM в Proxmox — update in place, не
+трогает hostname гостя, тот выставляется cloud-init только при первом запуске), то есть это старая,
+никем ранее не замеченная рассинхронизация, а не новый баг. Старый объект Node `aicd-labs` (kubelet
+перестал слать статус) удалён. В коде коллекции control-plane нода нигде не адресуется по имени
+(`kind: Node`/`k8s_taint` ссылаются только на `llm1`), только через ansible-инвентарь
+(`hostvars['aicd-labs']`) — переименование гостя ansible-логику не затрагивает.
+
+**Не проверено реальным прогоном** (в отличие от остального README, по состоянию на 2026-08-28) —
+push образа dcgm-exporter и `ansible-playbook site.yml` на этом стенде требуют сетевого доступа
+(порты 443/30820), недоступного из окружения, где велась разработка; см. ADR-0017 §4. Код
+провалидирован `ansible-lint --profile production` + `--syntax-check`.

@@ -289,3 +289,20 @@ OIDC-провайдер + `forwardAuth`-шлюз, Helm-релизом (`localrep
 ClusterIP-сервиса, см. ADR-0013 §7 для деталей и остальных находок (CoreDNS `hosts`/AAAA-NXDOMAIN,
 отсутствие `authelia` в `platform_aicd_core_releases`, `firewalld` не запущен на Rocky 9,
 доверие Gitea/Semaphore к внутреннему CA, gomplate-индентация PEM-ключа).
+
+## Мониторинг (docs/adr/0017-platform-cicd-default-addons.md §4)
+
+Третий стандартный аддон — `vm` (VictoriaMetrics Operator + `VMSingle`/`VMAgent`) +
+`grafana-operator` (`Grafana`/`GrafanaFolder` CR), namespace `monitoring`. Урезано относительно
+референсного k3s-пути `roles/monitoring_server` (`docs/adr/0007-monitoring-server-role.md` §6) —
+без Loki/`grafana-alloy`/VMAlert (тот стек рассчитан на внешние agent-хосты, здесь нужен только
+самомониторинг кластера), см. ADR-0017 §4 за полным обоснованием, почему роль `monitoring_server`
+сознательно не подключена напрямую. Grafana — native OIDC через Authelia (не forwardAuth, Grafana
+умеет OIDC сама), `https://grafana.aicd.platform`. RAM ноды `cicd` поднята 4096→6144 MiB
+(`platform/aicd/terraform/vms.tf`) под этот аддон — на прежних 4096 нода уже была на 43% реального
+потребления памяти без единого мониторингового пода (metrics-server, замер 2026-08-28).
+
+**Не проверено реальным прогоном** (в отличие от остального README) — `ansible-playbook site.yml`
+на этой сети упирается в блокировку `release-assets.githubusercontent.com` (`xanmanning.k3s`
+безусловно перепроверяет checksum k3s на каждом прогоне), см. ADR-0017 §4. Код провалидирован
+`ansible-lint --profile production` + `--syntax-check`, живой прогон — предстоит оператору.
