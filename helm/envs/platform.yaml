@@ -22,6 +22,16 @@ releases:
     tags: [openbao]
     version: 0.29.2
 
+  # docs/adr/0018-internal-caching-proxy.md — кеширующий прокси (Nexus Repository OSS),
+  # инфраструктурная зависимость для остальных релизов (снижает частоту обращений наружу за
+  # Docker/OCI-образами), поэтому в platform_aicd_core_releases, а не в опциональных аддонах, и
+  # намеренно перед gitea/semaphore ниже — их собственные образы уже могут пойти через кеш
+  # (registries.yaml настраивается тем же прогоном site.yml, что и этот релиз).
+  - name: nexus
+    namespace: cache
+    chart: localrepo/universal-chart
+    version: 2.8.1
+
   # depends_on: authelia — найдено реальным прогоном (ADR-0013): init-контейнер configure-gitea
   # делает `gitea admin auth add-oauth --auto-discover-url https://sso.aicd.platform/...` при
   # каждом старте; без явного depends_on helmwave не гарантирует, что Authelia (и её

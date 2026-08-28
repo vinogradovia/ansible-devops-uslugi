@@ -1,0 +1,93 @@
+# Nexus Repository OSS — кеширующий прокси платформы (docs/adr/0018-internal-caching-proxy.md).
+# Единственный образ на все нужные форматы (docker/apt/raw) вместо трёх отдельных лёгких сервисов
+# — компромисс с RAM принят осознанно, см. ADR §3.
+#
+# Два хоста: nexus.aicd.devops-labs.ru (человеческий UI, LDAP-логин платформенной учёткой, ADR §5) и
+# nexus-cache.aicd.devops-labs.ru (docker/apt/raw proxy-эндпоинты для containerd/apt/xanmanning.k3s —
+# анонимный pull, без какой-либо аутентификации, иначе автоматизация не сможет ничего забрать).
+#
+# INSTALL4J_ADD_VM_PARAMS — штатный способ образа sonatype/nexus3 настроить JVM heap. Подобрано
+# под resources.limits.memory ниже (4Gi) — если увидим OOMKilled, поднять оба вместе.
+deployments:
+  nexus:
+    containers:
+      - name: nexus
+        image: sonatype/nexus3
+        imageTag: "3.95.3"
+        env:
+          - name: INSTALL4J_ADD_VM_PARAMS
+            value: "-Xms1200m -Xmx1200m -XX:MaxDirectMemorySize=2g"
+        ports:
+          - name: http-ui
+            containerPort: 8081
+          # Docker-формат Nexus требует отдельный HTTP-коннектор — не может отдавать Docker
+          # Registry V2 API с того же порта, что UI/apt/raw (задокументированное ограничение
+          # Nexus, ADR §4). Сам коннектор настраивается позже через REST API (bootstrap-задача
+          # site.yml) — порт здесь просто заранее объявлен в контейнере/Service.
+          - name: http-docker
+            containerPort: 8083
+        volumeMounts:
+          - name: nexus-data
+            mountPath: /nexus-data
+        resources:
+          requests:
+            memory: "3Gi"
+            cpu: "500m"
+          limits:
+            memory: "4Gi"
+            cpu: "2000m"
+    volumes:
+      - name: nexus-data
+        type: pvc
+
+# 10Gi — консервативно (свободного диска на ноде немного, тот же принцип, что vmsingle.yaml
+# монитринга) — кеш образов/пакетов/бинарей растёт постепенно, не сразу; расширить, если станет
+# тесно (реальное потребление видно через сам Nexus UI, Repository Health Check).
+pvcs:
+  nexus-data:
+    accessModes:
+      - ReadWriteOnce
+    size: 10Gi
+    storageClassName: local-path
+
+services:
+  nexus:
+    ports:
+      - name: http-ui
+        port: 8081
+      - name: http-docker
+        port: 8083
+
+ingressroutes:
+  # Человеческий UI — LDAP-логин платформенной учёткой (ADR §5), без forwardAuth-Middleware
+  # (Nexus OSS не умеет нативный OIDC, но умеет LDAP — тот же каталог, что Authelia).
+  nexus-ui:
+    entryPoints:
+      - websecure
+    routes:
+      "Host(`nexus.aicd.devops-labs.ru`)":
+        services:
+          nexus-nexus:
+            port: 8081
+    tls:
+      secretName: nexus-tls
+
+  # Машинные эндпоинты — анонимный pull, PathPrefix(/v2) уходит на отдельный docker-коннектор,
+  # остальное (apt/raw через /repository/...) — на основной порт. priority — явно, не полагаемся
+  # на автоматическую специфичность правил Traefik.
+  nexus-cache:
+    entryPoints:
+      - websecure
+    routes:
+      "Host(`nexus-cache.aicd.devops-labs.ru`) && PathPrefix(`/v2`)":
+        priority: 100
+        services:
+          nexus-nexus:
+            port: 8083
+      "Host(`nexus-cache.aicd.devops-labs.ru`)":
+        priority: 1
+        services:
+          nexus-nexus:
+            port: 8081
+    tls:
+      secretName: nexus-cache-tls

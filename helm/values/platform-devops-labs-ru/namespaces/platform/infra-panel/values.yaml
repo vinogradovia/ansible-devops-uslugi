@@ -36,6 +36,16 @@ configMaps:
               - name: SSO (Authelia)
                 url: https://sso.aicd.devops-labs.ru/
                 target: _blank
+              # docs/adr/0017 §4 — тот же приём auto-redirect на OIDC-логин, что Gitea/Semaphore
+              # выше (Grafana login route generic_oauth инициирует OIDC-флоу через Authelia сразу).
+              - name: Grafana
+                url: https://grafana.aicd.devops-labs.ru/login/generic_oauth
+                target: _blank
+              # docs/adr/0018 — Nexus логинится по LDAP собственной формой (не OIDC-редирект, как
+              # Gitea/Semaphore/Grafana выше) — ссылка на обычный корень UI.
+              - name: Nexus
+                url: https://nexus.aicd.devops-labs.ru/
+                target: _blank
 
 deployments:
   infra-panel:

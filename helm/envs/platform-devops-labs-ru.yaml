@@ -21,6 +21,13 @@ releases:
     tags: [openbao]
     version: 0.29.2
 
+  # docs/adr/0018-internal-caching-proxy.md — кеширующий прокси (Nexus Repository OSS), тот же
+  # приём, что helm/envs/platform.yaml.
+  - name: nexus
+    namespace: cache
+    chart: localrepo/universal-chart
+    version: 2.8.1
+
   # depends_on: authelia — ADR-0013 §7: init-контейнер configure-gitea делает HTTPS-вызов к
   # Authelia на каждом старте, нужна её готовность (Pod Ready) раньше.
   - name: gitea
