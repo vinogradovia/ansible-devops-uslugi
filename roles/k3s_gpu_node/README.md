@@ -36,6 +36,15 @@ k3s сканирует `PATH` на исполняемые файлы NVIDIA-ра
 драйвера должна соответствовать конкретной модели карты — единого правильного номера для всей
 коллекции нет. Явный пин драйвера — через override `k3s_gpu_node_nvidia_driver_package`.
 
+## Кеширующий прокси (опционально)
+
+`k3s_gpu_node_apt_cache_url` (пусто по умолчанию) — перенаправляет apt-источники
+nvidia-container-toolkit/gVisor через кеширующий прокси платформы (Nexus apt-proxy,
+[`docs/adr/0018-internal-caching-proxy.md`](../../docs/adr/0018-internal-caching-proxy.md)),
+если он задан. GPG-ключи всегда качаются напрямую (маленькие файлы, один раз). Пустое значение
+(дефолт) не меняет поведение роли — обычный прямой доступ к `nvidia.github.io`/
+`storage.googleapis.com`.
+
 ## Не проверено реальным прогоном
 
 Путь плагина containerd в `templates/containerd-config.toml.tmpl.j2`

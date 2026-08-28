@@ -21,11 +21,16 @@
     group: root
     mode: '0644'
 
+# docs/adr/0018-internal-caching-proxy.md — k3s_gpu_node_apt_cache_url (пусто по умолчанию)
+# перенаправляет путь пакетов через Nexus apt-proxy платформы; GPG-ключ выше всегда качается
+# напрямую (маленький файл, один раз).
 - name: "[gvisor] Подключить репозиторий gVisor (канал release)"
   ansible.builtin.apt_repository:
     repo: >-
       deb [arch={{ k3s_gpu_node_gvisor_repo_arch }} signed-by=/usr/share/keyrings/gvisor-archive-keyring.asc]
-      {{ k3s_gpu_node_gvisor_repo_base_url }} release main
+      {{ k3s_gpu_node_apt_cache_url + '/repository/gvisor-apt-proxy'
+         if k3s_gpu_node_apt_cache_url | length > 0
+         else k3s_gpu_node_gvisor_repo_base_url }} release main
     state: present
     filename: gvisor
     update_cache: true

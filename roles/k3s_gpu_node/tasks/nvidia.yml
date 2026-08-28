@@ -93,6 +93,15 @@
     regexp: '^deb https://'
     replace: 'deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.asc] https://'
 
+# docs/adr/0018-internal-caching-proxy.md — GPG-ключ выше всегда качается напрямую (маленький
+# файл, один раз, кешировать не имеет смысла) — перенаправляется только сам путь пакетов.
+- name: "[nvidia] Перенаправить репозиторий через кеширующий прокси платформы (если задан)"
+  when: k3s_gpu_node_apt_cache_url | length > 0
+  ansible.builtin.replace:
+    path: /etc/apt/sources.list.d/nvidia-container-toolkit.list
+    regexp: 'https://nvidia\.github\.io/libnvidia-container'
+    replace: "{{ k3s_gpu_node_apt_cache_url }}/repository/nvidia-toolkit-apt-proxy"
+
 - name: "[nvidia] Установить nvidia-container-toolkit"
   ansible.builtin.apt:
     name: nvidia-container-toolkit

@@ -32,6 +32,14 @@ k3s_gpu_node_gvisor_repo_gpg_url: "https://gvisor.dev/archive.key"
 k3s_gpu_node_gvisor_repo_base_url: "https://storage.googleapis.com/gvisor/releases"
 k3s_gpu_node_gvisor_repo_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}.get(ansible_architecture, ansible_architecture) }}"
 
+# docs/adr/0018-internal-caching-proxy.md — опционально перенаправляет apt-источники
+# nvidia-container-toolkit/gVisor через кеширующий прокси платформы (Nexus apt-proxy). Пусто по
+# умолчанию — роль остаётся рабочей без изменений для всех остальных потребителей коллекции
+# (прямой доступ к nvidia.github.io/storage.googleapis.com, как и раньше). Значение — базовый URL
+# Nexus (например "https://nexus-cache.aicd.devops-labs.ru"), путь до конкретного proxy-repo
+# добавляется в местах использования (nvidia.yml/gvisor.yml).
+k3s_gpu_node_apt_cache_url: ""
+
 # Путь к ШАБЛОНУ конфига containerd k3s (не системного containerd — k3s использует собственный
 # embedded containerd с отдельным конфигом). k3s читает config.toml.tmpl (если он существует) при
 # генерации своего config.toml — это происходит на первом же старте сервиса, поэтому каталог/файл
