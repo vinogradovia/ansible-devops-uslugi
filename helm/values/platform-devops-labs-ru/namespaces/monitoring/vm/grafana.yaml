@@ -1,0 +1,30 @@
+# Встроенный в чарт vm под-релиз Grafana выключен (grafana.enabled: false, values.yaml) —
+# реальная Grafana ставится отдельным релизом grafana-operator (../grafana-operator/values.yaml),
+# датасорсы заводятся как CRD (GrafanaDatasource), потребляются по label dashboards=grafana —
+# тот же приём, что helm/values/k3s-monitoring/namespaces/monitoring/vm/grafana.yaml.
+grafana:
+  enabled: false
+  forceDeployDatasource: true
+
+defaultDatasources:
+  grafanaOperator:
+    enabled: true
+    annotations: {}
+    spec:
+      instanceSelector:
+        matchLabels:
+          dashboards: grafana
+      allowCrossNamespaceImport: false
+  victoriametrics:
+    perReplica: false
+    datasources:
+      - name: VictoriaMetrics
+        type: prometheus
+        access: proxy
+        isDefault: true
+  # Нет alertmanager в v1 (../values.yaml, alertmanager.enabled: false) — пустой список вместо
+  # референсной записи, иначе датасорс ссылался бы на несуществующий сервис.
+  alertmanager:
+    perReplica: false
+    datasources: []
+  extra: []

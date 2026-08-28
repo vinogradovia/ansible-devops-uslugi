@@ -1,0 +1,122 @@
+# grafana-operator + Grafana CR — docs/adr/0017-platform-cicd-default-addons.md, третий
+# стандартный аддон. Native OIDC через Authelia (как Gitea/Semaphore — ADR-0013 §5/§7), не
+# forwardAuth-Middleware (тот приём — только для tools без собственной аутентификации, Radar/
+# infra-panel, ADR-0017 §1): Grafana умеет OIDC сама.
+#
+# ВНИМАНИЕ: этот файл целиком — gomplate-шаблон (helmwave --templater gomplate, тот же приём,
+# что helm/values/platform/namespaces/platform/semaphore/values.yaml) — не используйте парные
+# квадратные скобки нигде в этом файле, даже в комментариях.
+[[ defineDatasource "vault_authelia" "vault:///secret/data/authelia" ]]
+
+image:
+  registry: ghcr.io
+  repository: grafana/grafana-operator
+  pullPolicy: IfNotPresent
+  tag: "v5.22.0"
+
+# Служебный дашборд метрик самого оператора — не нужен в v1 (нет ServiceMonitor/vmServiceScrape
+# на сам оператор, минимизируем).
+dashboard:
+  enabled: false
+
+extraObjects:
+  - apiVersion: grafana.integreatly.org/v1beta1
+    kind: Grafana
+    metadata:
+      name: grafana
+      labels:
+        dashboards: "grafana"
+    spec:
+      config:
+        log:
+          mode: "console"
+        # client_secret — plaintext (secret/authelia, поле grafana_client_secret), не хэш:
+        # хэш (pbkdf2-sha512) нужен только конфигу самой Authelia (см. site.yml, тот же приём,
+        # что gitea_client_secret_hash/semaphore_client_secret_hash).
+        #
+        # token_endpoint_auth_method на стороне Authelia (helm/values/*/namespaces/platform/
+        # authelia/values.yaml) выставлен client_secret_basic (задокументированный дефолт
+        # Grafana для generic_oauth) — если реальный логин упадёт на invalid_client (тот же класс
+        # находки, что у Semaphore, ADR-0013 §7), сверить и поправить на client_secret_post.
+        auth.generic_oauth:
+          enabled: "true"
+          name: Authelia
+          client_id: grafana
+          client_secret: '[[ (ds "vault_authelia").data.grafana_client_secret ]]'
+          scopes: "openid profile email"
+          auth_url: https://sso.aicd.platform/api/oidc/authorization
+          token_url: https://sso.aicd.platform/api/oidc/token
+          api_url: https://sso.aicd.platform/api/oidc/userinfo
+          redirect_uri: https://grafana.aicd.platform/login/generic_oauth
+          use_pkce: "true"
+      # Реальный пароль — Secret grafana-admin-credentials-custom (site.yml, из secret/grafana
+      # в OpenBao), не автосгенерированный секрет оператора.
+      disableDefaultAdminSecret: true
+      ingress:
+        spec:
+          ingressClassName: traefik
+          rules:
+            - host: grafana.aicd.platform
+              http:
+                paths:
+                  - path: /
+                    pathType: Prefix
+                    backend:
+                      service:
+                        name: grafana-service
+                        port:
+                          number: 3000
+          tls:
+            - secretName: grafana-tls
+              hosts:
+                - grafana.aicd.platform
+      persistentVolumeClaim:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 1Gi
+      deployment:
+        spec:
+          template:
+            spec:
+              containers:
+                - name: grafana
+                  env:
+                    - name: GF_SECURITY_ADMIN_USER
+                      valueFrom:
+                        secretKeyRef:
+                          name: grafana-admin-credentials-custom
+                          key: GF_SECURITY_ADMIN_USER
+                    - name: GF_SECURITY_ADMIN_PASSWORD
+                      valueFrom:
+                        secretKeyRef:
+                          name: grafana-admin-credentials-custom
+                          key: GF_SECURITY_ADMIN_PASSWORD
+                    # Доверие к внутреннему PKI CA OpenBao — без этого обмен OIDC-токеном с
+                    # https://sso.aicd.platform падает на "certificate signed by unknown
+                    # authority" (тот же найденный класс проблемы, что у Gitea/Semaphore,
+                    # см. их values.yaml).
+                    - name: SSL_CERT_FILE
+                      value: /etc/ssl/certs/aicd-platform-ca.pem
+                  volumeMounts:
+                    - name: aicd-platform-ca
+                      mountPath: /etc/ssl/certs/aicd-platform-ca.pem
+                      subPath: ca.pem
+              volumes:
+                - name: aicd-platform-ca
+                  secret:
+                    secretName: aicd-platform-ca
+          strategy:
+            type: Recreate
+
+  - apiVersion: grafana.integreatly.org/v1beta1
+    kind: GrafanaFolder
+    metadata:
+      name: addons
+    spec:
+      instanceSelector:
+        matchLabels:
+          dashboards: "grafana"
+      title: ADDONS

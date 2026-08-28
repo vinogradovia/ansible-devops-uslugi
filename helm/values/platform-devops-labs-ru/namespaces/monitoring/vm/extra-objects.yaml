@@ -1,0 +1,22 @@
+# Только platform-devops-labs-ru — GPU-нода llm1 (ADR-0015) существует только в этом окружении.
+# VMPodScrape (CRD victoria-metrics-operator) вместо vmScrape встроенного в чарт механизма —
+# dcgm-exporter не часть ни одного под-чарта vm/victoria-metrics-k8s-stack, разворачивается
+# отдельным DaemonSet в site.yml (по образцу nvidia-device-plugin, kube-system, nodeSelector
+# llm1) — нужен явный scrape-объект, ссылающийся на его pod-label.
+extraObjects:
+  - apiVersion: operator.victoriametrics.com/v1beta1
+    kind: VMPodScrape
+    metadata:
+      name: dcgm-exporter
+      namespace: monitoring
+    spec:
+      namespaceSelector:
+        matchNames:
+          - kube-system
+      selector:
+        matchLabels:
+          app.kubernetes.io/name: dcgm-exporter
+      podMetricsEndpoints:
+        - port: metrics
+          path: /metrics
+          interval: 30s

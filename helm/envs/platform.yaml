@@ -98,3 +98,30 @@ releases:
     namespace: platform
     chart: localrepo/universal-chart
     version: 2.8.1
+
+  # docs/adr/0017-platform-cicd-default-addons.md — третий стандартный аддон: мониторинг
+  # (VictoriaMetrics Operator + VMSingle/VMAgent), урезанная версия референсного стека
+  # helm/envs/k3s-monitoring.yaml (docs/adr/0007-monitoring-server-role.md §6/§11) — без
+  # vmalert/alertmanager/Loki/grafana-alloy (см. ADR-0017 «Почему не roles/monitoring_server» —
+  # тот стек рассчитан на приём метрик с внешних agent-хостов, здесь нужен только
+  # self-мониторинг этого же кластера). grafana-operator должен быть готов раньше — этот релиз
+  # через defaultDatasources.grafanaOperator создаёт GrafanaDatasource (CRD grafana.integreatly.org,
+  # см. ADR-0007 §6 про гонку на CRD без depends_on).
+  - name: vm
+    namespace: monitoring
+    chart: vm/victoria-metrics-k8s-stack
+    version: 0.69.0
+    depends_on:
+      - name: grafana-operator
+    values:
+      - vmsingle.yaml
+      - grafana.yaml
+
+  # grafana-operator + Grafana CR — native OIDC через Authelia (не forwardAuth, Grafana умеет
+  # OIDC сама, ADR-0017). client_secret читается gomplate vault:// из secret/authelia
+  # (grafana_client_secret) — тот же путь, что уже открыт scoped-политике
+  # aicd-platform-render для gitea/semaphore выше, менять политику не нужно.
+  - name: grafana-operator
+    namespace: monitoring
+    chart: oci://ghcr.io/grafana/helm-charts/grafana-operator
+    version: 5.22.0

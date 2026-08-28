@@ -1,0 +1,204 @@
+# Мониторинг платформенного k3s-кластера (docs/adr/0017-platform-cicd-default-addons.md, третий
+# стандартный аддон) — VictoriaMetrics Operator + VMSingle + VMAgent, self-мониторинг ноды(нод)
+# этого же кластера. Урезано относительно референса helm/values/k3s-monitoring/namespaces/
+# monitoring/vm/values.yaml (docs/adr/0007-monitoring-server-role.md §6/§11 — тот референс
+# рассчитан на приём метрик с ВНЕШНИХ agent-хостов через file_sd, требует ~6Gi RAM только под
+# монит.-стек): без vmalert/alertmanager (нет обоснованного бюджета памяти под ещё пару
+# сервисов при текущей плотности — см. README/ADR), без file_sd volume/volumeMounts
+# (vm-filesd-* ConfigMap'ы создаёт monitoring_agent для внешних хостов — здесь их нет и не
+# будет), grafana — отдельным релизом grafana-operator (см. ../grafana-operator/values.yaml).
+global:
+  cluster:
+    dnsDomain: cluster.local.
+  clusterLabel: "aicd-devops-labs-ru"
+
+victoria-metrics-operator:
+  enabled: true
+  crds:
+    plain: true
+    cleanup:
+      enabled: true
+      image:
+        repository: rancher/kubectl
+        pullPolicy: IfNotPresent
+  admissionWebhooks:
+    enabled: false
+  securityContext:
+    enabled: false
+  podSecurityContext:
+    enabled: false
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
+
+vmagent:
+  enabled: true
+  spec:
+    replicaCount: 1
+    port: "8429"
+    remoteWrite:
+      - url: "http://vmsingle-vm:8428/api/v1/write"
+    scrapeInterval: "30s"
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "150m"
+      limits:
+        memory: "512Mi"
+        cpu: "500m"
+    securityContext:
+      enabled: false
+    serviceSpec:
+      metadata:
+        name: vmagent
+      spec:
+        type: ClusterIP
+        ports:
+          - name: http
+            port: 8429
+            targetPort: 8429
+            protocol: TCP
+  # Без внешнего ingress — vmagent/VictoriaMetrics не публикуются наружу в v1, единственная
+  # публичная точка входа мониторинга — Grafana (../grafana-operator/values.yaml).
+  ingress:
+    enabled: false
+
+# Нет vmalert в v1 — некому оправдать ещё пару сервисов при текущей плотности памяти узла
+# (README/ADR-0017). VMRule'ы без vmalert не оценивались бы — поэтому и стандартные группы
+# правил чарта тоже не создаём.
+defaultRules:
+  create: false
+
+vmalert:
+  enabled: false
+
+alertmanager:
+  enabled: false
+
+vmsingle:
+  enabled: false
+  # конфигурация — в vmsingle.yaml (отдельный values-файл релиза)
+
+grafana:
+  enabled: false
+  # реальная Grafana — отдельный релиз grafana-operator, см. grafana.yaml (датасорсы/wiring)
+
+vmcluster:
+  enabled: false
+
+defaultDashboards:
+  enabled: true
+  defaultTimezone: europe/moscow
+  grafanaOperator:
+    enabled: true
+    spec:
+      instanceSelector:
+        matchLabels:
+          dashboards: grafana
+      allowCrossNamespaceImport: true
+  dashboards:
+    victoriametrics-operator:
+      enabled: true
+    node-exporter-full:
+      enabled: true
+
+# node-exporter/kube-state-metrics/kubelet(cAdvisor) — штатные in-cluster сорсы чарта, ничего
+# внешнего. DaemonSet node-exporter не получает toleration на taint dedicated=agents (ADR-0015)
+# — на llm1 не планируется, ГPU-нода мониторится отдельно (dcgm-exporter, см. site.yml).
+prometheus-node-exporter:
+  enabled: true
+  vmScrape:
+    enabled: true
+    spec:
+      jobLabel: jobLabel
+      selector:
+        matchLabels:
+          app.kubernetes.io/name: '{{ include "prometheus-node-exporter.name" (index .Subcharts "prometheus-node-exporter") }}'
+      endpoints:
+        - port: "metrics"
+          metricRelabelConfigs:
+            - action: drop
+              source_labels: [mountpoint]
+              regex: "/var/lib/kubelet/pods.+"
+
+kube-state-metrics:
+  enabled: true
+  vmScrape:
+    enabled: true
+    spec:
+      selector:
+        matchLabels:
+          app.kubernetes.io/name: '{{ include "kube-state-metrics.name" (index .Subcharts "kube-state-metrics") }}'
+          app.kubernetes.io/instance: '{{ include "vm.release" . }}'
+      endpoints:
+        - port: http
+          honorLabels: true
+          metricRelabelConfigs:
+            - action: labeldrop
+              regex: (uid|container_id|image_id)
+      jobLabel: app.kubernetes.io/name
+
+kubelet:
+  enabled: true
+  vmScrapes:
+    cadvisor:
+      enabled: true
+      spec:
+        path: /metrics/cadvisor
+    probes:
+      enabled: false
+    resources:
+      enabled: false
+  vmScrape:
+    kind: VMNodeScrape
+    spec:
+      scheme: "https"
+      honorLabels: true
+      interval: "30s"
+      scrapeTimeout: "5s"
+      tlsConfig:
+        insecureSkipVerify: true
+        caFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      relabelConfigs:
+        - action: labelmap
+          regex: __meta_kubernetes_node_label_(.+)
+        - sourceLabels: [__metrics_path__]
+          targetLabel: metrics_path
+        - targetLabel: job
+          replacement: kubelet
+      honorTimestamps: false
+
+coreDns:
+  enabled: true
+  service:
+    enabled: true
+    port: 9153
+    targetPort: 9153
+    selector:
+      k8s-app: kube-dns
+  vmScrape:
+    enabled: true
+    spec:
+      jobLabel: jobLabel
+      namespaceSelector:
+        matchNames: []
+      endpoints:
+        - port: http-metrics
+          bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+
+# Control-plane компоненты k3s не выставляют отдельные Service тем же способом, что kubeadm-
+# кластеры (референс helm/values/k3s-monitoring/.../vm/values.yaml тоже держит это выключенным,
+# с чужими hardcoded IP примера) — не подключаем в v1.
+kubeApiServer:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeEtcd:
+  enabled: false

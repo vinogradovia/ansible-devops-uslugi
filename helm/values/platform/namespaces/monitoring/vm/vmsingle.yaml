@@ -1,0 +1,25 @@
+# storageClassName не указываем — используем штатный кластерный "local-path" как есть
+# (Gitea/OpenBao уже держат там свои PVC, отдельный StorageClass под мониторинг не заводим,
+# см. docs/adr/0017-platform-cicd-default-addons.md, «Почему не roles/monitoring_server»).
+# storage: 5Gi — не референсные 20Gi (helm/values/k3s-monitoring/...), свободного диска на ноде
+# мало (32G на момент внедрения, 2026-08-28).
+vmsingle:
+  labels: {}
+  annotations: {}
+  enabled: true
+  spec:
+    port: "8428"
+    retentionPeriod: "1"
+    replicaCount: 1
+    extraArgs:
+      maxLabelsPerTimeseries: "50"
+    storage:
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: 5Gi
+  # Без внешнего ingress в v1 — см. ../vm/values.yaml (vmagent.ingress.enabled: false), тот же
+  # принцип: единственная публичная точка входа — Grafana.
+  ingress:
+    enabled: false
