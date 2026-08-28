@@ -712,6 +712,46 @@
                 admin_password: "{{ lookup('ansible.builtin.password', '/dev/null', length=24) }}"
             status_code: [200, 204]
 
+        # docs/adr/0017-platform-cicd-default-addons.md — третий аддон (мониторинг), тот же
+        # приём, что platform/aicd/ansible/site.yml.
+        - name: "OpenBao: проверить наличие secret/grafana"
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/grafana"
+            ca_path: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
+            method: GET
+            headers:
+              X-Vault-Token: "{{ platform_aicd_devops_labs_ru_openbao_root_token }}"
+            status_code: [200, 404]
+          register: platform_aicd_devops_labs_ru_openbao_secret_grafana
+          no_log: true
+
+        - name: "OpenBao: сгенерировать и записать secret/grafana (только при первом прогоне)"
+          when: platform_aicd_devops_labs_ru_openbao_secret_grafana.status == 404
+          no_log: true
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/grafana"
+            ca_path: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
+            method: POST
+            headers:
+              X-Vault-Token: "{{ platform_aicd_devops_labs_ru_openbao_root_token }}"
+            body_format: json
+            body:
+              data:
+                admin_user: admin
+                admin_password: "{{ lookup('ansible.builtin.password', '/dev/null', length=24) }}"
+            status_code: [200, 204]
+
+        - name: "OpenBao: прочитать secret/grafana (значение нужно ниже по playbook)"
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/grafana"
+            ca_path: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
+            method: GET
+            headers:
+              X-Vault-Token: "{{ platform_aicd_devops_labs_ru_openbao_root_token }}"
+            status_code: [200]
+          register: platform_aicd_devops_labs_ru_openbao_secret_grafana_read
+          no_log: true
+
         # ADR-0013 §1 — пароли Directory Manager/admin для persistent freeipa (единый каталог
         # для Authelia), тот же идемпотентный приём, что secret/gitea/secret/radar выше.
         - name: "OpenBao: проверить наличие secret/freeipa"
@@ -805,6 +845,29 @@
                 ldap_bind_password: "{{ lookup('ansible.builtin.password', '/dev/null', length=32) }}"
                 gitea_client_secret: "{{ lookup('ansible.builtin.password', '/dev/null', length=48) }}"
                 semaphore_client_secret: "{{ lookup('ansible.builtin.password', '/dev/null', length=48) }}"
+                grafana_client_secret: "{{ lookup('ansible.builtin.password', '/dev/null', length=48) }}"
+            status_code: [200, 204]
+
+        # Ретрофит для уже забутстрапленного secret/authelia — тот же приём, что
+        # platform/aicd/ansible/site.yml.
+        - name: "OpenBao: добавить grafana_client_secret в существующий secret/authelia (docs/adr/0017)"
+          when: >-
+            platform_aicd_devops_labs_ru_openbao_secret_authelia.status == 200
+            and 'grafana_client_secret' not in platform_aicd_devops_labs_ru_openbao_secret_authelia.json.data.data
+          no_log: true
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/authelia"
+            ca_path: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
+            method: POST
+            headers:
+              X-Vault-Token: "{{ platform_aicd_devops_labs_ru_openbao_root_token }}"
+            body_format: json
+            body:
+              data: >-
+                {{
+                  platform_aicd_devops_labs_ru_openbao_secret_authelia.json.data.data
+                  | combine({'grafana_client_secret': lookup('ansible.builtin.password', '/dev/null', length=48)})
+                }}
             status_code: [200, 204]
 
         - name: "OpenBao: прочитать secret/authelia (значения нужны ниже по playbook)"
@@ -880,13 +943,55 @@
                 }}
             status_code: [200, 204]
 
+        # Ретрофит для Grafana (docs/adr/0017) — тот же приём, что platform/aicd/ansible/site.yml.
+        - name: "Authelia: посчитать pbkdf2-хэш client_secret для Grafana (только пока его нет)"
+          when: "'grafana_client_secret_hash' not in platform_aicd_devops_labs_ru_openbao_secret_authelia_read.json.data.data"
+          no_log: true
+          ansible.builtin.command:
+            argv:
+              - docker
+              - run
+              - --rm
+              - "authelia/authelia:4.39.20"
+              - authelia
+              - crypto
+              - hash
+              - generate
+              - pbkdf2
+              - --variant
+              - sha512
+              - --password
+              - "{{ platform_aicd_devops_labs_ru_openbao_secret_authelia_read.json.data.data.grafana_client_secret }}"
+          register: platform_aicd_devops_labs_ru_authelia_grafana_client_secret_hash_raw
+          changed_when: false
+
+        - name: "Authelia: сохранить посчитанный хэш Grafana в secret/authelia (только пока его нет)"
+          when: "'grafana_client_secret_hash' not in platform_aicd_devops_labs_ru_openbao_secret_authelia_read.json.data.data"
+          no_log: true
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/authelia"
+            ca_path: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
+            method: POST
+            headers:
+              X-Vault-Token: "{{ platform_aicd_devops_labs_ru_openbao_root_token }}"
+            body_format: json
+            body:
+              data: >-
+                {{
+                  platform_aicd_devops_labs_ru_openbao_secret_authelia_read.json.data.data
+                  | combine({
+                      'grafana_client_secret_hash': platform_aicd_devops_labs_ru_authelia_grafana_client_secret_hash_raw.stdout | regex_search('(?<=Digest: ).+'),
+                  })
+                }}
+            status_code: [200, 204]
+
         # TLS-сертификаты — перевыпускаются автоматически при приближении к сроку истечения
         # (docs/adr/0016-openbao-secrets-pki.md §4, аннотация renew-after-epoch в
         # tasks/issue-tls-cert.yml), TTL 2160h (90 дней), renew за 30 дней до истечения.
         # openbao.aicd.devops-labs.ru/openbao-ingress-tls — docs/adr/0017-platform-cicd-default-addons.md
         # §3, внешний Ingress-сертификат OpenBao (отдельный от внутреннего bootstrap-сертификата
         # openbao-server-tls самого listener'а).
-        - name: "OpenBao: выпустить/перевыпустить TLS-сертификаты (gitea, semaphore, radar, infra-panel, openbao, authelia)"
+        - name: "OpenBao: выпустить/перевыпустить TLS-сертификаты (gitea, semaphore, radar, infra-panel, openbao, authelia, grafana)"
           no_log: true
           ansible.builtin.include_tasks: tasks/issue-tls-cert.yml
           loop:
@@ -896,6 +1001,7 @@
             - {host: infra-panel.aicd.devops-labs.ru, secret: infra-panel-tls}
             - {host: openbao.aicd.devops-labs.ru, secret: openbao-ingress-tls}
             - {host: sso.aicd.devops-labs.ru, secret: authelia-tls}
+            - {host: grafana.aicd.devops-labs.ru, secret: grafana-tls}
           loop_control:
             label: "{{ item.host }}"
 
@@ -1162,6 +1268,71 @@
           type: Opaque
           stringData:
             ca.pem: "{{ platform_aicd_devops_labs_ru_pki_ca_pem.content }}"
+
+    # docs/adr/0017-platform-cicd-default-addons.md — третий аддон (мониторинг), тот же приём и
+    # порядок (namespace → Secret'ы → Helmwave up), что platform/aicd/ansible/site.yml.
+    - name: "Namespace monitoring"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        KUBECONFIG: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+      kubernetes.core.k8s:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        name: monitoring
+        api_version: v1
+        kind: Namespace
+        state: present
+
+    - name: "Secret aicd-platform-ca в namespace monitoring (для OIDC-обмена Grafana с Authelia)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        KUBECONFIG: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+      kubernetes.core.k8s:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        state: present
+        kind: Secret
+        name: aicd-platform-ca
+        namespace: monitoring
+        definition:
+          apiVersion: v1
+          metadata:
+            labels:
+              app.kubernetes.io/managed-by: ansible
+          type: Opaque
+          stringData:
+            ca.pem: "{{ platform_aicd_devops_labs_ru_pki_ca_pem.content }}"
+
+    - name: "Secret grafana-admin-credentials-custom (пароль из secret/grafana в OpenBao)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      no_log: true
+      environment:
+        KUBECONFIG: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+      kubernetes.core.k8s:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        state: present
+        kind: Secret
+        name: grafana-admin-credentials-custom
+        namespace: monitoring
+        definition:
+          apiVersion: v1
+          metadata:
+            labels:
+              app.kubernetes.io/managed-by: ansible
+          type: Opaque
+          stringData:
+            GF_SECURITY_ADMIN_USER: "{{ platform_aicd_devops_labs_ru_openbao_secret_grafana_read.json.data.data.admin_user }}"
+            GF_SECURITY_ADMIN_PASSWORD: "{{ platform_aicd_devops_labs_ru_openbao_secret_grafana_read.json.data.data.admin_password }}"
 
     # docs/adr/0017-platform-cicd-default-addons.md — --tags ограничивает второй helmwave up
     # обязательными релизами (platform_aicd_devops_labs_ru_core_releases) плюс включённым набором аддонов
@@ -1786,6 +1957,68 @@
                   - name: device-plugin
                     hostPath:
                       path: /var/lib/kubelet/device-plugins
+
+    # docs/adr/0017-platform-cicd-default-addons.md — GPU-метрики llm1 для мониторинга
+    # (VMPodScrape — helm/values/platform-devops-labs-ru/namespaces/monitoring/vm/extra-objects.yaml).
+    # nvcr.io заблокирован тем же способом, что уже решено для nvidia-device-plugin выше — но в
+    # отличие от k8s-device-plugin (нет тегов новее v0.5.0 на Docker Hub, потребовалась сборка из
+    # исходников с заменой базового образа), dcgm-exporter публикуется на Docker Hub напрямую и
+    # актуально (docker.io/nvidia/dcgm-exporter, проверено — тег 4.5.2-4.8.1-ubuntu22.04 реально
+    # существует, push 2026-02-12) — просто ретег и push в тот же Gitea-реестр, без сборки.
+    #
+    # NVIDIA_VISIBLE_DEVICES=all вместо resources.limits.nvidia.com/gpu — сознательный выбор:
+    # llm1 отдаёт Allocatable nvidia.com/gpu: 1 (единственная карта), запрос ресурса самим
+    # экспортёром монитринга держал бы его недоступным для любого реального AI/agent workload'а
+    # (ADR-0015, ради которого GPU вообще заведён). Официальный документированный NVIDIA-приём
+    # для мониторинга/сайдкаров — runtimeClassName: nvidia + NVIDIA_VISIBLE_DEVICES=all в обход
+    # device-plugin allocation, без резервирования счётчика ресурса.
+    - name: "DCGM exporter (GPU-метрики llm1): DaemonSet"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      kubernetes.core.k8s:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: DaemonSet
+          metadata:
+            name: dcgm-exporter
+            namespace: kube-system
+            labels:
+              app.kubernetes.io/managed-by: ansible
+              app.kubernetes.io/name: dcgm-exporter
+          spec:
+            selector:
+              matchLabels:
+                app.kubernetes.io/name: dcgm-exporter
+            template:
+              metadata:
+                labels:
+                  app.kubernetes.io/name: dcgm-exporter
+              spec:
+                runtimeClassName: nvidia
+                nodeSelector:
+                  kubernetes.io/hostname: llm1
+                tolerations:
+                  - key: dedicated
+                    operator: Equal
+                    value: agents
+                    effect: NoSchedule
+                containers:
+                  - name: dcgm-exporter
+                    image: gitea.aicd.devops-labs.ru/nvcr.io/nvidia/dcgm-exporter:4.5.2-4.8.1-ubuntu22.04
+                    env:
+                      - name: NVIDIA_VISIBLE_DEVICES
+                        value: "all"
+                      - name: NVIDIA_DRIVER_CAPABILITIES
+                        value: "all"
+                    securityContext:
+                      capabilities:
+                        add: ["SYS_ADMIN"]
+                    ports:
+                      - name: metrics
+                        containerPort: 9400
 
     - name: "Проверить nvidia.com/gpu в Allocatable ноды llm1"
       delegate_to: localhost

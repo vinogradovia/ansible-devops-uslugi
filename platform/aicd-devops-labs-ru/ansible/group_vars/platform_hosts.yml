@@ -19,9 +19,13 @@ platform_aicd_devops_labs_ru_core_releases:
   - flux2
 
 # Стандартный набор дополнительных инструментов, ставится по умолчанию.
+# vm/grafana-operator — третий аддон (мониторинг), тот же принцип, что
+# platform/aicd/ansible/group_vars/platform_hosts.yml.
 platform_aicd_devops_labs_ru_default_addons:
   - radar
   - infra-panel
+  - vm
+  - grafana-operator
 
 # Оверрайды: добавить аддон сверх дефолтного набора / исключить аддон из дефолтного набора.
 platform_aicd_devops_labs_ru_extra_addons: []
