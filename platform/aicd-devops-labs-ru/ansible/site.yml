@@ -35,6 +35,9 @@
       delegate_to: localhost
       become: false
       run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus-cache.aicd.devops-labs.ru"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus-cache.aicd.devops-labs.ru"
       ansible.builtin.uri:
         url: "https://nexus-cache.aicd.devops-labs.ru/repository/k3s-releases-proxy/"
         ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
@@ -1537,6 +1540,9 @@
       delegate_to: localhost
       become: false
       run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
       ansible.builtin.uri:
         url: "https://nexus.aicd.devops-labs.ru/service/rest/v1/repositories"
         ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
@@ -1565,6 +1571,9 @@
       delegate_to: localhost
       become: false
       run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
       no_log: true
       ansible.builtin.uri:
         url: "https://nexus.aicd.devops-labs.ru/service/rest/v1/security/users/admin/change-password"
@@ -1582,6 +1591,9 @@
       delegate_to: localhost
       become: false
       run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
       ansible.builtin.uri:
         url: "https://nexus.aicd.devops-labs.ru/service/rest/v1/repositories"
         ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
@@ -1598,6 +1610,9 @@
       delegate_to: localhost
       become: false
       run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
       no_log: true
       ansible.builtin.uri:
         url: "https://nexus.aicd.devops-labs.ru/service/rest/v1/repositories/docker/proxy"
@@ -1633,6 +1648,9 @@
       delegate_to: localhost
       become: false
       run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
       no_log: true
       ansible.builtin.uri:
         url: "https://nexus.aicd.devops-labs.ru/service/rest/v1/repositories/raw/proxy"
@@ -1666,6 +1684,9 @@
       delegate_to: localhost
       become: false
       run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
       no_log: true
       failed_when: false
       ansible.builtin.uri:
@@ -1701,6 +1722,9 @@
       delegate_to: localhost
       become: false
       run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
       no_log: true
       failed_when: false
       ansible.builtin.uri:
@@ -1735,6 +1759,9 @@
       delegate_to: localhost
       become: false
       run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
       ansible.builtin.uri:
         url: "https://nexus.aicd.devops-labs.ru/service/rest/v1/security/ldap"
         ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
@@ -1751,6 +1778,9 @@
       delegate_to: localhost
       become: false
       run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
       no_log: true
       ansible.builtin.uri:
         url: "https://nexus.aicd.devops-labs.ru/service/rest/v1/security/ldap"
@@ -1787,6 +1817,9 @@
       delegate_to: localhost
       become: false
       run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
       no_log: true
       ansible.builtin.uri:
         url: "https://nexus.aicd.devops-labs.ru/service/rest/v1/security/realms/active"
