@@ -148,7 +148,8 @@ ADR-0017 §3 для полного описания (ServersTransport для с�
 `forwardAuth`-шлюз, Helm-релизом, не отдельной ролью коллекции. `infra-panel`/`radar` защищены
 `forwardAuth` (`Middleware authelia-forward-auth`, `/api/authz/forward-auth`), Semaphore и Gitea —
 нативным OIDC. Каталог `freeipa` пуст по умолчанию — реальные учётные записи заводятся вручную
-(`ipa user-add`, с VM `ipa.aicd.devops-labs.ru`, после `kinit admin`).
+(`ipa user-add`, с VM `ipa.aicd.devops-labs.ru`, после `kinit admin`) — пошаговая процедура —
+[`docs/runbooks/create-platform-user.md`](../../docs/runbooks/create-platform-user.md).
 
 Перенесено на это окружение механической заменой (Фаза F, ADR-0013 §8) уже после того, как весь
 дизайн был проверен и исправлен на `platform/aicd` (§7) — здесь всплыл свой класс находок,
@@ -167,3 +168,36 @@ Packer-образа `platform/aicd`), а обрыв SSH-сессии посре�
 `sso.aicd.devops-labs.ru` — внутренний CA этого окружения, Gitea/Semaphore показывают OIDC-вход
 через Authelia, `freeipa` (`systemctl is-active ipa` → `active`), повторный прогон полностью
 идемпотентен (`freeipa: changed=0`, `aicd-labs: changed=3`, только always-changed задачи).
+
+## GPU-нода для агентного стека (docs/adr/0015-ai-agent-platform-architecture.md, Фаза 1)
+
+`llm1` — вторая VM этого окружения, уже существовавшая на Proxmox с GPU passthrough (NVIDIA
+RTX 5060 Ti), настроенным вручную на уровне гипервизора — заведена в `tofu` через `terraform
+import` (`terraform/llm1-target.tf`), не создана этим terraform. Присоединена как **второй узел
+уже существующего k3s-кластера** этого окружения (не отдельный кластер) — изоляция от
+Gitea/Semaphore/OpenBao/Authelia/Radar/infra-panel на control-плане `aicd-labs` обеспечивается
+taint узла (`dedicated=agents:NoSchedule`) + `RuntimeClass`, а не отдельным control-plane.
+
+Host bootstrap (NVIDIA driver + `nvidia-container-toolkit` + gVisor) — новая роль
+[`roles/k3s_gpu_node`](../../roles/k3s_gpu_node/README.md). Join к кластеру — официальный
+install-скрипт `get.k3s.io` в agent-режиме, не роль `xanmanning.k3s` (её auto-clustering логика не
+рассчитана на присоединение к control-plane, установленному отдельным прогоном — разбор в
+ADR-0015 §10). Кластерные объекты (`RuntimeClass nvidia`/`runsc`, `nvidia-device-plugin`
+DaemonSet, каркас namespace `llm`/`gateway`/`agents`/`data`/`obs`/`egress`, Pod Security
+`restricted` + default-deny `NetworkPolicy` в `agents`) — задачи `site.yml`, не Helm-релиз.
+
+**Известное ограничение окружения:** `nvcr.io` (официальный реестр NVIDIA) полностью недоступен с
+этого стенда (`403 Forbidden` на любом пути) — тот же класс проблем, что уже задокументирован для
+`github.com` release-assets и `vagrantcloud.com`. Образ `nvidia-device-plugin` собран локально и
+зазеркалирован в собственный OCI-реестр Gitea этого стенда
+(`gitea.aicd.devops-labs.ru/nvcr.io/nvidia/k8s-device-plugin:v0.17.1`, организация `nvcr.io` —
+сохраняет оригинальный путь как имя пакета, публичный доступ). Подробности и полный список
+находок (CPU-тип VM, кэш CA у containerd, `runtimeClassName` device-plugin'а и т.д.) — ADR-0015
+§10.
+
+**Проверено реальным прогоном:** `nvidia-smi` на `llm1` видит GPU, `kubectl get nodes` — оба узла
+`Ready`, `nvidia.com/gpu: 1` в Allocatable `llm1`, под `nvidia-device-plugin` `Running 1/1`, taint
+изолирует `llm1` от остальных подов платформы, Pod Security `restricted` и default-deny
+`NetworkPolicy` в `agents` подтверждены живыми тестовыми подами (DNS резолвится, доступ к
+API-серверу кластера блокируется), повторный прогон `site.yml` полностью идемпотентен
+(`llm1: changed=0`).
