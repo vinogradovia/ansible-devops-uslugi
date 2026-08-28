@@ -117,3 +117,85 @@ variable "freeipa_ip_cidr" {
   type        = string
   default     = "10.10.10.248/24"
 }
+
+# ADR-0015 (Фаза 1) — узел с GPU для агентного стека, второй узел уже существующего k3s
+# aicd-devops-labs-ru (не отдельный кластер — см. docs/adr/0015-ai-agent-platform-architecture.md,
+# §10). В отличие от aicd_labs/freeipa выше — эта VM НЕ создаётся этим terraform, она уже
+# существует на Proxmox (GPU passthrough настроен вручную на уровне гипервизора) и заводится сюда
+# через `terraform import` (см. llm1-target.tf) — значения переменных ниже списаны с реального
+# `GET /nodes/<node>/qemu/<vmid>/config`, а не выбраны нами.
+variable "llm1_vm_id" {
+  description = "VMID существующей VM llm1 на Proxmox (найден по имени диска vm-105-disk-0)"
+  type        = number
+  default     = 105
+}
+
+variable "llm1_vm_name" {
+  description = "Имя VM llm1 в Proxmox UI и hostname гостя (уже так называется, не переименовываем)"
+  type        = string
+  default     = "llm1"
+}
+
+# node_name у llm1 отдельно не читался тем же GET (эндпоинт уже требует известный node в пути) —
+# подтверждено пользователем: та же единственная нода Proxmox, что у aicd_labs/freeipa
+# (var.proxmox_node, "pve"), отдельной переменной не заводим.
+
+variable "llm1_cores" {
+  description = "vCPU llm1 (реальное значение с GET .../config: cores=4, sockets=1)"
+  type        = number
+  default     = 4
+}
+
+variable "llm1_memory" {
+  description = "RAM, MiB (реальное значение с GET .../config: memory=10240)"
+  type        = number
+  default     = 10240
+}
+
+variable "llm1_disk_datastore_id" {
+  description = "Datastore диска/cloud-init llm1 — НЕ local-lvm, как у остальных VM: реальный scsi0/ide2 на этой VM живут на датасторе \"nvme\" (отдельный NVMe-накопитель под GPU-хостом)"
+  type        = string
+  default     = "nvme"
+}
+
+variable "llm1_disk_gb" {
+  description = "Размер системного диска, GB (реальное значение scsi0: size=60G)"
+  type        = number
+  default     = 60
+}
+
+variable "llm1_network_bridge" {
+  description = "Linux-бридж llm1 (реальное значение net0: bridge=vmbr0, тот же, что у остальных VM)"
+  type        = string
+  default     = "vmbr0"
+}
+
+variable "llm1_mac_address" {
+  description = "MAC-адрес существующего net0 llm1 — фиксируем явно, чтобы import не считал сетевой интерфейс изменившимся"
+  type        = string
+  default     = "BC:24:11:10:9B:69"
+}
+
+# hostpci0 — GPU passthrough, настроен вручную на Proxmox (PCI-адрес карты в этом конкретном
+# хосте) — сюда переносится один в один, управлять им через tofu (менять) не планируется, см.
+# lifecycle.ignore_changes в llm1-target.tf.
+variable "llm1_hostpci_id" {
+  description = "PCI-адрес GPU для passthrough (реальное значение hostpci0: 0000:84:00)"
+  type        = string
+  default     = "0000:84:00"
+}
+
+# ipconfig0 у llm1 — статический (в отличие от исходного предположения DHCP), но с необычной
+# маской /32 (уточнено с пользователем по факту, а не выбрано нами) — cloud-init на этой VM уже
+# так настроен и работает, менять не будем (initialization целиком под ignore_changes).
+variable "llm1_ip_cidr" {
+  description = "IPv4-адрес llm1 с маской (та же плоская LAN, но /32 — реальное значение ipconfig0)"
+  type        = string
+  default     = "10.10.10.247/32"
+}
+
+variable "llm1_ansible_user" {
+  description = "Cloud-init пользователь llm1 — \"ubuntu\" (ciuser в реальном конфиге), НЕ \"ansible\", как у aicd_labs/freeipa — эта VM создавалась не тем же terraform-циклом"
+  type        = string
+  default     = "ubuntu"
+}

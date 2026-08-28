@@ -89,6 +89,46 @@ ad-hoc скриптами на каждом новом хосте/клиенте
 роли коллекции остаются исполнительным ядром, но получают декларативный, самонаблюдающий слой
 поверх себя.
 
+```mermaid
+graph TD
+    Git["Gitea — git<br/>Module-манифесты + inventory<br/>(ADR-0012 §4)"]
+    Flux["Flux — git → K8s sync<br/>(ADR-0014 §4)"]
+    ModuleCR["Module CR<br/>spec: role + vars + inventoryRef<br/>(ADR-0014 §1)"]
+    Controller["Платформенный контроллер<br/>непрерывный reconcile (GitOps)<br/>(ADR-0014 §2/§3)"]
+    Semaphore["Semaphore UI<br/>исполняет Task Template<br/>(ADR-0012 §5)"]
+    Harbor["Harbor<br/>Execution Environment<br/>(ADR-0012 §1)"]
+    OpenBao["OpenBao<br/>секреты джобов<br/>(ADR-0012 §3)"]
+    Roles["Роли коллекции + inventory<br/>применяются к целевым хостам"]
+    Operator["Оператор"]
+    Authelia["Authelia (OIDC)<br/>(ADR-0013)"]
+    FreeIPA["freeipa (LDAP)<br/>уже реализовано, ADR-0011"]
+
+    Git -->|коммит| Flux
+    Flux -->|apply| ModuleCR
+    ModuleCR -->|watch| Controller
+    Controller -->|запускает джоб через API| Semaphore
+    Semaphore -.->|образ| Harbor
+    Semaphore -.->|читает секреты| OpenBao
+    Semaphore --> Roles
+    Controller -->|записывает status| ModuleCR
+    Operator -.->|ручной/аварийный путь, в обход Module/git| Semaphore
+    Operator -.->|вход| Authelia
+    Authelia -->|LDAP-федерация| FreeIPA
+    Authelia -.->|forwardAuth / OIDC| Semaphore
+
+    style ModuleCR fill:#f9f9f9,stroke:#999
+    style Controller fill:#f9f9f9,stroke:#999
+    style Semaphore fill:#f9f9f9,stroke:#999
+    style Harbor fill:#f9f9f9,stroke:#999
+    style OpenBao fill:#f9f9f9,stroke:#999
+    style Flux fill:#f9f9f9,stroke:#999
+    style Authelia fill:#f9f9f9,stroke:#999
+```
+
+*Архитектура решена, ничего из компонентов на схеме (кроме `freeipa` и самих ролей) пока не
+развёрнуто — см. таблицу «Архитектура решена, роль не реализована» в
+[`docs/components.md`](components.md).*
+
 - **`Module`** — Kubernetes CRD, обёртывающий существующую роль: `spec` — эквивалент
   `group_vars`, ссылка на inventory-файл в git (без отдельного CRD для хостов — Ansible
   по-прежнему сам разбирает инвентарь).
@@ -102,9 +142,10 @@ ad-hoc скриптами на каждом новом хосте/клиенте
 - **Reconcile — непрерывный (GitOps), не разовый**: контроллер периодически переприменяет
   модуль, обнаруживая дрейф — безопасно именно потому, что идемпотентность ролей уже жёсткое
   требование коллекции (каждый molecule-сценарий проходит `idempotence: changed=0`).
-- **Git → K8s** синхронизация — готовый инструмент (Flux/ArgoCD, конкретный выбор не сделан),
-  не часть самого контроллера: два независимых цикла сведения состояния (git↔K8s и
-  K8s↔реальная инфраструктура), не один монолит.
+- **Git → K8s** синхронизация — **Flux** (не ArgoCD — выбор сделан при планировании реализации
+  ADR-0014: CRD-first, без второго web UI, легче для одной ноды K3s), не часть самого
+  контроллера: два независимых цикла сведения состояния (git↔K8s и K8s↔реальная
+  инфраструктура), не один монолит.
 
 Главная цель модульности — расширяемость: новый тип управляемого инфраструктурного сервиса
 добавляется новым модулем, не правкой ядра платформы.

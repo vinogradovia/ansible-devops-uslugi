@@ -275,7 +275,9 @@ OIDC-провайдер + `forwardAuth`-шлюз, Helm-релизом (`localrep
 (`Middleware authelia-forward-auth`, эндпоинт `/api/authz/forward-auth` — актуальный для Traefik,
 не легаси `/api/verify`), Semaphore и Gitea — нативным OIDC («Sign in with Authelia» на странице
 логина). Каталог `freeipa` пуст по умолчанию — реальные учётные записи заводятся вручную
-(`ipa user-add`, с VM `ipa.aicd.platform`, после `kinit admin`).
+(`ipa user-add`, с VM `ipa.aicd.platform`, после `kinit admin`) — пошаговая процедура
+(куда идти за паролем `admin`, обязательные поля, снятие принудительной смены пароля) —
+[`docs/runbooks/create-platform-user.md`](../../docs/runbooks/create-platform-user.md).
 
 **Проверено реальным прогоном** (полная хронология находок — ADR-0013 §7): `Releases Success
 7/7`, `forwardAuth` корректно отдаёт `302` на `sso.aicd.platform` для `infra-panel`/`radar` без

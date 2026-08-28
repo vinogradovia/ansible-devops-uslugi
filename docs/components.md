@@ -25,7 +25,7 @@
 | [`fail2ban`](../roles/fail2ban/README.md) | Fail2Ban — jail'ы под интеграции коллекции (nginx, NPM и др.) | ✅ | — | — | `fail2ban` | готово |
 | [`fail2ban_ui`](../roles/fail2ban_ui/README.md) | Веб-панель Fail2Ban (обёртка над swissmakers/fail2ban-ui) | ✅ | — | — | `fail2ban_ui` | готово |
 | [`infra_panel`](../roles/infra_panel/README.md) | homer — дашборд-стартовая страница платформы | ✅ | [0008](adr/0008-infra-panel-role.md) | — | `infra_panel` | готово (docker), частично (k3s — см. ADR §2) |
-| [`freeipa`](../roles/freeipa/README.md) | FreeIPA — LDAP + Kerberos KDC + CA, центральный каталог платформы | ✅ | [0011](adr/0011-freeipa-role.md) | — | `freeipa` | готово |
+| [`freeipa`](../roles/freeipa/README.md) | FreeIPA — LDAP + Kerberos KDC + CA, центральный каталог платформы | ✅ | [0011](adr/0011-freeipa-role.md) | [create-platform-user.md](runbooks/create-platform-user.md) | `freeipa` | готово |
 
 ## Архитектура решена, роль не реализована
 

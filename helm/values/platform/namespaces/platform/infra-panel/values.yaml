@@ -23,14 +23,26 @@ configMaps:
         subtitle: "aicd.platform"
         columns: "3"
         connectivityCheck: false
+        # Gitea/Semaphore — ссылки ведут не на обычную страницу логина сервиса, а сразу на
+        # эндпоинт, инициирующий OIDC-флоу через Authelia, минуя промежуточный клик по кнопке
+        # "Sign in with Authelia" (найдено чтением исходников — свой login-роут у каждого сервиса,
+        # эндпоинт callback в identity_providers.oidc.clients[].redirect_uris у authelia/values.yaml
+        # уже был настроен именно на этот же путь):
+        #   Gitea: routers/web/web.go, m.Group("/oauth2", ...).Get("/{provider}", auth.SignInOAuth)
+        #     — provider здесь имя auth source ("authelia" из gitea admin auth add-oauth --name).
+        #   Semaphore: api/router.go, publicAPIRouter.HandleFunc("/auth/oidc/{provider}/login", ...)
+        #     — provider здесь id клиента ("authelia" из SEMAPHORE_OIDC_PROVIDERS).
+        # Если пользователь ещё не залогинен в Authelia, редирект на форму логина SSO происходит
+        # автоматически на этом же шаге — отдельно нажимать что-либо на самом Gitea/Semaphore не
+        # нужно.
         services:
           - name: Platform
             items:
               - name: Gitea
-                url: https://gitea.aicd.platform
+                url: https://gitea.aicd.platform/user/oauth2/authelia
                 target: _blank
               - name: Semaphore
-                url: https://semaphore.aicd.platform
+                url: https://semaphore.aicd.platform/api/auth/oidc/authelia/login
                 target: _blank
               - name: Radar
                 url: https://radar.aicd.platform
@@ -40,6 +52,9 @@ configMaps:
                 target: _blank
               - name: FreeIPA
                 url: https://ipa.aicd.platform/ipa/ui/
+                target: _blank
+              - name: SSO (Authelia)
+                url: https://sso.aicd.platform/
                 target: _blank
 
 deployments:

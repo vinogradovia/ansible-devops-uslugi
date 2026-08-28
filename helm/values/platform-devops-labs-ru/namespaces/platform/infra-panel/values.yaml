@@ -11,14 +11,18 @@ configMaps:
         subtitle: "aicd.devops-labs.ru"
         columns: "3"
         connectivityCheck: false
+        # Gitea/Semaphore — ссылки ведут сразу на эндпоинт, инициирующий OIDC-флоу через Authelia,
+        # минуя промежуточный клик по кнопке "Sign in with Authelia" на странице логина сервиса —
+        # см. helm/values/platform/namespaces/platform/infra-panel/values.yaml (первый стенд) для
+        # разбора, откуда взяты эти пути.
         services:
           - name: Platform
             items:
               - name: Gitea
-                url: https://gitea.aicd.devops-labs.ru
+                url: https://gitea.aicd.devops-labs.ru/user/oauth2/authelia
                 target: _blank
               - name: Semaphore
-                url: https://semaphore.aicd.devops-labs.ru
+                url: https://semaphore.aicd.devops-labs.ru/api/auth/oidc/authelia/login
                 target: _blank
               - name: Radar
                 url: https://radar.aicd.devops-labs.ru
@@ -28,6 +32,9 @@ configMaps:
                 target: _blank
               - name: FreeIPA
                 url: https://ipa.aicd.devops-labs.ru/ipa/ui/
+                target: _blank
+              - name: SSO (Authelia)
+                url: https://sso.aicd.devops-labs.ru/
                 target: _blank
 
 deployments:

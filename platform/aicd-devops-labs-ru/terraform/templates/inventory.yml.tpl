@@ -14,3 +14,11 @@ all:
       hosts:
         freeipa:
           ansible_host: ${freeipa_ip}
+    # ADR-0015 (Фаза 1) — GPU-нода, второй узел уже существующего k3s aicd-devops-labs-ru, не
+    # отдельный кластер (см. ansible/site.yml). ansible_user другой (см. llm1-target.tf) — VM
+    # заведена не тем же terraform-циклом, что aicd_labs/freeipa.
+    k3s_gpu_agents:
+      hosts:
+        llm1:
+          ansible_host: ${llm1_ip}
+          ansible_user: ${llm1_ansible_user}

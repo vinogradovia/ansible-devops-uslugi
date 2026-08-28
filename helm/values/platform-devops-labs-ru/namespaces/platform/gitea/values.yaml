@@ -33,6 +33,12 @@ gitea:
     password: '[[ (ds "vault").data.admin_password ]]'
     email: gitea_admin@aicd.devops-labs.ru
   config:
+    # LEVEL: Info — явный дефолт. Найдено реальным прогоном: официальный чарт Gitea
+    # идемпотентно ДОБАВЛЯЕТ/ОБНОВЛЯЕТ ключи в persisted app.ini, но не удаляет их при простом
+    # убирании из values.yaml — временный LEVEL: Debug (диагностика §11 ADR-0013) остался бы в
+    # app.ini навсегда без явного отката значением.
+    log:
+      LEVEL: Info
     database:
       DB_TYPE: sqlite3
     session:

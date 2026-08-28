@@ -160,6 +160,13 @@ configMaps:
                 public: false
                 authorization_policy: 'one_factor'
                 require_pkce: false
+                # consent_mode: 'pre-configured' — без него дефолт 'explicit' запрашивает согласие
+                # заново при КАЖДОМ входе (Authelia хранит consent-сессию только на время самого
+                # OIDC-обмена, не переживает logout/новую сессию). pre-configured сохраняет решение
+                # пользователя (привязано к subject+client_id+scopes+audience — при их изменении
+                # согласие запросится заново один раз) на pre_configured_consent_duration.
+                consent_mode: 'pre-configured'
+                pre_configured_consent_duration: '1 year'
                 # Найдено реальным прогоном (platform/aicd-devops-labs-ru): без явного
                 # token_endpoint_auth_method Authelia регистрирует клиент с дефолтным
                 # client_secret_basic — Semaphore (v2.19.8) при обмене authorization code на
@@ -179,6 +186,8 @@ configMaps:
                 public: false
                 authorization_policy: 'one_factor'
                 require_pkce: false
+                consent_mode: 'pre-configured'
+                pre_configured_consent_duration: '1 year'
                 claims_policy: 'gitea_claims'
                 redirect_uris:
                   - 'https://gitea.aicd.platform/user/oauth2/authelia/callback'
