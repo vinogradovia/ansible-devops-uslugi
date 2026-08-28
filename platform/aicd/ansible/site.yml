@@ -31,7 +31,12 @@
     # отвечает, k3s-бинарь+checksum тянутся через его raw-proxy, а не напрямую с
     # release-assets.githubusercontent.com (заблокирован на части сетей, ADR §1). На самом первом
     # прогоне (Nexus ещё не существует) — короткий таймаут + failed_when: false, запрос просто не
-    # проходит, роль ниже использует штатный прямой URL.
+    # проходит, роль ниже использует штатный прямой URL. status_code сознательно БЕЗ 404: реальный
+    # прогон показал, что Nexus отвечает 404 "Repository not found", когда repo k3s-releases-proxy
+    # ещё не создан (bootstrap-задача Nexus ниже по этому же файлу создаёт его позже, во втором
+    # play) — считать такой 404 признаком «прокси готов» неверно, это именно признак «ещё не
+    # готов», и k3s должен в этом случае идти напрямую в GitHub, а не пытаться дёрнуть
+    # несуществующий repo.
     - name: "Проверить доступность Nexus raw-proxy (для k3s-бинаря)"
       delegate_to: localhost
       become: false
@@ -43,7 +48,7 @@
         url: "https://nexus-cache.aicd.platform/repository/k3s-releases-proxy/"
         ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
         method: GET
-        status_code: [200, 403, 404]
+        status_code: [200, 403]
         timeout: 5
       register: platform_aicd_nexus_cache_check
       failed_when: false
@@ -108,7 +113,7 @@
         # (defaults/main.yml, vars/main.yml), а не omit.
         k3s_github_download_url: >-
           {{ 'https://nexus-cache.aicd.platform/repository/k3s-releases-proxy/k3s-io/k3s/releases/download'
-             if (platform_aicd_nexus_cache_check.status | default(0)) in [200, 403, 404]
+             if (platform_aicd_nexus_cache_check.status | default(0)) in [200, 403]
              else 'https://github.com/k3s-io/k3s/releases/download' }}
 
     - name: Снять kubeconfig с control-хоста
