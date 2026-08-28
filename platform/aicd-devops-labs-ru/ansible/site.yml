@@ -1910,7 +1910,14 @@
         # реально падали 401 Unauthorized.
         force_basic_auth: true
         body_format: json
-        body: ["NexusAuthenticatingRealm", "NexusAuthorizingRealm", "LdapRealm"]
+        # НЕ NexusAuthorizingRealm — в Nexus 3.95.3 такого realmId не существует вовсе (реальный
+        # прогон 2026-08-28: "Unknown realmIds: [NexusAuthorizingRealm]"; полный список доступных
+        # — GET /v1/security/realms/available: AnsibleGalaxyToken, ConanToken, DefaultRole,
+        # DockerToken, HuggingFaceToken, LdapRealm, NexusAuthenticatingRealm, NpmToken, NuGetApiKey,
+        # OciBearerToken, PubToken, rutauth-realm, TerraformToken — устаревшая рекомендация из
+        # старой документации Sonatype, актуальная схема разделяет аутентификацию и авторизацию
+        # иначе).
+        body: ["NexusAuthenticatingRealm", "LdapRealm"]
         status_code: [204]
 
     - name: "Containerd: зеркалировать docker.io через Nexus (registries.yaml)"
