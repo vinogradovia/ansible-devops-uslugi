@@ -62,12 +62,18 @@
         # точка переопределения — сам k3s_github_download_url (базовый URL, роль сама достраивает
         # "/<version>/<файл>"). Nexus raw-proxy настроен как зеркало https://github.com/ целиком
         # (site.yml, play ниже) — не проверено эмпирически, следует ли Nexus за редиректом
-        # github.com → release-assets.githubusercontent.com для raw-формата; если нет — вернуть
-        # пустое значение здесь (омит), эффект — тот же прямой путь, что и сейчас.
+        # github.com → release-assets.githubusercontent.com для raw-формата.
+        #
+        # Найдено реальным прогоном: "else omit" здесь НЕ работает так, как в module-параметрах —
+        # резолвился в пустую строку (не в "переменная не задана"), роль подставляла URL без
+        # хоста ("unknown url type: '/v1.35.1+k3s1/sha256sum-amd64.txt'"). Фикс — явный
+        # дефолт-URL, тот же https://github.com/k3s-io/k3s/releases/download, что жёстко
+        # прописан как дефолт k3s_github_url+k3s_github_download_url в самой роли
+        # (defaults/main.yml, vars/main.yml), а не omit.
         k3s_github_download_url: >-
           {{ 'https://nexus-cache.aicd.platform/repository/k3s-releases-proxy/k3s-io/k3s/releases/download'
              if (platform_aicd_nexus_cache_check.status | default(0)) in [200, 403, 404]
-             else omit }}
+             else 'https://github.com/k3s-io/k3s/releases/download' }}
 
     - name: Снять kubeconfig с control-хоста
       ansible.builtin.fetch:

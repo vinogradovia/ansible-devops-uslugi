@@ -55,10 +55,19 @@
         k3s_release_version: v1.35.1+k3s1
         # k3s_binary_url/k3s_hash_url НЕ переопределяются напрямую — см. комментарий в
         # platform/aicd/ansible/site.yml (xanmanning.k3s безусловно их пересчитывает).
+        #
+        # Найдено реальным прогоном: "else omit" здесь НЕ работает так, как в module-параметрах —
+        # omit гарантированно пропускает значение только будучи распознан как параметр модуля,
+        # а не произвольная запись в vars: у include_role. На практике омит-ветка резолвилась в
+        # пустую строку (не в "переменная не задана"), из-за чего роль подставляла URL без
+        # хоста ("/v1.35.1+k3s1/sha256sum-amd64.txt", "unknown url type"). Фикс — явный
+        # дефолт-URL (тот же https://github.com/k3s-io/k3s/releases/download, что жёстко
+        # прописан как дефолт k3s_github_url+k3s_github_download_url в самой роли,
+        # defaults/main.yml и vars/main.yml), а не omit.
         k3s_github_download_url: >-
           {{ 'https://nexus-cache.aicd.devops-labs.ru/repository/k3s-releases-proxy/k3s-io/k3s/releases/download'
              if (platform_aicd_devops_labs_ru_nexus_cache_check.status | default(0)) in [200, 403, 404]
-             else omit }}
+             else 'https://github.com/k3s-io/k3s/releases/download' }}
         k3s_build_cluster: false
         k3s_become: true
 
