@@ -49,6 +49,39 @@
       failed_when: false
       ignore_errors: true
 
+    # Реальный прогон platform/aicd-devops-labs-ru (2026-08-28), та же причина и здесь: роль
+    # xanmanning.k3s ниже качает hashsum/бинарь k3s С САМОЙ ноды cicd (без delegate_to), а не с
+    # control-хоста — если k3s_github_download_url указал на nexus-cache (проверка выше прошла
+    # успешно), нода должна доверять внутреннему PKI CA САМА, иначе "Ensure the k3s hashsum is
+    # downloaded" падает с "self-signed certificate in certificate chain".
+    # .kube-tmp/aicd-platform-ca.pem — тот же файл, что ca_path проверки выше: на повторных
+    # прогонах уже оставлен предыдущим успешным проходом задачи "Записать внутренний PKI CA
+    # локально..." (play ниже, после того как OpenBao становится доступен). На самом первом
+    # бутстрапе (курица-яйцо — см. комментарий у k3s_github_download_url ниже) файла ещё нет:
+    # проверка выше и так не прошла (Nexus ещё не поднят), а эта пара задач — no-op.
+    - name: "Проверить наличие сохранённого внутреннего PKI CA (для доверия k3s-releases-proxy)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      ansible.builtin.stat:
+        path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+      register: platform_aicd_pki_ca_pem_cached
+
+    - name: "Установить внутренний PKI CA в системный trust store cicd (доверие к Nexus)"
+      when: platform_aicd_pki_ca_pem_cached.stat.exists
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        dest: /usr/local/share/ca-certificates/aicd-platform-ca.crt
+        owner: root
+        group: root
+        mode: '0644'
+      notify: "Обновить системный trust store cicd"
+
+    # Handler должен отработать ДО скачивания k3s несколькими задачами ниже, а не в конце play
+    # (штатное время срабатывания handler'ов) — форсируем немедленно.
+    - name: Применить обновление CA немедленно (нужно до загрузки k3s ниже)
+      ansible.builtin.meta: flush_handlers
+
     # Версия — тот же пин, что roles/monitoring_server/meta/main.yml, чтобы не плодить второй
     # независимый источник правды о версии k3s в коллекции.
     - name: Установить K3s (single-node)
@@ -1231,6 +1264,10 @@
       ansible.builtin.systemd:
         name: k3s
         state: restarted
+
+    - name: "Обновить системный trust store cicd"
+      ansible.builtin.command: update-ca-certificates
+      changed_when: true
 
 # ADR-0013 §1 — persistent freeipa, единый каталог для Authelia. Отдельный play (не часть play
 # выше): другой хост (freeipa_hosts, не platform_hosts). Намеренно идёт СРАЗУ ПОСЛЕ play выше (не
