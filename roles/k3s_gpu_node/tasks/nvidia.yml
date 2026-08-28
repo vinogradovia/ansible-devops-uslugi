@@ -93,16 +93,41 @@
     regexp: '^deb https://'
     replace: 'deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.asc] https://'
 
-# docs/adr/0018-internal-caching-proxy.md — GPG-ключ выше всегда качается напрямую (маленький
+# docs/adr/0018-internal-caching-proxy.md §6 — GPG-ключ выше всегда качается напрямую (маленький
 # файл, один раз, кешировать не имеет смысла) — перенаправляется только сам путь пакетов.
-- name: "[nvidia] Перенаправить репозиторий через кеширующий прокси платформы (если задан)"
+# apt-формат Nexus не проверен эмпирически заранее — найдено реальным прогоном
+# platform/aicd-devops-labs-ru (2026-08-28): анонимный доступ к apt-proxy репозиторию Nexus
+# отвечает 401 (в отличие от docker/raw-форматов) — откатываемся на прямой источник, а не
+# проваливаем весь бутстрап GPU-ноды из-за одного непроверенного оптимизационного пути.
+- name: "[nvidia] Установить nvidia-container-toolkit через кеширующий прокси платформы"
   when: k3s_gpu_node_apt_cache_url | length > 0
-  ansible.builtin.replace:
-    path: /etc/apt/sources.list.d/nvidia-container-toolkit.list
-    regexp: 'https://nvidia\.github\.io/libnvidia-container'
-    replace: "{{ k3s_gpu_node_apt_cache_url }}/repository/nvidia-toolkit-apt-proxy"
+  block:
+    - name: "[nvidia] Перенаправить репозиторий через кеширующий прокси платформы"
+      ansible.builtin.replace:
+        path: /etc/apt/sources.list.d/nvidia-container-toolkit.list
+        regexp: 'https://nvidia\.github\.io/libnvidia-container'
+        replace: "{{ k3s_gpu_node_apt_cache_url }}/repository/nvidia-toolkit-apt-proxy"
 
-- name: "[nvidia] Установить nvidia-container-toolkit"
+    - name: "[nvidia] Установить nvidia-container-toolkit"
+      ansible.builtin.apt:
+        name: nvidia-container-toolkit
+        state: present
+        update_cache: true
+  rescue:
+    - name: "[nvidia] Кеширующий прокси недоступен для apt — откатить на прямой источник"
+      ansible.builtin.replace:
+        path: /etc/apt/sources.list.d/nvidia-container-toolkit.list
+        regexp: "{{ (k3s_gpu_node_apt_cache_url ~ '/repository/nvidia-toolkit-apt-proxy') | regex_escape }}"
+        replace: 'https://nvidia.github.io/libnvidia-container'
+
+    - name: "[nvidia] Установить nvidia-container-toolkit (прямой источник)"
+      ansible.builtin.apt:
+        name: nvidia-container-toolkit
+        state: present
+        update_cache: true
+
+- name: "[nvidia] Установить nvidia-container-toolkit (кеш не задан)"
+  when: k3s_gpu_node_apt_cache_url | length == 0
   ansible.builtin.apt:
     name: nvidia-container-toolkit
     state: present

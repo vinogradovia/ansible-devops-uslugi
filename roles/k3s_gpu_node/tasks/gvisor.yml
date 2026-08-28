@@ -21,16 +21,40 @@
     group: root
     mode: '0644'
 
-# docs/adr/0018-internal-caching-proxy.md — k3s_gpu_node_apt_cache_url (пусто по умолчанию)
+# docs/adr/0018-internal-caching-proxy.md §6 — k3s_gpu_node_apt_cache_url (пусто по умолчанию)
 # перенаправляет путь пакетов через Nexus apt-proxy платформы; GPG-ключ выше всегда качается
-# напрямую (маленький файл, один раз).
-- name: "[gvisor] Подключить репозиторий gVisor (канал release)"
+# напрямую (маленький файл, один раз). apt-формат Nexus не проверен эмпирически заранее — найдено
+# реальным прогоном platform/aicd-devops-labs-ru (2026-08-28): анонимный доступ к apt-proxy
+# репозиторию Nexus отвечает 401 (в отличие от docker/raw-форматов) — при недоступности кеша
+# (update_cache здесь сразу же дёргает apt update) откатываемся на прямой источник, а не
+# проваливаем весь бутстрап GPU-ноды.
+- name: "[gvisor] Подключить репозиторий gVisor через кеширующий прокси платформы"
+  when: k3s_gpu_node_apt_cache_url | length > 0
+  block:
+    - name: "[gvisor] Подключить репозиторий gVisor (канал release, через кеш)"
+      ansible.builtin.apt_repository:
+        repo: >-
+          deb [arch={{ k3s_gpu_node_gvisor_repo_arch }} signed-by=/usr/share/keyrings/gvisor-archive-keyring.asc]
+          {{ k3s_gpu_node_apt_cache_url }}/repository/gvisor-apt-proxy release main
+        state: present
+        filename: gvisor
+        update_cache: true
+  rescue:
+    - name: "[gvisor] Кеширующий прокси недоступен для apt — подключить репозиторий напрямую"
+      ansible.builtin.apt_repository:
+        repo: >-
+          deb [arch={{ k3s_gpu_node_gvisor_repo_arch }} signed-by=/usr/share/keyrings/gvisor-archive-keyring.asc]
+          {{ k3s_gpu_node_gvisor_repo_base_url }} release main
+        state: present
+        filename: gvisor
+        update_cache: true
+
+- name: "[gvisor] Подключить репозиторий gVisor (канал release, кеш не задан)"
+  when: k3s_gpu_node_apt_cache_url | length == 0
   ansible.builtin.apt_repository:
     repo: >-
       deb [arch={{ k3s_gpu_node_gvisor_repo_arch }} signed-by=/usr/share/keyrings/gvisor-archive-keyring.asc]
-      {{ k3s_gpu_node_apt_cache_url + '/repository/gvisor-apt-proxy'
-         if k3s_gpu_node_apt_cache_url | length > 0
-         else k3s_gpu_node_gvisor_repo_base_url }} release main
+      {{ k3s_gpu_node_gvisor_repo_base_url }} release main
     state: present
     filename: gvisor
     update_cache: true
