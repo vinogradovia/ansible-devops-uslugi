@@ -240,6 +240,39 @@
         kind: Namespace
         name: platform
 
+    # Тот же приём и причина, что у namespace platform выше — grafana-tls/nexus-tls/
+    # nexus-cache-tls (TLS-цикл ниже по этому же play) сохраняются Secret'ами в monitoring/cache
+    # ДО того, как Helmwave создаст эти namespace как побочный эффект релизов vm/grafana-operator/
+    # nexus (реальная ошибка живого прогона 2026-08-28 на aicd-devops-labs-ru: "namespaces
+    # \"monitoring\" not found" — идентичная структура здесь, фикс применён превентивно).
+    - name: "Namespace monitoring (для grafana-tls до Helmwave up)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        KUBECONFIG: "{{ platform_aicd_kubeconfig.dest }}"
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+      kubernetes.core.k8s:
+        kubeconfig: "{{ platform_aicd_kubeconfig.dest }}"
+        state: present
+        kind: Namespace
+        name: monitoring
+
+    - name: "Namespace cache (для nexus-tls/nexus-cache-tls до Helmwave up)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        KUBECONFIG: "{{ platform_aicd_kubeconfig.dest }}"
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+      kubernetes.core.k8s:
+        kubeconfig: "{{ platform_aicd_kubeconfig.dest }}"
+        state: present
+        kind: Namespace
+        name: cache
+
     # docs/adr/0016-openbao-secrets-pki.md §5 — bootstrap self-signed сертификат для listener'а
     # самого OpenBao (не для клиентов Gitea/Semaphore — те получают сертификаты из PKI engine
     # ПОСЛЕ инициализации, см. tasks/issue-tls-cert.yml). Курица/яйцо: чтобы выпустить
@@ -1363,26 +1396,9 @@
           stringData:
             ca.pem: "{{ platform_aicd_pki_ca_pem.content }}"
 
-    # docs/adr/0017-platform-cicd-default-addons.md — третий аддон (мониторинг). Namespace monitoring
-    # заводится явно (а не полагаемся на create_namespace: true у helmwave, как для остальных
-    # релизов) — Secret'ы ниже должны существовать в этом namespace ДО того, как Helmwave up
-    # запланирует туда под Grafana, тот же порядок, что раньше был у roles/monitoring_server
-    # (namespace → Secret grafana-admin-credentials-custom → Helmwave up).
-    - name: "Namespace monitoring"
-      delegate_to: localhost
-      become: false
-      run_once: true
-      environment:
-        KUBECONFIG: "{{ platform_aicd_kubeconfig.dest }}"
-        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
-        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
-      kubernetes.core.k8s:
-        kubeconfig: "{{ platform_aicd_kubeconfig.dest }}"
-        name: monitoring
-        api_version: v1
-        kind: Namespace
-        state: present
-
+    # docs/adr/0017-platform-cicd-default-addons.md — третий аддон (мониторинг). Namespace
+    # monitoring создаётся раньше (см. "Namespace monitoring (для grafana-tls до Helmwave up)"
+    # в начале play выше) — здесь только Secret'ы.
     # Secret'ы — namespace-scoped: aicd-platform-ca выше существует только в namespace "platform",
     # Grafana (namespace "monitoring") нуждается в собственной копии для доверия к
     # https://sso.aicd.platform при обмене OIDC-токеном (тот же CA, тот же приём, что у
