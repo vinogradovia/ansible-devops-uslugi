@@ -1671,6 +1671,13 @@
             v1Enabled: false
             forceBasicAuth: false
             httpPort: 8083
+          # dockerProxy — обязательный блок специально для docker-формата proxy-repo (в отличие
+          # от docker hosted/group), найдено реальным прогоном (400 Bad Request без него) через
+          # схему /service/rest/swagger.json самого Nexus: DockerProxyRepositoryApiRequest
+          # требует dockerProxy.indexType. HUB — тип индекса для Docker Hub (remoteUrl ниже),
+          # Nexus сам подставляет индекс-URL Docker Hub, indexUrl не нужен.
+          dockerProxy:
+            indexType: HUB
           proxy:
             remoteUrl: https://registry-1.docker.io
             contentMaxAge: 1440
@@ -1849,7 +1856,9 @@
           userRealNameAttribute: cn
           userEmailAddressAttribute: mail
           userPasswordAttribute: ""
-          groupType: dynamic
+          # DYNAMIC (не dynamic) — найдено сверкой со схемой /service/rest/swagger.json:
+          # CreateLdapServerXo.groupType — enum [DYNAMIC, STATIC], регистрозависимо.
+          groupType: DYNAMIC
           userMemberOfAttribute: memberOf
         status_code: [201]
 
