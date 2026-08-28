@@ -814,6 +814,32 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
     production-платформы (ADR-0012). Требует отдельного ADR перед реализацией, зависит от
     состояния ADR-0013/`freeipa` (№49, №11) — сейчас зафиксирована только идея.
 
+56. **Оценить необходимость `trust-manager`** (проект экосистемы cert-manager,
+    https://cert-manager.io/docs/trust/trust-manager/installation/) **для распространения
+    внутреннего PKI CA по кластеру.** Сейчас CA, выпущенный PKI secrets engine OpenBao
+    (ADR-0016), распространяется вручную и по-разному под каждого потребителя: Secret
+    `aicd-platform-ca` в конкретные namespace (`platform`, `monitoring` — `site.yml` обоих
+    платформенных окружений) и системный trust store нод (control-plane и `llm1`) через
+    `ansible.builtin.copy` + `update-ca-certificates` — независимая реализация того же паттерна
+    добавлена ещё раз в рамках bootstrap Nexus (ADR-0018): реальный прогон
+    `platform/aicd-devops-labs-ru` (2026-08-28) показал, что сама control-plane нода должна
+    доверять внутреннему CA, иначе `xanmanning.k3s` не может скачать k3s-бинарь через
+    `nexus-cache` по HTTPS. `trust-manager` — декларативный способ синхронизировать один `Bundle`
+    CR в ConfigMap/Secret во все (или выбранные) namespace кластера, потенциально устраняющий
+    часть этой ad-hoc-логики на стороне ansible для pod-уровня.
+
+    Не проработано архитектурно: `trust-manager` формально — компонент экосистемы cert-manager
+    (устанавливается отдельным Helm-чартом, но полагается на CRD `trust.cert-manager.io`), а сама
+    коллекция cert-manager сейчас не использует вовсе (issuance — через OpenBao PKI API + ansible,
+    не через `Certificate`/`Issuer` CRD) — нужно выяснить, можно ли использовать trust-manager
+    только для распространения уже готового CA без перехода на cert-manager как issuer, или это
+    фактически вынуждает более крупное решение (issuance через cert-manager с OpenBao как backend,
+    что пересматривает ADR-0016 целиком, а не дополняет его). Также неясно, закрывает ли
+    trust-manager случай системного trust store НОД (не только ConfigMap внутри подов) — судя по
+    документации, нет: это k8s-native механизм для CA внутри подов, а node-level
+    `update-ca-certificates`-паттерн (control-plane, `llm1`) в любом случае остаётся отдельной
+    задачей ansible. Требует отдельного ADR перед реализацией — сейчас зафиксирована только идея.
+
 ---
 
 ## Предлагаемая последовательность работ
