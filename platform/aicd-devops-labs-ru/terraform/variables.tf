@@ -33,9 +33,9 @@ variable "vcpu" {
 }
 
 variable "memory" {
-  description = "RAM, MiB — как у platform/aicd"
+  description = "RAM, MiB — поднята с 6000 до 8192 (мониторинг, docs/adr/0017-platform-cicd-default-addons.md): на 6000 нода уже была на 43% реального потребления памяти без единого мониторингового пода (metrics-server, замер 2026-08-28)"
   type        = number
-  default     = 6000
+  default     = 8192
 }
 
 variable "disk_gb" {

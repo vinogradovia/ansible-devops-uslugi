@@ -1,13 +1,17 @@
-# Одна VM — K3s single-node, хостит Gitea + Semaphore UI Helm-релизами через Helmwave
-# (ROADMAP.md, «Предлагаемая последовательность работ», пункт 7, Фаза 0). memory/cpu — по
-# аналогии с extensions/molecule/monitoring_server_k3s/molecule.yml (та VM тяжелее — k3s +
-# VictoriaMetrics Operator + grafana-operator + 3x alloy, здесь два относительно лёгких Helm-
-# релиза), но с запасом сверх минимума k3s + двух приложений с постоянным хранилищем.
+# Одна VM — K3s single-node, хостит Gitea + Semaphore UI + OpenBao + Authelia + Radar +
+# infra-panel + мониторинг (vm/grafana-operator, docs/adr/0017-platform-cicd-default-addons.md)
+# Helm-релизами через Helmwave. memory поднята с 4096 до 6144 — на 4096 нода уже была на 43%
+# реального потребления памяти (metrics-server, замер 2026-08-28) БЕЗ единого мониторингового
+# пода; урезанный монит.-стек (vm + grafana-operator, без Loki/grafana-alloy — см.
+# docs/adr/0007-monitoring-server-role.md §6/§11 про требования полного референсного стека) на
+# оставшемся месте не помещался бы с запасом. 6144 — тот же порядок величины, что
+# extensions/molecule/monitoring_server_k3s/molecule.yml (там 6144 при более тяжёлом стеке —
+# запас на будущее, не тесная подгонка).
 locals {
   vms = {
     cicd = {
       vcpu    = 2
-      memory  = 4096
+      memory  = 6144
       disk_gb = 40
       ip      = "10.66.14.10"
       mac     = "52:54:00:66:0e:10"
