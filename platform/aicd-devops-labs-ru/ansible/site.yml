@@ -1589,6 +1589,14 @@
         method: GET
         url_username: admin
         url_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        # Без force_basic_auth модуль сперва шлёт запрос БЕЗ Basic Auth и добавляет его только
+        # увидев 401 (штатное поведение ansible.builtin.uri). GET на анонимно читаемые эндпоинты
+        # Nexus (например, этот) из-за этого "проходит" 200 ещё до реальной проверки пароля — сам
+        # факт успеха такого GET ничего не доказывает про корректность admin_password. Хуже того,
+        # POST/PUT с телом в этой схеме падали 401 Unauthorized (повторная отправка запроса с
+        # телом после challenge ненадёжна) — живой прогон 2026-08-28. force_basic_auth здесь и во
+        # всех остальных Nexus REST-задачах ниже заставляет слать креды сразу, при первой попытке.
+        force_basic_auth: true
         status_code: [200, 401]
       register: platform_aicd_devops_labs_ru_nexus_auth_check
       no_log: true
@@ -1621,6 +1629,7 @@
         method: PUT
         url_username: admin
         url_password: "{{ platform_aicd_devops_labs_ru_nexus_initial_password.stdout }}"
+        force_basic_auth: true
         body_format: raw
         headers:
           Content-Type: text/plain
@@ -1640,6 +1649,9 @@
         method: GET
         url_username: admin
         url_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        # См. комментарий у первой Nexus REST-задачи выше — без force_basic_auth POST/PUT с телом
+        # реально падали 401 Unauthorized.
+        force_basic_auth: true
         return_content: true
         status_code: [200]
       register: platform_aicd_devops_labs_ru_nexus_repos
@@ -1660,6 +1672,9 @@
         method: POST
         url_username: admin
         url_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        # См. комментарий у первой Nexus REST-задачи выше — без force_basic_auth POST/PUT с телом
+        # реально падали 401 Unauthorized.
+        force_basic_auth: true
         body_format: json
         body:
           name: docker-hub-proxy
@@ -1705,6 +1720,9 @@
         method: POST
         url_username: admin
         url_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        # См. комментарий у первой Nexus REST-задачи выше — без force_basic_auth POST/PUT с телом
+        # реально падали 401 Unauthorized.
+        force_basic_auth: true
         body_format: json
         body:
           name: k3s-releases-proxy
@@ -1742,6 +1760,9 @@
         method: POST
         url_username: admin
         url_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        # См. комментарий у первой Nexus REST-задачи выше — без force_basic_auth POST/PUT с телом
+        # реально падали 401 Unauthorized.
+        force_basic_auth: true
         body_format: json
         body:
           name: nvidia-toolkit-apt-proxy
@@ -1780,6 +1801,9 @@
         method: POST
         url_username: admin
         url_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        # См. комментарий у первой Nexus REST-задачи выше — без force_basic_auth POST/PUT с телом
+        # реально падали 401 Unauthorized.
+        force_basic_auth: true
         body_format: json
         body:
           name: gvisor-apt-proxy
@@ -1815,6 +1839,9 @@
         method: GET
         url_username: admin
         url_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        # См. комментарий у первой Nexus REST-задачи выше — без force_basic_auth POST/PUT с телом
+        # реально падали 401 Unauthorized.
+        force_basic_auth: true
         return_content: true
         status_code: [200]
       register: platform_aicd_devops_labs_ru_nexus_ldap_servers
@@ -1835,6 +1862,9 @@
         method: POST
         url_username: admin
         url_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        # См. комментарий у первой Nexus REST-задачи выше — без force_basic_auth POST/PUT с телом
+        # реально падали 401 Unauthorized.
+        force_basic_auth: true
         body_format: json
         body:
           name: freeipa
@@ -1876,6 +1906,9 @@
         method: PUT
         url_username: admin
         url_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        # См. комментарий у первой Nexus REST-задачи выше — без force_basic_auth POST/PUT с телом
+        # реально падали 401 Unauthorized.
+        force_basic_auth: true
         body_format: json
         body: ["NexusAuthenticatingRealm", "NexusAuthorizingRealm", "LdapRealm"]
         status_code: [204]
