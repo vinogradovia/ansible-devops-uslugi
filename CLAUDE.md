@@ -267,7 +267,7 @@ ansible-playbook -i inventory.yml monitoring-server.yml \
   удалена — `nginx_multidomain` её замена). Роль для мульти-доменных конфигураций в стиле shared
   hosting (per-domain vhost'ы static/proxy, агрегация rate-limit и proxy-cache зон, stub_status,
   custom-сертификаты). **Реализована частично** — см.
-  `docs/adr/0003-ginx-multidomain-role.md`, который описывает
+  `docs/adr/0003-nginx-multidomain-role.md`, который описывает
   фактическую реализацию (не задуманную архитектуру) и явно фиксирует, что ещё не сделано
   (`validate_domains.yml`, `certificates_letsencrypt.yml`, генерация htpasswd для `basic_auth`,
   `logrotate.yml`, шаблон php-fpm vhost'а), а также известные баги в уже

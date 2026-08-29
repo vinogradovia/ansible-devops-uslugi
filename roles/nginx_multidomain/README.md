@@ -11,7 +11,7 @@ Ansible-роль для управления nginx на серверах shared 
 ## Статус: реализована частично
 
 Это не production-ready роль без учёта известных ограничений ниже. Полная картина —
-[`docs/adr/0003-ginx-multidomain-role.md`](../../docs/adr/0003-ginx-multidomain-role.md)
+[`docs/adr/0003-nginx-multidomain-role.md`](../../docs/adr/0003-nginx-multidomain-role.md)
 (схема переменных, порядок задач, разделы 8 и 9 — что реализовано/не реализовано и известные
 баги). Этот README — краткая выжимка, за деталями и обоснованием решений — в ADR.
 

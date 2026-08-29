@@ -181,7 +181,7 @@ graph TD
 
 Не все роли доведены до одинаковой полноты — это осознанно фиксируется, а не скрывается:
 
-- `nginx_multidomain` — реализована частично (см. `docs/adr/0003-ginx-multidomain-role.md`,
+- `nginx_multidomain` — реализована частично (см. `docs/adr/0003-nginx-multidomain-role.md`,
   разделы 8–9): `letsencrypt`, генерация htpasswd для `basic_auth` и `log_format` для
   json-логов не реализованы, причём включение `basic_auth`/json-логов **ломает** `nginx -t`, а
   не просто не работает.

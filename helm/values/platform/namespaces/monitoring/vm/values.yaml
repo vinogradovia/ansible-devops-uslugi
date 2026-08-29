@@ -10,7 +10,16 @@
 global:
   cluster:
     dnsDomain: cluster.local.
-  clusterLabel: "aicd-platform"
+  # НЕ переопределять clusterLabel на что-то вроде "aicd-platform" — найдено живым прогоном на
+  # platform/aicd-devops-labs-ru (проверка дашборда "Kubernetes / Views / Global" в браузере,
+  # 2026-08-29): чарт использует это значение как ИМЯ ЛЕЙБЛА PromQL/MetricsQL прямо в
+  # bundled-дашбордах (`by(<clusterLabel>)`, `{<clusterLabel>=~"$cluster"}`), а не только как
+  # значение — дефис в идентификаторе ломает синтаксис запроса (VictoriaMetrics: "ModifierExpr:
+  # identList: unexpected token '-'"), из-за чего ВСЕ панели дашборда падали 400/422 у каждого
+  # запроса. К тому же реального лейбла с таким именем нет ни у одной метрики — relabeling для
+  # него нигде не настроен, чарт просто подставляет это значение в текст дашбордов. У нас один
+  # кластер на окружение — реальной необходимости в custom clusterLabel нет, дефолт чарта
+  # ("cluster") синтаксически валиден и ничего не ломает.
 
 victoria-metrics-operator:
   enabled: true

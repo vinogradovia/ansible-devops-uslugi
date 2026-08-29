@@ -27,7 +27,7 @@
       failed_when: false
 
     # nginx_multidomain не создаёт содержимое сайта (только vhost-конфиг, docs/adr/
-    # 0003-ginx-multidomain-role.md) — root-каталог и index.html заводим ad hoc, тот же принцип
+    # 0003-nginx-multidomain-role.md) — root-каталог и index.html заводим ad hoc, тот же принцип
     # композиции, что и demo-схема в других кейсах (роль отвечает только за свою зону
     # ответственности).
     - name: Создать root-каталог демо-домена

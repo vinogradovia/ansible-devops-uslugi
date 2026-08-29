@@ -33,7 +33,7 @@
     fail_msg: >-
       nginx_domains[{{ item.name }}].type == '{{ item.type }}' не поддерживается — реализованы
       только static и proxy (php_fpm заявлен в схеме defaults/main.yml, но ещё не реализован, см.
-      docs/adr/0003-ginx-multidomain-role.md §8.5). Без этой проверки домен молча пропускался бы.
+      docs/adr/0003-nginx-multidomain-role.md §8.5). Без этой проверки домен молча пропускался бы.
     quiet: true
   loop: "{{ nginx_domains }}"
   loop_control:
@@ -49,7 +49,7 @@
   when: nginx_install_method == "repo"
 
 # Роль не рендерит главный nginx.conf сама и полагается на то, что стоковый конфиг уже подключает
-# sites-enabled/* (docs/adr/0003-ginx-multidomain-role.md §9.4) — раньше это никак не проверялось,
+# sites-enabled/* (docs/adr/0003-nginx-multidomain-role.md §9.4) — раньше это никак не проверялось,
 # и без такого include все задеплоенные vhost'ы молча не читались бы nginx, хотя роль отработала
 # бы "успешно".
 - name: Прочитать главный nginx.conf
@@ -69,7 +69,7 @@
       директивой — эта роль не рендерит главный nginx.conf сама и полагается на то, что он уже
       подключает sites-enabled/* (стоковый конфиг Debian/Ubuntu-пакета nginx это делает по
       умолчанию; пакет nginx.org, см. nginx_install_method: repo, — нет, там нужна ручная правка
-      nginx.conf). См. docs/adr/0003-ginx-multidomain-role.md §9.4.
+      nginx.conf). См. docs/adr/0003-nginx-multidomain-role.md §9.4.
     quiet: true
 
 - name: Создать базовые директории (sites-*, conf.d, логи)

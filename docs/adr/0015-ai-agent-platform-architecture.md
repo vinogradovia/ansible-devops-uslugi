@@ -169,17 +169,20 @@ Semaphore API.
 спроектированы (идемпотентность ролей, GitOps reconcile, единая история запусков в Semaphore).
 Агентный слой — это *кто инициирует* reconcile, а не *как* он исполняется.
 
-### 6. Агентный стек размещается на одном k3s-узле с тремя runtime-классами для изоляции
+### 6. Агентный стек размещается в кластере k3s/k8s с тремя runtime-классами для изоляции
 
-**Решение:** один узел, один containerd, три `RuntimeClass`: `runc` (дефолт — Traefik/CoreDNS,
-Postgres/MinIO/Redis, LiteLLM/MCP-gateway, Langfuse/Grafana, Temporal), `nvidia` (инференс —
-vLLM, TEI, dcgm-exporter), `runsc`/gVisor (песочницы агентов — `agent-job`, browser automation,
-git/shell; без GPU и без `hostNetwork`).
+**Решение:** кластер — k3s (self-hosted) или k8s (self-hosted либо managed), один узел или
+несколько; конкретная топология и дистрибутив — деталь окружения, не фиксируются этим ADR. На
+каждом узле, где размещается стек, containerd поддерживает три `RuntimeClass`: `runc` (дефолт —
+Traefik/CoreDNS, Postgres/MinIO/Redis, LiteLLM/MCP-gateway, Langfuse/Grafana, Temporal), `nvidia`
+(инференс — vLLM, TEI, dcgm-exporter), `runsc`/gVisor (песочницы агентов — `agent-job`, browser
+automation, git/shell; без GPU и без `hostNetwork`).
 
 **Обоснование:** нужен только один HTTP-эндпоинт гейтвея агенту, не доступ к GPU напрямую —
 разделение по колонкам рантаймов означает, что скомпрометированная песочница агента физически не
-имеет пути к NVIDIA-драйверу. Технологически это продолжение уже принятого в коллекции паттерна
-k3s-развёртывания через Helmwave (`monitoring_server_k3s`, `platform/cicd/`), а не новый
+имеет пути к NVIDIA-драйверу; это разделение работает одинаково независимо от числа узлов и от
+того, кто управляет control-plane. Технологически это продолжение уже принятого в коллекции
+паттерна k3s-развёртывания через Helmwave (`monitoring_server_k3s`, `platform/cicd/`), а не новый
 оркестратор с нуля.
 
 ### 7. Namespace — граница безопасности, `agents` — default-deny по умолчанию
@@ -291,9 +294,9 @@ Temporal, Langfuse, CloudNativePG+pgvector, MinIO, egress-proxy) сознате�
 проверить GPU/изоляцию до вложений в полный стек (тот же принцип "фундамент → следующий слой", что
 freeipa → Authelia → forwardAuth → OIDC в ADR-0013).
 
-**Топология — уточнено с пользователем, отклонение от буквального прочтения §6.** `llm1` — не
-отдельный k3s-кластер (как можно было бы понять из "агентный стек размещается на одном k3s-узле"),
-а **второй узел уже существующего** k3s `platform/aicd-devops-labs-ru` (control-plane —
+**Топология — уточнено с пользователем.** `llm1` — не отдельный k3s-кластер (изначальная
+формулировка §6 до обобщения предполагала один узел, что могло читаться и так), а **второй узел
+уже существующего** k3s `platform/aicd-devops-labs-ru` (control-plane —
 `aicd-labs`). Изоляция от уже работающих там Gitea/Semaphore/OpenBao/Authelia/Radar/infra-panel —
 через taint `dedicated=agents:NoSchedule` + `RuntimeClass`, а не через отдельный control-plane.
 Экономит инфраструктуру (не нужен второй control-plane/etcd/Traefik ради одной GPU-ноды), a
