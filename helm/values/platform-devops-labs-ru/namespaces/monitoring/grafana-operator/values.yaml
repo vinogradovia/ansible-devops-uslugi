@@ -30,6 +30,13 @@ extraObjects:
       config:
         log:
           mode: "console"
+        # Найдено живым прогоном (проверка в браузере, 2026-08-29): "redirect_uri" под
+        # auth.generic_oauth — НЕ существующий ключ конфига Grafana (grafana.ini его просто
+        # молча игнорирует), реальный redirect_uri Grafana строит сама из server.root_url —
+        # без него был дефолт "http://localhost:3000/login/generic_oauth", Authelia отвечала
+        # invalid_request ("redirect_uri does not match any of the pre-registered redirect_uris").
+        server:
+          root_url: "https://grafana.aicd.devops-labs.ru/"
         # client_secret — plaintext (secret/authelia, поле grafana_client_secret), не хэш:
         # хэш (pbkdf2-sha512) нужен только конфигу самой Authelia (см. site.yml, тот же приём,
         # что gitea_client_secret_hash/semaphore_client_secret_hash).
@@ -47,7 +54,6 @@ extraObjects:
           auth_url: https://sso.aicd.devops-labs.ru/api/oidc/authorization
           token_url: https://sso.aicd.devops-labs.ru/api/oidc/token
           api_url: https://sso.aicd.devops-labs.ru/api/oidc/userinfo
-          redirect_uri: https://grafana.aicd.devops-labs.ru/login/generic_oauth
           use_pkce: "true"
       # Реальный пароль — Secret grafana-admin-credentials-custom (site.yml, из secret/grafana
       # в OpenBao), не автосгенерированный секрет оператора.
