@@ -40,8 +40,14 @@ vmagent:
   spec:
     replicaCount: 1
     port: "8429"
+    # vmsingle-vm-victoria-metrics-k8s-stack — реальное имя Service, которое генерирует чарт для
+    # релиза с именем "vm" (fullname-шаблон добавляет суффикс имени чарта, раз имя релиза его не
+    # содержит) — найдено живой проверкой: vmagent реально скрейпил таргеты (health: up), но
+    # vmsingle оставался пустым (0 серий, "up" без результатов), т.к. remote-write улетал на
+    # несуществующий хост "vmsingle-vm" молча (VictoriaMetrics remote-write не ретраит вечно на
+    # DNS-ошибке — просто теряет данные).
     remoteWrite:
-      - url: "http://vmsingle-vm:8428/api/v1/write"
+      - url: "http://vmsingle-vm-victoria-metrics-k8s-stack:8428/api/v1/write"
     scrapeInterval: "30s"
     resources:
       requests:
