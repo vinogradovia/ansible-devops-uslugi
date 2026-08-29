@@ -204,6 +204,18 @@ compose-определения).
   реально срабатывает и подхватывает новый `config.yml` при их изменении. Нужен отдельный шаг
   сценария (второй `converge` с другими `infra_panel_extra_services` + повторная HTTP-проверка
   контента), если такие регрессии станут повторяться.
+- **Та же регрессия реально произошла на Helm-пути `platform/aicd*`** (не покрыт пунктом выше —
+  тот про роль `infra_panel`/handler `Restart homer`, это про Helm-релиз `infra-panel`
+  из `helm/values/platform*/namespaces/platform/infra-panel/values.yaml`, `universal-chart`):
+  живая проверка `platform/aicd-devops-labs-ru` (2026-08-29) — `helmwave up` корректно обновил
+  ConfigMap (добавились ссылки Grafana/Nexus, ADR-0017/0018), но уже запущенный под `homer`
+  продолжал отдавать старый `config.yml` — `subPath`-монтирование ConfigMap не перечитывается
+  живым контейнером без рестарта, а сторонний `universal-chart` не поддерживает
+  checksum-аннотацию на под (в отличие от роли `infra_panel`, у которой есть свой handler для
+  этого же случая). Обошлось разовым ручным `kubectl delete pod` — на Helm-пути такого
+  механизма пока нет вообще; если регрессия будет повторяться при каждом изменении
+  `infra_panel_extra_services`, стоит добавить в `site.yml` явный шаг рестарта Deployment
+  `infra-panel` после `Helmwave up`, если ConfigMap реально изменился.
 
 ## Ссылки
 
