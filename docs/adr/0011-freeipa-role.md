@@ -79,3 +79,7 @@ ROADMAP Backlog №49.
 - `docs/adr/0008-infra-panel-role.md` §3 — принцип отсутствия неявной кросс-ролевой связности.
 - `docs/adr/0010-backup-agent-role.md` §1 — паттерн `*_backup_tool` / условная `meta`-зависимость,
   на который стоит ориентироваться при решении вопроса №2 выше.
+- `docs/adr/0013-unified-auth-architecture.md` — закрывает раздел «Идея» выше: federation-слой —
+  Authelia (вопрос №1), переключение потребителей — `*_auth_method` (вопрос №2).
+- `docs/adr/0019-platform-rbac-model.md` §3 — данные каталога (группы/пользователи) выносятся в
+  отдельную роль `freeipa_directory`, что сохраняет границу §3 этого ADR дословно.
