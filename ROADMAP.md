@@ -129,6 +129,18 @@
     `:9221`, `.venv`/pip-путь). До этой находки роль ни разу не тестировалась с
     `monitoring_agent_pve_exporter_enabled: true` под systemd — баг существовал с момента
     появления pve-exporter в коллекции.
+57. ~~**`monitoring_agent_ipa_exporter_binary_checksum` не совпадает с реальным артефактом.**~~ —
+    **исправлено**: `roles/monitoring_agent/defaults/main.yml` — `get_url` падал `checksum mismatch`
+    (заявлено `e2718c8c...`, реально `5b9264b0d9f72b849de7dce671d68a751710d90fc43d8da8d45bbcc0d23f6465`,
+    подтверждено самим `get_url` на живом хосте). Найдено первым реальным включением
+    `monitoring_agent_ipa_exporter_enabled: true` (platform/aicd-devops-labs-ru, разворачивание
+    экспортёров на freeipa) — `extensions/molecule/monitoring_agent` этот путь не покрывает
+    (`ipa_exporter` не включён ни в один group_vars сценария), поэтому баг с самого появления
+    `ipa_exporter` в коллекции не мог быть пойман CI. Стоит рассмотреть добавление
+    `monitoring_agent_ipa_exporter_enabled: true` в один из хостов сценария — не сделано в рамках
+    этой находки (нужен доступный FreeIPA/LDAP-сервер для позитивной проверки, не просто systemd
+    is-active, иначе тест не поймал бы даже эту находку — сам процесс поднимается независимо от
+    того, отвечает ли реальный FreeIPA).
 
 ---
 
