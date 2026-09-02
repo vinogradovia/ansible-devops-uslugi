@@ -144,6 +144,11 @@ monitoring_agent_ipa_exporter_systemd_name: ipa_exporter
 monitoring_agent_ipa_exporter_binary_download_url: https://github.com/vinogradovia/ansible-devops-uslugi/releases/download/v1.0.0/freeipa-exporter-1.0.0.linux-amd64.tar.gz
 monitoring_agent_ipa_exporter_binary_checksum: sha256:5b9264b0d9f72b849de7dce671d68a751710d90fc43d8da8d45bbcc0d23f6465
 monitoring_agent_ipa_exporter_binary_install_path: /usr/sbin/freeipa-exporter
+# Опционально: basic-auth для _binary_download_url — нужен для внутренних артефакт-репозиториев
+# (например, Nexus raw hosted с выключенным anonymous access), не для публичных источников вроде
+# GitHub releases (дефолт выше). Пусто — get_url не отправляет Authorization-заголовок вовсе.
+monitoring_agent_ipa_exporter_binary_download_username: ""
+monitoring_agent_ipa_exporter_binary_download_password: ""
 
 monitoring_agent_mysqld_exporter_enabled: false
 monitoring_agent_mysqld_exporter_image_registry: docker.io

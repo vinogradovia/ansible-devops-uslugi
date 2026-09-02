@@ -13,6 +13,7 @@
         state: "{{ 'present' if monitoring_agent_ipa_exporter_enabled else 'absent' }}"
 
     - name: Download ipa-exporter
+      no_log: true
       ansible.builtin.get_url:
         url: "{{ monitoring_agent_ipa_exporter_binary_download_url }}"
         checksum: "{{ monitoring_agent_ipa_exporter_binary_checksum }}"
@@ -21,6 +22,14 @@
         owner: root
         group: root
         mode: '0644'
+        # default(omit, true) — а не просто default(omit): пустая строка (дефолт переменных
+        # ниже) сама по себе "определена", обычный default сработал бы только на undefined.
+        # Нужно для внутренних артефакт-репозиториев без anonymous access (см. комментарий у
+        # переменных в defaults/main.yml) — публичные источники вроде GitHub releases не задают
+        # эти переменные вовсе, get_url не отправляет Authorization-заголовок.
+        url_username: "{{ monitoring_agent_ipa_exporter_binary_download_username | default(omit, true) }}"
+        url_password: "{{ monitoring_agent_ipa_exporter_binary_download_password | default(omit, true) }}"
+        force_basic_auth: "{{ monitoring_agent_ipa_exporter_binary_download_username | length > 0 }}"
       register: monitoring_agent_ipa_exporter_binary_download_url_result
 
     - name: Unarchive ipa-exporter
