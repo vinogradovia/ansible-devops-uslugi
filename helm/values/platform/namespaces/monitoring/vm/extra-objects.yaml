@@ -1,0 +1,24 @@
+# roles/monitoring_agent — экспортёры на хосте freeipa (VM вне k3s-кластера, обычный
+# k8s-native scrape этого чарта его не покрывает). VMScrapeConfig/staticConfigs — аналог
+# file_sd/static_configs для целей без собственного k8s-объекта для селектора. vmagent этого
+# релиза поднят с selectAllByDefault: true (тот же режим, что уже проверен живым прогоном на
+# platform-devops-labs-ru), явный scrapeConfigSelector не нужен. В отличие от
+# platform-devops-labs-ru здесь нет GPU-ноды llm1 (ADR-0015 — только это окружение), поэтому
+# только один хост в staticConfigs.
+# ipa_exporter (порт 9189) намеренно не включён: monitoring_agent_ipa_exporter_enabled: false
+# в site.yml (2026-09-02, тот же Rocky 9, что и platform-devops-labs-ru) — бинарь требует
+# GLIBC_2.35+, Rocky 9 даёт только 2.34 (см. комментарий там же). Добавить обратно, когда бинарь
+# будет пересобран под glibc 2.34.
+extraObjects:
+  - apiVersion: operator.victoriametrics.com/v1beta1
+    kind: VMScrapeConfig
+    metadata:
+      name: monitoring-agent-hosts
+      namespace: monitoring
+    spec:
+      staticConfigs:
+        - targets:
+            - "10.66.14.12:9100"
+          labels:
+            job: node_exporter
+            instance: freeipa

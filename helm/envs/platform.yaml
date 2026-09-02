@@ -126,6 +126,7 @@ releases:
     values:
       - vmsingle.yaml
       - grafana.yaml
+      - extra-objects.yaml
 
   # grafana-operator + Grafana CR — native OIDC через Authelia (не forwardAuth, Grafana умеет
   # OIDC сама, ADR-0017). client_secret читается gomplate vault:// из secret/authelia

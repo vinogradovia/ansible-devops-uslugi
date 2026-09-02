@@ -795,6 +795,50 @@
             platform_aicd_nexus_ldap_bind_password: "{{ platform_aicd_openbao_secret_nexus_read.json.data.data.ldap_bind_password }}"
           no_log: true
 
+        # roles/monitoring_agent — bind-аккаунт svc-monitoring для ipa_exporter (метрики самого
+        # FreeIPA), тот же приём, что secret/nexus выше.
+        - name: "OpenBao: проверить наличие secret/monitoring-agent"
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_openbao_addr }}/v1/secret/data/monitoring-agent"
+            ca_path: "{{ platform_aicd_openbao_ca_path }}"
+            method: GET
+            headers:
+              X-Vault-Token: "{{ platform_aicd_openbao_root_token }}"
+            status_code: [200, 404]
+          register: platform_aicd_openbao_secret_monitoring_agent
+          no_log: true
+
+        - name: "OpenBao: сгенерировать и записать secret/monitoring-agent (только при первом прогоне)"
+          when: platform_aicd_openbao_secret_monitoring_agent.status == 404
+          no_log: true
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_openbao_addr }}/v1/secret/data/monitoring-agent"
+            ca_path: "{{ platform_aicd_openbao_ca_path }}"
+            method: POST
+            headers:
+              X-Vault-Token: "{{ platform_aicd_openbao_root_token }}"
+            body_format: json
+            body:
+              data:
+                ldap_bind_password: "{{ lookup('ansible.builtin.password', '/dev/null', length=32) }}"
+            status_code: [200, 204]
+
+        - name: "OpenBao: прочитать secret/monitoring-agent (ldap_bind_password нужен play freeipa_hosts ниже)"
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_openbao_addr }}/v1/secret/data/monitoring-agent"
+            ca_path: "{{ platform_aicd_openbao_ca_path }}"
+            method: GET
+            headers:
+              X-Vault-Token: "{{ platform_aicd_openbao_root_token }}"
+            status_code: [200]
+          register: platform_aicd_openbao_secret_monitoring_agent_read
+          no_log: true
+
+        - name: Опубликовать ldap_bind_password monitoring_agent как факт хоста (для play freeipa_hosts, hostvars)
+          ansible.builtin.set_fact:
+            platform_aicd_monitoring_agent_ldap_bind_password: "{{ platform_aicd_openbao_secret_monitoring_agent_read.json.data.data.ldap_bind_password }}"
+          no_log: true
+
         # docs/adr/0017-platform-cicd-default-addons.md — пароль basic-auth для Radar (первый
         # стандартный аддон), тем же идемпотентным приёмом, что secret/gitea/secret/semaphore
         # выше: генерируется только при первом прогоне, не меняется при повторных (иначе htpasswd
@@ -1381,6 +1425,61 @@
         stdin: "{{ hostvars['cicd'].platform_aicd_nexus_ldap_bind_password }}\n{{ hostvars['cicd'].platform_aicd_nexus_ldap_bind_password }}\n"
       changed_when: true
       no_log: true
+
+    # roles/monitoring_agent — bind-аккаунт для ipa_exporter (метрики самого FreeIPA), тот же
+    # приём, что svc-nexus выше.
+    - name: "Проверить наличие сервисного bind-аккаунта svc-monitoring"
+      ansible.builtin.command: ipa user-show svc-monitoring
+      register: platform_aicd_ipa_svc_monitoring_check
+      changed_when: false
+      failed_when: false
+
+    - name: "Создать сервисный bind-аккаунт svc-monitoring (только при первом прогоне)"
+      when: platform_aicd_ipa_svc_monitoring_check.rc != 0
+      ansible.builtin.command:
+        cmd: >-
+          ipa user-add svc-monitoring
+          --first=Service --last=Monitoring
+          --password-expiration=20351231235959Z
+          --password
+        stdin: "{{ hostvars['cicd'].platform_aicd_monitoring_agent_ldap_bind_password }}\n{{ hostvars['cicd'].platform_aicd_monitoring_agent_ldap_bind_password }}\n"
+      changed_when: true
+      no_log: true
+
+    # ADR-0017/monitoring_agent — node_exporter (базовые метрики хоста) + ipa_exporter (метрики
+    # самого FreeIPA) как systemd-сервисы (этот хост не в k3s-кластере). В отличие от
+    # platform/aicd-devops-labs-ru здесь нет GPU-ноды вне кластера — только этот один внешний
+    # хост. Метрики собираются в VictoriaMetrics через VMScrapeConfig/staticConfigs (см.
+    # helm/values/platform/namespaces/monitoring/vm/extra-objects.yaml).
+    - name: "Firewalld: разрешить порты экспортёров monitoring_agent (node_exporter/ipa_exporter)"
+      ansible.posix.firewalld:
+        port: "{{ item }}"
+        permanent: true
+        immediate: true
+        state: enabled
+      loop:
+        - "9100/tcp"
+        - "9189/tcp"
+
+    # monitoring_agent_ipa_exporter_enabled временно false: живым прогоном на
+    # platform/aicd-devops-labs-ru (2026-09-02, тот же Rocky 9, ADR-0011) найдено, что бинарь
+    # freeipa-exporter (PyInstaller-сборка, GitHub-релиз v1.0.0) требует GLIBC_2.35+, а Rocky 9
+    # даёт только glibc 2.34 — сервис уходил в бесконечный crash-loop (`Failed to load Python
+    # shared library ... GLIBC_2.35' not found`). Нужен пересбор бинаря под glibc 2.34 (Docker-
+    # сборка на rockylinux:9, см. ADDONS/exporters/freeipa_exporter/Dockerfile) и публикация новой
+    # GitHub-релизы — не сделано автономно (публикация публичного контента требует явного решения
+    # оператора). Порт 9189 в firewalld оставлен открытым — заработает сразу после починки бинаря.
+    - name: "Monitoring_agent: node_exporter (systemd)"
+      ansible.builtin.include_role:
+        name: monitoring_agent
+      vars:
+        monitoring_agent_orchestrator: systemd
+        monitoring_agent_node_exporter_enabled: true
+        monitoring_agent_ipa_exporter_enabled: false
+        monitoring_agent_ipa_exporter_hosts: "{{ freeipa_hostname }}"
+        monitoring_agent_ipa_exporter_domain: "{{ freeipa_domain }}"
+        monitoring_agent_ipa_exporter_user: "uid=svc-monitoring,cn=users,cn=accounts,dc=aicd,dc=platform"
+        monitoring_agent_ipa_exporter_password: "{{ hostvars['cicd'].platform_aicd_monitoring_agent_ldap_bind_password }}"
 
 # Play-продолжение (тот же хост platform_hosts/cicd, но ОТДЕЛЬНЫЙ play) — намеренно идёт
 # ПОСЛЕ play freeipa_hosts ниже: Authelia (первый релиз, который поднимает Helmwave up тут)
