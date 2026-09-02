@@ -184,6 +184,75 @@ RAM — второй раунд апгрейда (ADR-0017 §4 уже подни
 Новая ручная ссылка на `https://nexus.<домен>` в `infra_panel_extra_services` (тот же механизм,
 что уже используется для остальных ручных ссылок homer, ADR-0008).
 
+### 9. Raw-hosted репозиторий `internal-releases` для собственных артефактов
+
+Кроме proxy-репозиториев (§6, кешируют СТОРОННИЕ источники) у платформы появилась потребность
+публиковать СВОИ артефакты — первый случай, roles/monitoring_agent/ipa_exporter: бинарь
+`freeipa-exporter` из публичного GitHub-релиза v1.0.0 требовал GLIBC_2.35+, а Rocky 9 (единственная
+ОС для freeipa, ADR-0011) даёт только glibc 2.34 — сервис уходил в бесконечный crash-loop
+(ROADMAP.md P0-57). Пересобран под glibc 2.34 (сборочный стейдж `pyinstaller-artifact` в
+`ADDONS/exporters/freeipa_exporter/Dockerfile`, база `python:3.12-slim-bullseye`, glibc 2.31 —
+запас совместимости, а не подгонка ровно под 2.34) и опубликован не в новый публичный GitHub-релиз
+(это отдельное решение — публикация публичного контента, не в скоупе этой задачи), а в собственный
+raw-hosted репозиторий `internal-releases` того же Nexus, идемпотентно создаваемый REST-вызовом
+(`POST /service/rest/v1/repositories/raw/hosted`, `writePolicy: ALLOW_ONCE` — путь неизменяем
+после первой публикации, новая версия — новый путь/имя файла). Сама публикация артефакта — ручной
+одноразовый шаг (`PUT /repository/internal-releases/<путь>`), тем же принципом, что сборка/push
+`dcgm-exporter` в Gitea registry (ADR-0017): site.yml владеет только идемпотентным СУЩЕСТВОВАНИЕМ
+репозитория, не его содержимым.
+
+**Живым прогоном (2026-09-02) найдено: anonymous access у этого Nexus глобально выключен**
+(`GET /service/rest/v1/security/anonymous` → `enabled: false`) — дефолт свежей Community Edition,
+не осознанный выбор этого репозитория. Все три proxy-репозитория §6 УЖЕ работали не за счёт
+"anonymous без всякой аутентификации", как предполагал текст §6/клиентской стороны выше, а
+по какой-то иной причине (не расследовано отдельно — не блокирует их, apt-путь и так имеет
+block/rescue fallback на прямой источник, docker/raw-путь ни разу не подтверждался при
+реальном cache hit, только при успешном fallback). Для `internal-releases`, у которого fallback
+на "прямой источник" не существует по определению (это не прокси, а единственный источник),
+anonymous-401 обязателен к решению: заведён scoped read-only пользователь `svc-ipa-exporter-reader`
+с ролью `internal-releases-reader` (только `nx-repository-view-raw-internal-releases-{read,browse}`,
+privileges auto-создаются Nexus'ом вместе с самим репозиторием) — не общее включение anonymous на
+весь Nexus, тот же принцип наименьших привилегий, что уже применён для scoped VAULT_TOKEN policy
+gomplate/helmwave (см. ROADMAP/предыдущие ADR). Пароль — новое поле `internal_releases_reader_password`
+в `secret/nexus` (тот же идемпотентный приём, что остальные поля секрета).
+
+**Второй живой находка того же прогона: Nexus Community Edition требует явного принятия EULA
+через REST (`POST /service/rest/v1/system/eula`, `{accepted: true, disclaimer: <точный текст из
+GET>}`) прежде чем разрешит ЛЮБУЮ загрузку компонента** (`PUT`/upload — 403 "You must accept the
+End User License Agreement... through the onboarding wizard or REST API" без этого; POST без
+поля `disclaimer`, только `{accepted: true}` — 500 "Invalid EULA disclaimer", нужен точный текст).
+Принято один раз вручную (администратором, не автоматизировано в site.yml — акт согласия с
+условиями стороннего ПО не тот же класс действия, что REST-конфигурация; см. также диалог с
+пользователем перед выполнением). Управление репозиториями (`GET`/`POST .../repositories`,
+работавшее весь §6) EULA не требовало — только фактическая загрузка контента.
+
+**Ipa_exporter-путь этой задачи столкнулся с ещё одним найденным вживую структурным ограничением:**
+`svc-monitoring`/ipa_exporter настраивается в play `freeipa_hosts`, который по файлу идёт РАНЬШЕ
+play "Platform CI/CD infra (продолжение)", где и происходит вся Nexus REST-конфигурация (сам
+Nexus не готов к REST до того, как Authelia/freeipa существуют — тот же порядок, что §7). На
+первом прогоне после включения фичи `svc-ipa-exporter-reader` ещё не существует — задача качает
+бинарь падает 401. Без обработки такая ошибка не просто пропускает один экспортёр — она
+ОСТАНАВЛИВАЕТ ВЕСЬ ОСТАЛЬНОЙ ПРОГОН ПЛЕЙБУКА (подтверждено эмпирически: ни одна последующая play
+не выполняется вообще, включая ту, что и создала бы недостающего пользователя — вечный тупик).
+Решение — `block`/`rescue` вокруг `include_role: monitoring_agent` в freeipa play (тот же
+принцип бутстрап-толерантности, что §7 и apt block/rescue в `roles/k3s_gpu_node`): на первом
+прогоне ipa_exporter не устанавливается (node_exporter — успевает, он раньше в роли), rescue
+логирует ожидаемую причину и не блокирует остальной прогон; второй прогон (Nexus/пользователь уже
+существуют от первого) проходит без rescue.
+
+После починки glibc бинарь (v1.0.1) стартовал, но падал на первом же реальном LDAP-запросе к
+FreeIPA — второй, независимый живой баг (ROADMAP.md P0-58), уже не инфраструктурный, а в коде
+самого экспортёра (`ADDONS/exporters/freeipa_exporter/code/freeipaserver.py`): `_count_users`/
+`_count_hostgroups` читали операционный атрибут `numSubordinates`, который FreeIPA отдаёт только
+привилегированным bind'ам — обычный `svc-monitoring` получал запись вовсе без этого атрибута
+(`KeyError`, не ошибку поиска). Исправлено переходом на прямое перечисление записей
+(`SCOPE_ONELEVEL` + `len(results)`), тем же паттерном, что уже работал в `_count_groups`/
+`_count_hosts` того же файла. Пересобран как v1.0.2, опубликован по новому пути в тот же
+`internal-releases` (`writePolicy: ALLOW_ONCE` — путь v1.0.1 остаётся, просто больше не
+используется). Итог подтверждён живым прогоном до конца: `ipa_exporter.service` — `active`
+(не crash-loop), `curl :9189/metrics` отдаёт реальные `ipa_users`/`ipa_hosts`/`ipa_up 1`, таргет
+`ipa_exporter`/`freeipa` в vmagent — `health: up` с ненулевыми `lastSamplesScraped`.
+
 ## Явно вне периметра (v1)
 
 - Кеширование Helm-репозиториев — Nexus умеет (`helm` proxy format), но сейчас работает без
