@@ -121,8 +121,11 @@ defaultDashboards:
       enabled: true
 
 # node-exporter/kube-state-metrics/kubelet(cAdvisor) — штатные in-cluster сорсы чарта, ничего
-# внешнего. DaemonSet node-exporter не получает toleration на taint dedicated=agents (ADR-0015)
-# — на llm1 не планируется, ГPU-нода мониторится отдельно (dcgm-exporter, см. site.yml).
+# внешнего. DaemonSet node-exporter реально работает и на llm1 несмотря на taint dedicated=agents
+# (ADR-0015) — чарт по умолчанию даёт ему wildcard-toleration (operator: Exists, без key),
+# толерирующий любой NoSchedule-taint; подтверждено живым прогоном (2026-08-29, kubectl —
+# Pod vm-prometheus-node-exporter-* на node llm1). ГPU-метрики самой карты — отдельно
+# (dcgm-exporter, см. site.yml).
 prometheus-node-exporter:
   enabled: true
   vmScrape:

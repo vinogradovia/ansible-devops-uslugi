@@ -20,3 +20,29 @@ extraObjects:
         - port: metrics
           path: /metrics
           interval: 30s
+
+  # roles/monitoring_agent — экспортёры на хосте freeipa (вне k3s-кластера вовсе, обычный
+  # k8s-native scrape этого чарта его не покрывает). Только freeipa — на llm1 (в кластере)
+  # отдельный systemd node_exporter НЕ ставится: живым прогоном (2026-08-29) найдено, что
+  # DaemonSet prometheus-node-exporter чарта реально работает и там (wildcard toleration
+  # operator: Exists без key толерирует любой NoSchedule-taint, включая dedicated=agents) — этот
+  # хост уже покрыт штатным механизмом чарта, отдельная запись была бы дублирующим таргетом на
+  # тот же порт 9100. VMScrapeConfig/staticConfigs — аналог file_sd/static_configs для целей без
+  # собственного k8s-объекта для селектора. vmagent этого релиза поднят с
+  # selectAllByDefault: true (проверено на живом стенде, kubectl get vmagent -o jsonpath — тот же
+  # режим, что уже подхватывает VMPodScrape выше), явный scrapeConfigSelector не нужен.
+  # ipa_exporter (порт 9189) намеренно не включён: monitoring_agent_ipa_exporter_enabled: false
+  # в site.yml (2026-09-02) — бинарь требует GLIBC_2.35+, Rocky 9 даёт только 2.34 (см. комментарий
+  # там же). Добавить обратно, когда бинарь будет пересобран под glibc 2.34.
+  - apiVersion: operator.victoriametrics.com/v1beta1
+    kind: VMScrapeConfig
+    metadata:
+      name: monitoring-agent-hosts
+      namespace: monitoring
+    spec:
+      staticConfigs:
+        - targets:
+            - "10.10.10.248:9100"
+          labels:
+            job: node_exporter
+            instance: freeipa
