@@ -133,19 +133,23 @@ class FreeIPAServer(object):
         return results
 
     def _count_users(self, user_base):
+        # PATCHED: numSubordinates (operational attribute on the parent entry) requires
+        # privileged access (Directory Manager) — a regular bind account (svc-monitoring) gets
+        # the entry back without that attribute at all (KeyError), not an empty/failed search.
+        # Same fix as the rest of this file's *_count_* methods (see _count_groups/_count_hosts
+        # below) — enumerate entries directly instead of reading a precomputed operational count.
         self._log.debug('Counting %s users...' % user_base)
         results = self._search(
             getattr(self, '_%s_user_base' % user_base),
-            '(objectClass=*)',
-            ['numSubordinates'],
-            scope=ldap.SCOPE_BASE
+            '(uid=*)',
+            ['uid'],
+            scope=ldap.SCOPE_ONELEVEL
         )
 
         if not results and type(results) is not list:
             r = 0
         else:
-            dn, attrs = results[0]
-            r = attrs['numSubordinates'][0].decode('utf-8')
+            r = len(results)
 
         self._log.debug(r)
         return r
@@ -215,19 +219,19 @@ class FreeIPAServer(object):
         return r
 
     def _count_hostgroups(self):
+        # PATCHED: same numSubordinates permission issue as _count_users above.
         self._log.debug('Counting host groups...')
         results = self._search(
             'cn=hostgroups,cn=accounts,%s' % self._base_dn,
-            '(objectClass=*)',
-            ['numSubordinates'],
-            scope=ldap.SCOPE_BASE
+            '(objectClass=ipahostgroup)',
+            ['cn'],
+            scope=ldap.SCOPE_ONELEVEL
         )
 
         if not results and type(results) is not list:
             r = 0
         else:
-            dn, attrs = results[0]
-            r = attrs['numSubordinates'][0].decode('utf-8')
+            r = len(results)
 
         self._log.debug(r)
         return r
