@@ -777,9 +777,41 @@
               data:
                 admin_password: "{{ lookup('ansible.builtin.password', '/dev/null', length=24) }}"
                 ldap_bind_password: "{{ lookup('ansible.builtin.password', '/dev/null', length=32) }}"
+                internal_releases_reader_password: "{{ lookup('ansible.builtin.password', '/dev/null', length=32) }}"
             status_code: [200, 204]
 
         - name: "OpenBao: прочитать secret/nexus (ldap_bind_password нужен play freeipa_hosts ниже)"
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_openbao_addr }}/v1/secret/data/nexus"
+            ca_path: "{{ platform_aicd_openbao_ca_path }}"
+            method: GET
+            headers:
+              X-Vault-Token: "{{ platform_aicd_openbao_root_token }}"
+            status_code: [200]
+          register: platform_aicd_openbao_secret_nexus_read
+          no_log: true
+
+        # Ретрофит для уже забутстрапленного secret/nexus — тот же приём, что
+        # grafana_client_secret у secret/authelia.
+        - name: "OpenBao: добавить internal_releases_reader_password в существующий secret/nexus"
+          when: "'internal_releases_reader_password' not in platform_aicd_openbao_secret_nexus_read.json.data.data"
+          no_log: true
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_openbao_addr }}/v1/secret/data/nexus"
+            ca_path: "{{ platform_aicd_openbao_ca_path }}"
+            method: POST
+            headers:
+              X-Vault-Token: "{{ platform_aicd_openbao_root_token }}"
+            body_format: json
+            body:
+              data: >-
+                {{
+                  platform_aicd_openbao_secret_nexus_read.json.data.data
+                  | combine({'internal_releases_reader_password': lookup('ansible.builtin.password', '/dev/null', length=32)})
+                }}
+            status_code: [200, 204]
+
+        - name: "OpenBao: перечитать secret/nexus (после возможного ретрофита выше)"
           ansible.builtin.uri:
             url: "{{ platform_aicd_openbao_addr }}/v1/secret/data/nexus"
             ca_path: "{{ platform_aicd_openbao_ca_path }}"
@@ -1931,6 +1963,147 @@
             blocked: false
             autoBlock: true
         status_code: [201]
+
+    # Raw-hosted репозиторий для внутренних артефактов, которые не проксируются откуда-то извне
+    # (в отличие от трёх repo выше) — платформа сама владеет содержимым. Первый потребитель —
+    # freeipa-exporter, пересобранный под glibc 2.34 (ROADMAP.md P0-57: оригинальный релиз
+    # GitHub требовал GLIBC_2.35, падал на Rocky 9). Сам артефакт заливается сюда не этим
+    # плейбуком (см. README ADDONS/exporters/freeipa_exporter — одноразовая публикация, тот же
+    # принцип, что сборка/push dcgm-exporter в Gitea, ADR-0017) — здесь только идемпотентное
+    # создание самого репозитория, чтобы он гарантированно существовал к моменту, когда
+    # ipa_exporter ниже попытается с него скачать бинарь.
+    - name: "Nexus: создать internal-releases (raw hosted, если ещё нет)"
+      when: "'internal-releases' not in (platform_aicd_nexus_repos.json | map(attribute='name') | list)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.platform"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.platform"
+      no_log: true
+      ansible.builtin.uri:
+        url: "https://nexus.aicd.platform/service/rest/v1/repositories/raw/hosted"
+        ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        method: POST
+        url_username: admin
+        url_password: "{{ platform_aicd_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        # См. комментарий у первой Nexus REST-задачи выше — без force_basic_auth POST/PUT с телом
+        # реально падали 401 Unauthorized.
+        force_basic_auth: true
+        body_format: json
+        body:
+          name: internal-releases
+          online: true
+          storage:
+            blobStoreName: default
+            strictContentTypeValidation: true
+            # ALLOW_ONCE — загруженный путь неизменяем после первой публикации (как GitHub
+            # releases, откуда раньше брался freeipa-exporter): новая версия — новый путь/имя
+            # файла, а не перезапись существующего, чтобы уже закешированный на хостах бинарь и
+            # его checksum не разъезжались молча.
+            writePolicy: ALLOW_ONCE
+        status_code: [201]
+
+    # Найдено живым прогоном на platform/aicd-devops-labs-ru (2026-09-02): anonymous access в
+    # этом Nexus глобально выключен (security/anonymous: enabled=false) — по умолчанию у свежей
+    # Community Edition, не наш осознанный выбор. Значит "нет forwardAuth" из ADR-0018 для
+    # nexus-cache — не то же самое, что "без всякой аутентификации": скоуп-аккаунт с правом
+    # только на чтение internal-releases, а не общее включение anonymous на весь Nexus (по
+    # согласованию — уже так исторически принято в этом репозитории, ср. scoped VAULT_TOKEN
+    # policy для gomplate/helmwave вместо root-токена). Privileges
+    # nx-repository-view-raw-internal-releases-{read,browse} — автосоздаются Nexus'ом для
+    # каждого репозитория (не нужно заводить их отдельным REST-вызовом).
+    - name: "Nexus: получить список существующих ролей"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.platform"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.platform"
+      ansible.builtin.uri:
+        url: "https://nexus.aicd.platform/service/rest/v1/security/roles"
+        ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        method: GET
+        url_username: admin
+        url_password: "{{ platform_aicd_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        force_basic_auth: true
+        return_content: true
+        status_code: [200]
+      register: platform_aicd_nexus_roles
+      no_log: true
+
+    - name: "Nexus: создать роль internal-releases-reader (если ещё нет)"
+      when: "'internal-releases-reader' not in (platform_aicd_nexus_roles.json | map(attribute='id') | list)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.platform"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.platform"
+      no_log: true
+      ansible.builtin.uri:
+        url: "https://nexus.aicd.platform/service/rest/v1/security/roles"
+        ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        method: POST
+        url_username: admin
+        url_password: "{{ platform_aicd_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        force_basic_auth: true
+        body_format: json
+        body:
+          id: internal-releases-reader
+          name: internal-releases-reader
+          description: "Только чтение internal-releases (roles/monitoring_agent, ipa_exporter)"
+          privileges:
+            - nx-repository-view-raw-internal-releases-read
+            - nx-repository-view-raw-internal-releases-browse
+        status_code: [200]
+
+    - name: "Nexus: получить список существующих пользователей"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.platform"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.platform"
+      ansible.builtin.uri:
+        url: "https://nexus.aicd.platform/service/rest/v1/security/users?userId=svc-ipa-exporter-reader"
+        ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        method: GET
+        url_username: admin
+        url_password: "{{ platform_aicd_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        force_basic_auth: true
+        return_content: true
+        status_code: [200]
+      register: platform_aicd_nexus_users
+      no_log: true
+
+    - name: "Nexus: создать пользователя svc-ipa-exporter-reader (если ещё нет)"
+      when: platform_aicd_nexus_users.json | length == 0
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.platform"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.platform"
+      no_log: true
+      ansible.builtin.uri:
+        url: "https://nexus.aicd.platform/service/rest/v1/security/users"
+        ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        method: POST
+        url_username: admin
+        url_password: "{{ platform_aicd_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        force_basic_auth: true
+        body_format: json
+        body:
+          userId: svc-ipa-exporter-reader
+          firstName: Service
+          lastName: "Artifact Reader"
+          emailAddress: svc-ipa-exporter-reader@aicd.platform
+          password: "{{ platform_aicd_openbao_secret_nexus_read.json.data.data.internal_releases_reader_password }}"
+          status: active
+          roles:
+            - internal-releases-reader
+        status_code: [200]
 
     - name: "Nexus: получить список существующих LDAP-серверов"
       delegate_to: localhost
