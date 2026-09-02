@@ -1,0 +1,11 @@
+{
+	"folders": [
+		{
+			"path": "../devops-labs.ru/ansible-devops-labs-ru"
+		},
+		{
+			"path": "."
+		}
+	],
+	"settings": {}
+}
