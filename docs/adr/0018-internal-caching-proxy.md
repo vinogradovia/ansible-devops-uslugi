@@ -253,6 +253,59 @@ FreeIPA — второй, независимый живой баг (ROADMAP.md P
 (не crash-loop), `curl :9189/metrics` отдаёт реальные `ipa_users`/`ipa_hosts`/`ipa_up 1`, таргет
 `ipa_exporter`/`freeipa` в vmagent — `health: up` с ненулевыми `lastSamplesScraped`.
 
+### 10. Живой прогон `platform/aicd` (2026-09-03) — первая верификация, три реальных находки
+
+ВМ этого окружения были выключены с момента написания §7-9 выше — весь текст до этого момента
+был провалидирован только `ansible-lint`/`--syntax-check`, README прямо фиксировал «не проверено
+реальным прогоном». ВМ подняты обратно (`tofu apply`, `platform/aicd/terraform`, дрейф —
+только `running: false → true` и отложенный апгрейд RAM `cicd` 6144→10240 MiB из §7, реальные
+диски не пересоздавались), `site.yml` прогнан до полностью чистого состояния
+(`failed=0`/`rescued=0` на обоих хостах). По пути найдены и исправлены три независимых бага —
+ни один не специфичен для этого окружения по сути, все три — родовые баги, которые первый живой
+прогон был первым шансом поймать:
+
+1. **`kubernetes.core.k8s_exec` не уважал явный `NO_PROXY` — потому что его не было.** Единственная
+   Nexus-bootstrap-задача, читающая `admin.password` из пода через `k8s_exec` (websocket, а не
+   обычный REST), не имела своего блока `environment: {NO_PROXY, no_proxy}`, в отличие от всех
+   соседних `uri`-задач и от `kubernetes.core.k8s_info`/`k8s` (Python kubernetes client для REST не
+   ходит через системный прокси, `k8s_exec` — честно ходит, CONNECT-тоннель через локальный прокси
+   `127.0.0.1:8118` этого control-хоста отвечал 503, `websocket-client` не восстанавливается).
+   `platform/aicd-devops-labs-ru` историчeски не ловил эту ошибку не потому, что был написан
+   правильно, а по совпадению — его сеть (`10.10.10.0/24`) уже входит в глобальный `NO_PROXY`
+   control-хоста. Исправлено в обоих `site.yml` одинаково (явный `NO_PROXY` с адресом API-сервера).
+2. **`internal-releases`-артефакт `freeipa-exporter` v1.0.2, пересобранный локально тем же
+   `docker build --target pyinstaller-artifact` из §9, был упакован с бинарём в КОРНЕ архива** —
+   `roles/monitoring_agent/tasks/systemd-ipa-exporter.yml` (`unarchive`, `include: "*/freeipa-exporter"`
+   + `--strip-component=1`) ждёт бинарь ВНУТРИ поддиректории архива (типичный
+   `goreleaser`-тарбол-конвенция — то, как был упакован уже верифицированный артефакт на
+   `aicd-devops-labs-ru`, откуда и была скопирована сама задача `unarchive`, без переноса этого
+   неявного требования в комментарии). Итог первого прогона —
+   не crash-loop и не 401, а куда менее очевидный `"Not found in archive"`. Из-за
+   `writePolicy: ALLOW_ONCE` сломанный компонент нельзя было просто перезаписать —
+   потребовался явный `DELETE /service/rest/v1/components/{id}` (id — из
+   `GET /service/rest/v1/search?repository=...&name=...`, при этом сам `name` в ответе Nexus
+   содержит ведущий `/`: `/freeipa-exporter/freeipa-exporter-1.0.2.linux-amd64.tar.gz`) перед
+   повторной заливкой. Исправлено переупаковкой (бинарь внутри `freeipa-exporter-1.0.2-linux-amd64/`)
+   и обновлением `monitoring_agent_ipa_exporter_binary_checksum` в `site.yml` на checksum новой
+   версии архива.
+3. **Включение `ipa_exporter` в `site.yml` не сопровождалось вторым таргетом в
+   `helm/values/platform/namespaces/monitoring/vm/extra-objects.yaml`** — файл ранее осознанно
+   содержал только `node-exporter` (порт 9100), с комментарием «добавить обратно, когда бинарь
+   будет пересобран», но сам факт включения фичи не добавил вторую запись `staticConfigs`
+   автоматически (это два независимых файла в разных частях репозитория — `site.yml` описывает
+   ЧТО ставится НА хост, `extra-objects.yaml` — ЧТО из этого хоста ходит СКРЕЙПИТЬ vmagent).
+   Итог — `ipa_exporter.service active`, `curl :9189/metrics` с самого хоста отдаёт реальные
+   метрики, но vmagent о таргете вообще не знал (не `down`, а полностью отсутствовал в
+   `/api/v1/targets`). Исправлено добавлением второго `staticConfigs`-элемента (порт 9189,
+   `job: ipa_exporter`), применено live через scoped `helmwave up --tags vm`.
+
+Итог, подтверждённый после всех трёх фиксов: `vmagent` — оба таргета (`ipa_exporter`,
+`node-exporter`) `health: up`; прямой `GET /api/v1/query?query=ipa_up` на VMSingle —
+`{instance="freeipa", job="ipa_exporter"} 1`; `node_uname_info{job="node-exporter"}` содержит и
+`cicd`, и `freeipa`/`ipa.aicd.platform` под одним job (тот же приём унификации, что уже применён
+на `aicd-devops-labs-ru`, docs/adr/0017-platform-cicd-default-addons.md §5); `GrafanaDashboard`
+`freeipa-exporter` — `DashboardSynchronized`, доступен через собственный REST API Grafana.
+
 ## Явно вне периметра (v1)
 
 - Кеширование Helm-репозиториев — Nexus умеет (`helm` proxy format), но сейчас работает без

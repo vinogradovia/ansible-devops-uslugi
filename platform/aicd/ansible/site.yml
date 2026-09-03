@@ -1493,25 +1493,82 @@
         - "9100/tcp"
         - "9189/tcp"
 
-    # monitoring_agent_ipa_exporter_enabled временно false: живым прогоном на
-    # platform/aicd-devops-labs-ru (2026-09-02, тот же Rocky 9, ADR-0011) найдено, что бинарь
-    # freeipa-exporter (PyInstaller-сборка, GitHub-релиз v1.0.0) требует GLIBC_2.35+, а Rocky 9
-    # даёт только glibc 2.34 — сервис уходил в бесконечный crash-loop (`Failed to load Python
-    # shared library ... GLIBC_2.35' not found`). Нужен пересбор бинаря под glibc 2.34 (Docker-
-    # сборка на rockylinux:9, см. ADDONS/exporters/freeipa_exporter/Dockerfile) и публикация новой
-    # GitHub-релизы — не сделано автономно (публикация публичного контента требует явного решения
-    # оператора). Порт 9189 в firewalld оставлен открытым — заработает сразу после починки бинаря.
-    - name: "Monitoring_agent: node_exporter (systemd)"
-      ansible.builtin.include_role:
-        name: monitoring_agent
-      vars:
-        monitoring_agent_orchestrator: systemd
-        monitoring_agent_node_exporter_enabled: true
-        monitoring_agent_ipa_exporter_enabled: false
-        monitoring_agent_ipa_exporter_hosts: "{{ freeipa_hostname }}"
-        monitoring_agent_ipa_exporter_domain: "{{ freeipa_domain }}"
-        monitoring_agent_ipa_exporter_user: "uid=svc-monitoring,cn=users,cn=accounts,dc=aicd,dc=platform"
-        monitoring_agent_ipa_exporter_password: "{{ hostvars['cicd'].platform_aicd_monitoring_agent_ldap_bind_password }}"
+    # Доверие к внутреннему PKI CA OpenBao — нужно freeipa-хосту, чтобы скачать бинарь ipa_exporter
+    # с nexus-cache (TLS выпущен из этого CA). RHEL/Rocky-путь (ADR-0011), не Debian/Ubuntu-путь
+    # остальных потребителей в этом файле (cicd): /etc/pki/ca-trust/source/anchors +
+    # update-ca-trust extract (тот же приём, что platform/aicd-devops-labs-ru/ansible/site.yml).
+    # meta: flush_handlers сразу после — обновление доверия должно синхронно отработать до задачи
+    # ниже, которая реально качает файл.
+    - name: "Установить внутренний PKI CA в системный trust store freeipa (доверие к Nexus)"
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        dest: /etc/pki/ca-trust/source/anchors/aicd-platform-ca.pem
+        owner: root
+        group: root
+        mode: '0644'
+      notify: "CA обновлён на freeipa"
+
+    - name: Форсировать выполнение хендлера CA прямо сейчас
+      ansible.builtin.meta: flush_handlers
+
+    # nexus-cache.aicd.platform — приватный домен без реального DNS, тот же приём, что остальные
+    # /etc/hosts-записи в этом файле.
+    - name: "/etc/hosts: nexus-cache.aicd.platform (для скачивания ipa_exporter с Nexus)"
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        line: "{{ hostvars['cicd']['ansible_host'] }} nexus-cache.aicd.platform"
+        regexp: '\snexus-cache\.aicd\.platform$'
+
+    # ROADMAP.md P0-57/P0-58 — бинарь freeipa-exporter из GitHub-релиза v1.0.0 требовал
+    # GLIBC_2.35+, Rocky 9 (ADR-0011) даёт только glibc 2.34; пересобран под glibc 2.34
+    # (ADDONS/exporters/freeipa_exporter/Dockerfile, target pyinstaller-artifact) и опубликован в
+    # internal-releases (Nexus raw hosted, docs/adr/0018 §9) — тот же артефакт (v1.0.2, с фиксом
+    # numSubordinates/_count_users), что уже верифицирован на platform/aicd-devops-labs-ru,
+    # пересобран локально и залит сюда отдельным разовым шагом (не автоматизировано в этом
+    # плейбуке — та же логика, что публикация артефакта вообще, ADR-0018 §9). Найдено живым
+    # прогоном (2026-09-03): roles/monitoring_agent/tasks/systemd-ipa-exporter.yml ждёт бинарь
+    # ВНУТРИ поддиректории архива (unarchive include: "*/freeipa-exporter" + --strip-component=1,
+    # тот же формат, что типичный `goreleaser`-тарбол) — архив с бинарём прямо в корне
+    # (`tar -czf ... freeipa-exporter`, первая попытка) распаковывался в "Not found in archive";
+    # исправлено переупаковкой (`tar -czf ... freeipa-exporter-1.0.2-linux-amd64/`, бинарь внутри
+    # каталога) — checksum ниже соответствует ИМЕННО этой, второй, версии архива.
+    #
+    # block/rescue — та же логика бутстрап-порядка, что apt-cache fallback в roles/
+    # k3s_gpu_node/tasks/{nvidia,gvisor}.yml: сам пользователь svc-ipa-exporter-reader создаётся в
+    # play "Platform CI/CD infra (продолжение)" НИЖЕ по файлу (Nexus не готов к REST-конфигурации
+    # до Authelia/freeipa) — на первом прогоне после появления этой фичи здесь будет 401, а без
+    # rescue такая ошибка аварийно останавливает весь дальнейший прогон плейбука. node_exporter
+    # (первая роль внутри include_role) успевает отработать до этой точки в любом случае.
+    - name: "Monitoring_agent: node_exporter + ipa_exporter (systemd)"
+      block:
+        - name: "Monitoring_agent: node_exporter + ipa_exporter (systemd)"
+          ansible.builtin.include_role:
+            name: monitoring_agent
+          vars:
+            monitoring_agent_orchestrator: systemd
+            monitoring_agent_node_exporter_enabled: true
+            monitoring_agent_ipa_exporter_enabled: true
+            monitoring_agent_ipa_exporter_hosts: "{{ freeipa_hostname }}"
+            monitoring_agent_ipa_exporter_domain: "{{ freeipa_domain }}"
+            monitoring_agent_ipa_exporter_user: "uid=svc-monitoring,cn=users,cn=accounts,dc=aicd,dc=platform"
+            monitoring_agent_ipa_exporter_password: "{{ hostvars['cicd'].platform_aicd_monitoring_agent_ldap_bind_password }}"
+            monitoring_agent_ipa_exporter_binary_download_url: "https://nexus-cache.aicd.platform/repository/internal-releases/freeipa-exporter/freeipa-exporter-1.0.2.linux-amd64.tar.gz"
+            monitoring_agent_ipa_exporter_binary_checksum: "sha256:f5e76bdce8046057194a1388b5572c5adba0b159fd7eb06231c9539a65f7973e"
+            monitoring_agent_ipa_exporter_binary_download_username: svc-ipa-exporter-reader
+            monitoring_agent_ipa_exporter_binary_download_password: "{{ hostvars['cicd'].platform_aicd_openbao_secret_nexus_read.json.data.data.internal_releases_reader_password }}"
+      rescue:
+        - name: "Ipa_exporter: Nexus internal-releases-reader ещё не создан на этом прогоне (см. play ниже) — не блокировать остальной прогон"
+          ansible.builtin.debug:
+            msg: >-
+              Скачивание ipa_exporter не удалось (Nexus internal-releases-reader создаётся позже
+              в этом же файле, play "Platform CI/CD infra (продолжение)") — ожидаемо на первом
+              прогоне после включения фичи, повторный прогон должен пройти без rescue.
+
+  handlers:
+    - name: Обновить системный trust store freeipa
+      listen: "CA обновлён на freeipa"
+      ansible.builtin.command: update-ca-trust extract
+      changed_when: true
 
 # Play-продолжение (тот же хост platform_hosts/cicd, но ОТДЕЛЬНЫЙ play) — намеренно идёт
 # ПОСЛЕ play freeipa_hosts ниже: Authelia (первый релиз, который поднимает Helmwave up тут)
@@ -1783,11 +1840,23 @@
       register: platform_aicd_nexus_auth_check
       no_log: true
 
+    # Найдено живым прогоном (2026-09-03, первый реальный прогон этого окружения, README §«Кеширующий
+    # прокси» — «не проверено реальным прогоном»): в отличие от остальных Nexus REST-задач (uri,
+    # обычный HTTPS) и от kubernetes.core.k8s_info/k8s (Python kubernetes client, не ходит через
+    # системный прокси), kubernetes.core.k8s_exec использует websocket-подключение к API-серверу —
+    # оно ЧЕСТНО уважает системный HTTP(S)_PROXY и без явного NO_PROXY уходит в локальный прокси
+    # (здесь — 127.0.0.1:8118), который не умеет CONNECT для вебсокетов ("failed CONNECT via proxy
+    # status: 503"). У platform/aicd-devops-labs-ru та же задача исторически "работала" без этого
+    # блока только потому, что её сеть (10.10.10.0/24) уже входит в глобальный NO_PROXY control-хоста
+    # — совпадение, а не гарантия; тот файл исправлен тем же приёмом отдельно.
     - name: "Nexus: прочитать сгенерированный при первом старте admin-пароль"
       when: platform_aicd_nexus_auth_check.status == 401
       delegate_to: localhost
       become: false
       run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
       kubernetes.core.k8s_exec:
         kubeconfig: "{{ platform_aicd_kubeconfig.dest }}"
         namespace: cache

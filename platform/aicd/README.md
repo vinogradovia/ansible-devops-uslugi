@@ -302,10 +302,11 @@ ClusterIP-сервиса, см. ADR-0013 §7 для деталей и остал
 (`platform/aicd/terraform/vms.tf`) под этот аддон — на прежних 4096 нода уже была на 43% реального
 потребления памяти без единого мониторингового пода (metrics-server, замер 2026-08-28).
 
-**Не проверено реальным прогоном** (в отличие от остального README) — `ansible-playbook site.yml`
-на этой сети упирается в блокировку `release-assets.githubusercontent.com` (`xanmanning.k3s`
-безусловно перепроверяет checksum k3s на каждом прогоне), см. ADR-0017 §4. Код провалидирован
-`ansible-lint --profile production` + `--syntax-check`, живой прогон — предстоит оператору.
+Проверено живым прогоном (2026-09-03, docs/adr/0018-internal-caching-proxy.md §10) — блокировка
+`release-assets.githubusercontent.com` в этом прогоне не помешала (k3s-бинарь уже был установлен
+предыдущим прогоном, идемпотентная проверка не упёрлась в неё заново). `VMScrapeConfig`
+`monitoring-agent-hosts` реально скрейпится (`vmagent` — `health: up`), `node_uname_info` виден и
+для `cicd`, и для внешнего хоста `freeipa` под единым `job: node-exporter`.
 
 ## Кеширующий прокси (docs/adr/0018-internal-caching-proxy.md)
 
@@ -320,10 +321,11 @@ Releases) и apt-пакеты (`nvidia-container-toolkit`/gVisor — актуа�
 RAM `cicd` поднята второй раз (6144→10240 MiB, `platform/aicd/terraform/vms.tf`) — Nexus OSS
 официально требует 4GB RAM минимум (JVM).
 
-**Не проверено реальным прогоном** — та же сетевая оговорка, что у раздела «Мониторинг» выше
-(`ansible-playbook site.yml` упирается в блокировку `release-assets.githubusercontent.com` до
-того, как Nexus вообще успевает подняться и начать помогать). Код провалидирован
-`ansible-lint --profile production` + `--syntax-check`. Операторам — добавить в свой `/etc/hosts`:
+Проверено живым прогоном (2026-09-03, docs/adr/0018-internal-caching-proxy.md §10) — EULA принят,
+три proxy-repo созданы, `internal-releases` работает сквозным путём для реального артефакта
+(`freeipa-exporter` v1.0.2, `ipa_exporter` — `active`, метрики реальны, таргет в vmagent —
+`health: up`), LDAP-realm активен. По пути найдены и исправлены три бага первого прогона —
+подробности в ADR §10, не специфичны для этого README. Операторам — добавить в свой `/etc/hosts`:
 ```
 <IP control-plane> nexus.aicd.platform
 <IP control-plane> nexus-cache.aicd.platform

@@ -1842,11 +1842,21 @@
       register: platform_aicd_devops_labs_ru_nexus_auth_check
       no_log: true
 
+    # kubernetes.core.k8s_exec (в отличие от uri-задач и k8s_info/k8s выше) — websocket-подключение
+    # к API-серверу, честно уважает системный HTTP(S)_PROXY. Эта задача историчeски проходила без
+    # явного NO_PROXY только потому, что сеть этого окружения (10.10.10.0/24) уже входит в глобальный
+    # NO_PROXY control-хоста — совпадение, не гарантия. Найдено и исправлено (сначала для
+    # platform/aicd, сеть 10.66.14.0/24 НЕ входит в глобальный NO_PROXY — "failed CONNECT via proxy
+    # status: 503") живым прогоном 2026-09-03; тот же explicit-NO_PROXY приём применён здесь для
+    # согласованности и устойчивости к смене NO_PROXY control-хоста в будущем.
     - name: "Nexus: прочитать сгенерированный при первом старте admin-пароль"
       when: platform_aicd_devops_labs_ru_nexus_auth_check.status == 401
       delegate_to: localhost
       become: false
       run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
       kubernetes.core.k8s_exec:
         kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
         namespace: cache

@@ -5,10 +5,14 @@
 # platform-devops-labs-ru), явный scrapeConfigSelector не нужен. В отличие от
 # platform-devops-labs-ru здесь нет GPU-ноды llm1 (ADR-0015 — только это окружение), поэтому
 # только один хост в staticConfigs.
-# ipa_exporter (порт 9189) намеренно не включён: monitoring_agent_ipa_exporter_enabled: false
-# в site.yml (2026-09-02, тот же Rocky 9, что и platform-devops-labs-ru) — бинарь требует
-# GLIBC_2.35+, Rocky 9 даёт только 2.34 (см. комментарий там же). Добавить обратно, когда бинарь
-# будет пересобран под glibc 2.34.
+#
+# ipa_exporter (порт 9189) включён 2026-09-03: monitoring_agent_ipa_exporter_enabled: true в
+# site.yml — бинарь freeipa-exporter пересобран под glibc 2.34 и опубликован в Nexus
+# internal-releases (docs/adr/0018-internal-caching-proxy.md §9), тот же артефакт (v1.0.2), что
+# уже верифицирован на platform-devops-labs-ru. Живым прогоном найдено: этот таргет не был
+# добавлен вместе с включением экспортёра в site.yml (только node-exporter существовал в этом
+# файле) — vmagent не видел ipa_exporter вовсе, хотя сервис на freeipa был активен и отдавал
+# метрики (curl 127.0.0.1:9189/metrics с самого хоста работал).
 #
 # job: "node-exporter" (не "node_exporter") — зеркало platform-devops-labs-ru/.../vm/
 # extra-objects.yaml: совпадает с job штатного in-cluster DaemonSet'а чарта, чтобы freeipa не
@@ -25,4 +29,9 @@ extraObjects:
             - "10.66.14.12:9100"
           labels:
             job: node-exporter
+            instance: freeipa
+        - targets:
+            - "10.66.14.12:9189"
+          labels:
+            job: ipa_exporter
             instance: freeipa
