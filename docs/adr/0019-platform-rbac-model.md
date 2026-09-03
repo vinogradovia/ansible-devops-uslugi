@@ -199,9 +199,9 @@ scope'ом claim в токен — значит `groups` обязан быть �
 | infra-panel | доступ | доступ | доступ | `access_control.subject` (внутренних ролей нет) |
 | radar | доступ | доступ | доступ (UI и так read-only) | `access_control.subject` |
 | Grafana | Admin | Editor | Viewer | `auth.generic_oauth.role_attribute_path` (JMESPath по `groups`) + `role_attribute_strict: true`; `allow_assign_grafana_admin` — по необходимости |
-| Gitea | admin | обычный пользователь | restricted-пользователь | `gitea admin auth add-oauth`: `--group-claim-name`/`--admin-group`/`--restricted-group` — **требует сверки** с версией Gitea и с тем, пробрасывает ли чарт эти флаги; если флаги недоступны — маппинг ролей не включается, допуск остаётся через Authelia (§5, уровень 1), админ — локальный `gitea_admin` (§7) |
-| Semaphore | admin | обычный пользователь | — (не пускать) | Маппинг админа из claim — **требует сверки** (v2.19.8, `SEMAPHORE_OIDC_PROVIDERS`); если не поддерживается — только допуск через Authelia, админ остаётся локальным (§7) |
-| Nexus | `nx-admin` | роль с правами publish/deploy | read-only | External role mapping LDAP-группы → роль Nexus; идемпотентно через REST — **требует сверки** схемы (`/service/rest/v1/security/roles`) в OSS-редакции; если REST-эндпоинт недоступен в OSS — маппинг настраивается через UI вручную одноразово (тот же класс операции, что EULA/upload в ADR-0018 §9), а не блокирует остальной прогон |
+| Gitea | admin | обычный пользователь | restricted-пользователь | `gitea admin auth add-oauth`: `--group-claim-name`/`--admin-group`/`--restricted-group` — **сверено**: чарт (`gitea.oauth_settings`) не имеет закрытой схемы полей, любой ключ `values.gitea.oauth[]` конвертируется в `--<kebab-case> <значение>` автоматически, тем же механизмом, что уже настроены `autoDiscoverUrl`/`key`/`secret` — добавление трёх ключей в уже существующий блок `oauth:` |
+| Semaphore | admin | обычный пользователь | — (не пускать) | Маппинг админа из claim — **сверено, не поддерживается**: официальная документация (v2.19.8) описывает только `username_claim`/`email_claim`/`name_claim`, ни ролевого маппинга, ни admin-по-claim'у нет и в roadmap; допуск — только через Authelia, админ остаётся локальным (§7) |
+| Nexus | `nx-admin` | роль с правами publish/deploy | read-only | **Сверено**: публичный REST (`POST .../security/roles` с `"source": "ldap"`) не работает — Sonatype подтвердил, что поле молча игнорируется, всегда `"default"`. Рабочий путь проще: Nexus сопоставляет LDAP-группу с ролью **по совпадению `id`**, отдельного объекта «external mapping» не требуется — обычная роль с `id`, равным имени группы каталога (`platform-admins`/`-engineers`/`-viewers`), созданная тем же REST-вызовом, что уже работает для `internal-releases-reader` (ADR-0018 §9), автоматически становится назначена этой LDAP-группе |
 | OpenBao | root/policy (вне каталога) | — | — | Не интегрируется этим ADR — см. «Не проработано» |
 
 **Обоснование:** `platform-viewers` намеренно не допускается в Semaphore: Semaphore запускает
@@ -309,3 +309,11 @@ Grafana, когда каталог лежит.
   `claims_policies`, механизм переноса `groups` в ID Token (§4).
 - [Grafana — Generic OAuth, `role_attribute_path`](https://grafana.com/docs/grafana/latest/setup-grafana/configure-security/configure-authentication/generic-oauth/) —
   маппинг групп в Admin/Editor/Viewer (§6).
+- [Gitea — Command Line, `admin auth add-oauth`](https://docs.gitea.com/administration/command-line/) —
+  `--group-claim-name`/`--admin-group`/`--restricted-group` (§6, сверено 2026-09-03).
+- [Semaphore UI — OpenID Connect](https://semaphoreui.com/docs/administration-guide/openid/) —
+  полный список полей `SEMAPHORE_OIDC_PROVIDERS`, подтверждает отсутствие ролевого маппинга
+  (§6, сверено 2026-09-03).
+- [Sonatype Community — external LDAP role через REST API](https://community.sonatype.com/t/how-to-create-an-external-ldap-role-using-the-rest-api/8842) —
+  официальный ответ Sonatype: поле `source: "ldap"` в `POST .../security/roles` игнорируется
+  (§6, сверено 2026-09-03); обходной путь — совпадение `id` роли с именем LDAP-группы.
