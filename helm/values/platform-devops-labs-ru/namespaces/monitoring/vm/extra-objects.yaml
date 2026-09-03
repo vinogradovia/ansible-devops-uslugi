@@ -31,6 +31,15 @@ extraObjects:
   # собственного k8s-объекта для селектора. vmagent этого релиза поднят с
   # selectAllByDefault: true (проверено на живом стенде, kubectl get vmagent -o jsonpath — тот же
   # режим, что уже подхватывает VMPodScrape выше), явный scrapeConfigSelector не нужен.
+  #
+  # job: "node-exporter" (через дефис, не "node_exporter") — намеренно совпадает с именем job у
+  # штатного in-cluster DaemonSet'а чарта (jobLabel-механизм prometheus-node-exporter subchart'а,
+  # см. ../vm/values.yaml). Найдено живым прогоном (2026-09-03, дашборд "Node Exporter Full",
+  # docs/adr/0017-platform-cicd-default-addons.md §5): при разных именах job'ов freeipa и
+  # in-cluster нода оказывались в РАЗНЫХ пунктах выпадающего списка "Job" одного и того же
+  # дашборда — не баг, но лишний шаг для оператора и разделение того, что по сути один и тот же
+  # тип экспортёра. Общий job делает freeipa обычным выбираемым хостом в уже существующем
+  # бандловом дашборде без отдельной записи/дублирования.
   - apiVersion: operator.victoriametrics.com/v1beta1
     kind: VMScrapeConfig
     metadata:
@@ -41,7 +50,7 @@ extraObjects:
         - targets:
             - "10.10.10.248:9100"
           labels:
-            job: node_exporter
+            job: node-exporter
             instance: freeipa
         - targets:
             - "10.10.10.248:9189"
