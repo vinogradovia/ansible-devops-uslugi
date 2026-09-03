@@ -39,3 +39,18 @@ platform_aicd_disabled_addons: []
 platform_aicd_enabled_addons: >-
   {{ (platform_aicd_default_addons + platform_aicd_extra_addons)
      | unique | difference(platform_aicd_disabled_addons) }}
+
+# Дашборды Grafana для экспортёров roles/monitoring_agent, стоящих на хостах ВНЕ k3s-кластера —
+# зеркало platform/aicd-devops-labs-ru/ansible/group_vars/platform_hosts.yml (там же полное
+# обоснование, почему это ansible-задача, а не helm-values чарта vm). Модель дашборда берётся из
+# ADDONS/grafana_dashboards/, сюда попадает только имя файла, а не копия JSON.
+#
+# Пусто в этом окружении: ipa_exporter здесь пока не включён (monitoring_agent_ipa_exporter_enabled:
+# false в site.yml — ВМ окружения выключены, живой прогон отложен), поэтому дашборд показывал бы
+# "No data". Тот же приём, что закомментированный таргет 9189 в
+# helm/values/platform/namespaces/monitoring/vm/extra-objects.yaml — включать обе половины вместе,
+# по факту живого прогона.
+# Содержимое после включения (зеркало aicd-devops-labs-ru):
+#   - name: freeipa-exporter
+#     file: freeipa_exporter.json
+platform_aicd_grafana_addons_dashboards: []

@@ -201,6 +201,56 @@ site.yml` на `platform/aicd` упирается в блокировку `relea
 прогон и итоговая верификация (Grafana открывается, OIDC-логин работает, реальные метрики видны,
 `local-path` не тронут, dcgm-exporter только на `llm1`) — предстоит выполнить оператору.
 
+### 5. Дашборды экспортёров `monitoring_agent` — `GrafanaDashboard` из `ADDONS/` (2026-09-03)
+
+**Контекст:** после установки `ipa_exporter` на хост `freeipa` (вне кластера) и его подключения
+через `VMScrapeConfig`/`staticConfigs` метрики реально собирались (`ipa_up`/`ipa_users` видны в
+VictoriaMetrics), но в Grafana дашборда FreeIPA не было — жалоба оператора. То есть скрейп и
+визуализация разъехались: половина работы (сбор) была сделана, вторая (дашборд) — нет.
+
+**Причина — в k3s-пути этого ADR не было вообще никакого механизма для сторонних дашбордов.**
+Разбор показал две несвязанные половины, ни одна из которых не покрывает `ADDONS/`:
+
+- `defaultDashboards.dashboards` чарта `vm` — закрытый список **его собственных** bundled-дашбордов
+  (`victoriametrics-*`, `node-exporter-full`); добавить туда произвольный JSON нельзя, это не
+  «список дашбордов для установки», а «какие из своих включить».
+- Механизм роли `monitoring_server` (`monitoring_server_grafana_dashboards_group_install`,
+  включая уже готовую группу `..._defaults_freeipa`) раскладывает `ADDONS/grafana_dashboards/*.json`
+  через файловый provisioning Grafana (`grafana/provisioning/dashboards`) — но роль в платформенных
+  окружениях сознательно не используется вовсе (§4), а её приём привязан к docker-пути с
+  bind-mount'ом конфигов, к Grafana под управлением `grafana-operator` он неприменим.
+
+**Решение: `GrafanaDashboard` CR (та же CRD, что уже использует чарт `vm`), создаваемый
+ansible-задачей `site.yml` сразу после `Helmwave up`.** Модель дашборда читается
+`lookup('file', ...)` прямо из `ADDONS/grafana_dashboards/` — единственного места в репозитории, где
+эти JSON лежат; в `group_vars` попадает только имя файла
+(`platform_*_grafana_addons_dashboards`), а не копия JSON. Почему не в helm-values `extraObjects`
+релиза `grafana-operator`, где уже лежит `GrafanaFolder`: тот файл целиком — gomplate-шаблон, и
+встраивание туда 48 KB чужого JSON — и дублирование источника, и лишний риск экранирования.
+Почему после `Helmwave up`, а не раньше: и CRD `grafanadashboards.grafana.integreatly.org`, и
+`GrafanaFolder` `addons`, на который ссылается `folderRef`, создаёт именно релиз `grafana-operator`.
+
+Отдельная деталь — `spec.datasources`. Экспортированный из Grafana JSON ссылается на датасорс
+плейсхолдером `${DS_VICTORIAMETRICS}` (блок `__inputs`), оператор подставляет вместо него значение
+`datasourceName`. Имя `VictoriaMetrics` — то, что заводит чарт `vm`
+(`defaultDatasources.victoriametrics`, `helm/values/*/namespaces/monitoring/vm/grafana.yaml`).
+
+**Проверено живым прогоном (`platform/aicd-devops-labs-ru`, 2026-09-03):** CR применён
+(`DashboardSynchronized: "Dashboard was successfully applied to 1 instances"`), в Grafana дашборд
+лежит в папке `ADDONS`, плейсхолдеров `${DS_...}` в сохранённой модели не осталось, и в браузере
+панели отдают реальные данные (`Status: UP`, `Active Users: 7`, `User Groups: 4`,
+`Host Groups: 1`, `Scrape 238 ms` — сходится с `curl :9189/metrics` на самом хосте).
+Два пустых блока — ожидаемое поведение, не дефект: `ipa_bind` (Anonymous bind) и
+`ipa_replication_status` экспортёр сознательно не публикует, если bind-аккаунт не может читать
+`cn=config` (обычный `svc-monitoring`, а не Directory Manager) и если реплик нет — см.
+`ADDONS/exporters/freeipa_exporter/code/freeipaserver.py`, `_anon_bind`/`_replication_agreements`.
+
+В `platform/aicd` заведён тот же механизм, но список дашбордов пуст: `ipa_exporter` там ещё не
+включён (ВМ окружения выключены, живой прогон отложен) — дашборд показывал бы `No data`. Тот же
+приём, что закомментированный таргет `:9189` в
+`helm/values/platform/namespaces/monitoring/vm/extra-objects.yaml`: обе половины (сбор и
+визуализация) включаются вместе, по факту живого прогона.
+
 ## Второе окружение (2026-08-25)
 
 Механизм из §1 (и стандартный набор аддонов из §2/§3) переиспользован без изменений во втором,

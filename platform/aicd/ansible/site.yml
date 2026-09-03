@@ -1674,6 +1674,50 @@
       register: platform_aicd_helmwave_up
       changed_when: true
 
+    # Дашборды экспортёров monitoring_agent — см. развёрнутое обоснование в
+    # group_vars/platform_hosts.yml (platform_aicd_grafana_addons_dashboards; список там пока пуст,
+    # задача — no-op до включения ipa_exporter в этом окружении). Строго после Helmwave up: и CRD
+    # grafanadashboards.grafana.integreatly.org, и GrafanaFolder "addons", на который ссылается
+    # folderRef, создаёт релиз grafana-operator.
+    #
+    # datasources — штатный механизм подстановки `__inputs` дашборда grafana-operator'ом:
+    # экспортированный из Grafana JSON ссылается на датасорс плейсхолдером ${DS_VICTORIAMETRICS},
+    # его нужно смапить на реальное имя датасорса. "VictoriaMetrics" — то, что заводит чарт vm
+    # (defaultDatasources.victoriametrics, helm/values/.../monitoring/vm/grafana.yaml).
+    - name: "GrafanaDashboard для экспортёров monitoring_agent (модель из ADDONS/grafana_dashboards)"
+      loop: "{{ platform_aicd_grafana_addons_dashboards }}"
+      loop_control:
+        label: "{{ item.name }}"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        KUBECONFIG: "{{ platform_aicd_kubeconfig.dest }}"
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+      kubernetes.core.k8s:
+        kubeconfig: "{{ platform_aicd_kubeconfig.dest }}"
+        state: present
+        definition:
+          apiVersion: grafana.integreatly.org/v1beta1
+          kind: GrafanaDashboard
+          metadata:
+            name: "{{ item.name }}"
+            namespace: monitoring
+            labels:
+              app.kubernetes.io/managed-by: ansible
+          spec:
+            instanceSelector:
+              matchLabels:
+                dashboards: grafana
+            folderRef: addons
+            datasources:
+              - inputName: DS_VICTORIAMETRICS
+                datasourceName: VictoriaMetrics
+            json: >-
+              {{ lookup('ansible.builtin.file',
+                        playbook_dir ~ '/../../../ADDONS/grafana_dashboards/' ~ item.file) }}
+
     # docs/adr/0018-internal-caching-proxy.md — bootstrap Nexus (кеширующий прокси): реальный
     # admin-пароль вместо auto-generated при первом старте пода, три proxy-repo, LDAP-realm.
     # Все запросы — delegate_to: localhost через Ingress (https://nexus.aicd.platform), тот же

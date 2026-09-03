@@ -36,3 +36,23 @@ platform_aicd_devops_labs_ru_disabled_addons: []
 platform_aicd_devops_labs_ru_enabled_addons: >-
   {{ (platform_aicd_devops_labs_ru_default_addons + platform_aicd_devops_labs_ru_extra_addons)
      | unique | difference(platform_aicd_devops_labs_ru_disabled_addons) }}
+
+# Дашборды Grafana для экспортёров roles/monitoring_agent, стоящих на хостах ВНЕ k3s-кластера
+# (см. helm/values/platform-devops-labs-ru/namespaces/monitoring/vm/extra-objects.yaml,
+# VMScrapeConfig monitoring-agent-hosts). Модель дашборда берётся из ADDONS/grafana_dashboards/
+# — единственного места в репозитории, где эти JSON лежат; сюда попадает только имя файла, а не
+# копия JSON. Заводятся как CR GrafanaDashboard (site.yml) в папке ADDONS
+# (GrafanaFolder "addons", helm/values/.../monitoring/grafana-operator/values.yaml).
+#
+# Почему это здесь, а не в helm-values чарта vm: `defaultDashboards.dashboards` чарта — закрытый
+# список ЕГО СОБСТВЕННЫХ bundled-дашбордов (victoriametrics-*/node-exporter-full), добавить туда
+# сторонний JSON нельзя; а механизм роли monitoring_server
+# (monitoring_server_grafana_dashboards_group_install), который штатно раскладывает
+# ADDONS/grafana_dashboards, в k3s-пути платформы не используется вовсе. Из-за этого дашборд
+# ipa_exporter не появлялся в Grafana после установки самого экспортёра (найдено 2026-09-03).
+platform_aicd_devops_labs_ru_grafana_addons_dashboards:
+  # name — имя CR (и часть, по которой дашборд ищется в кластере); file — файл в
+  # ADDONS/grafana_dashboards/. node_exporter отдельным пунктом не нужен: чарт vm уже ставит
+  # свой node-exporter-full, он покрывает и внешние хосты того же job'а.
+  - name: freeipa-exporter
+    file: freeipa_exporter.json
