@@ -18,6 +18,16 @@
 в `platform/aicd` (`ipa.aicd.platform`), в `platform/aicd-devops-labs-ru` (`ipa.aicd.devops-labs.ru`)
 не существует — процедуру нужно повторить в каждом окружении, где нужен доступ этому человеку.
 
+**Обновление (2026-09-04, ADR-0019):** для трёх платформенных персон (`platform-admins`/
+`-engineers`/`-viewers`) заведение человека теперь декларативно — роль `freeipa_directory`,
+подключённая в `site.yml` окружения (`platform/aicd` — уже так, `platform/aicd-devops-labs-ru` —
+пока нет). Добавить нового человека в одну из этих групп — правка списка
+`freeipa_directory_users` в `site.yml` и повторный прогон, без ручного `ipa user-add`/`kinit
+admin` ниже. Эта ручная процедура остаётся актуальной для (а) `platform/aicd-devops-labs-ru` до
+подключения роли и (б) любого пользователя вне трёх платформенных персон (break-glass,
+одноразовые тестовые аккаунты и т.п.) — роль `freeipa_directory` не удаляет то, чего нет в её
+списках (аддитивность, ADR-0019 §3 п.1), поэтому оба пути безопасно сосуществуют.
+
 ## 1. Подключиться к серверу freeipa нужного окружения
 
 IP и имя хоста — из сгенерированного Terraform inventory (`platform/aicd/ansible/inventory.yml`

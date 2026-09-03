@@ -260,7 +260,16 @@ Grafana, когда каталог лежит.
 **Решение:** фиксированная последовательность, а не рекомендация:
 
 1. `freeipa_directory` заводит группы и **как минимум одного реального человека** в
-   `platform-admins`.
+   `platform-admins`. **Сделано (2026-09-04, `platform/aicd`)**: `site.yml` подключает роль в play
+   `freeipa_hosts` (пароль — `secret/freeipa-directory` в OpenBao, тот же check-404-then-generate
+   паттерн, что `secret/authelia`); заведены `platform-admins`/`platform-engineers`/
+   `platform-viewers` и пользователь `ivan` (member of `platform-admins`). Живым прогоном
+   подтверждено: `ipa group-show`/`user-show` отдают ожидаемые атрибуты и членство, `kinit ivan`
+   с паролем из OpenBao реально проходит и требует смены пароля («Password expired. You must
+   change it now.») — обязательная смена при первом входе работает, не только продекларирована;
+   повторный прогон `site.yml` полностью идемпотентен (`freeipa`: `changed=0`). `platform/
+   aicd-devops-labs-ru` пока не подключена — то же ограничение «два независимых каталога», что
+   зафиксировано в §3 выше.
 2. Authelia начинает отдавать `groups` (scope + `claims_policy`), политики допуска при этом
    **остаются прежними** (`one_factor`).
 3. Живой клик-тест: вход каждым из потребителей, claim `groups` реально виден в ID Token

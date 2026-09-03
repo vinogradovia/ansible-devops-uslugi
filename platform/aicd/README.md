@@ -274,10 +274,19 @@ OIDC-провайдер + `forwardAuth`-шлюз, Helm-релизом (`localrep
 ролью коллекции (ADR-0013 §6). `infra-panel`/`radar` защищены `forwardAuth`
 (`Middleware authelia-forward-auth`, эндпоинт `/api/authz/forward-auth` — актуальный для Traefik,
 не легаси `/api/verify`), Semaphore и Gitea — нативным OIDC («Sign in with Authelia» на странице
-логина). Каталог `freeipa` пуст по умолчанию — реальные учётные записи заводятся вручную
+логина). Ролевая модель (`docs/adr/0019-platform-rbac-model.md`) — роль `freeipa_directory`,
+подключённая в `site.yml`, декларативно заводит три платформенные группы-персоны
+(`platform-admins`/`-engineers`/`-viewers`) и пользователей из списка `freeipa_directory_users`
+(сейчас — `ivan`, member of `platform-admins`); пароль — `secret/freeipa-directory` в OpenBao, тем
+же check-404-then-generate способом, что остальные секреты платформы. Для пользователей вне этих
+трёх персон (break-glass, разовые тестовые аккаунты) учётные записи по-прежнему заводятся вручную
 (`ipa user-add`, с VM `ipa.aicd.platform`, после `kinit admin`) — пошаговая процедура
 (куда идти за паролем `admin`, обязательные поля, снятие принудительной смены пароля) —
-[`docs/runbooks/create-platform-user.md`](../../docs/runbooks/create-platform-user.md).
+[`docs/runbooks/create-platform-user.md`](../../docs/runbooks/create-platform-user.md). Маппинг
+групп в роли конкретных сервисов (Grafana Admin/Editor/Viewer и т.п., ADR-0019 §6) и ужесточение
+`access_control` с `one_factor` до group-gated — следующие шаги (ADR-0019 §8), пока не сделаны:
+членство в `platform-admins` сейчас даёт доступ к каталогу, но не к бОльшим правам внутри
+сервисов, чем у любого другого залогиненного пользователя.
 
 **Проверено реальным прогоном** (полная хронология находок — ADR-0013 §7): `Releases Success
 7/7`, `forwardAuth` корректно отдаёт `302` на `sso.aicd.platform` для `infra-panel`/`radar` без

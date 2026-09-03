@@ -1210,6 +1210,54 @@
                 }}
             status_code: [200, 204]
 
+        # ADR-0019 §3/§8 п.1 — пароль первого реального человека в каталоге (platform-admins).
+        # Тот же check-404-then-generate паттерн, что secret/authelia выше — пароль генерируется
+        # один раз; повторный прогон не должен подставлять новое значение (роль freeipa_directory
+        # и так не перезаписывает пароль существующего аккаунта, update_password: on_create, но
+        # ЗДЕСЬ, до роли, важно не генерировать новый секрет и не потерять уже читаемый человеком
+        # исходный пароль первого входа).
+        - name: "OpenBao: проверить наличие secret/freeipa-directory"
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_openbao_addr }}/v1/secret/data/freeipa-directory"
+            ca_path: "{{ platform_aicd_openbao_ca_path }}"
+            method: GET
+            headers:
+              X-Vault-Token: "{{ platform_aicd_openbao_root_token }}"
+            status_code: [200, 404]
+          register: platform_aicd_openbao_secret_freeipa_directory
+          no_log: true
+
+        - name: "OpenBao: сгенерировать и записать secret/freeipa-directory (только при первом прогоне)"
+          when: platform_aicd_openbao_secret_freeipa_directory.status == 404
+          no_log: true
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_openbao_addr }}/v1/secret/data/freeipa-directory"
+            ca_path: "{{ platform_aicd_openbao_ca_path }}"
+            method: POST
+            headers:
+              X-Vault-Token: "{{ platform_aicd_openbao_root_token }}"
+            body_format: json
+            body:
+              data:
+                ivan_password: "{{ lookup('ansible.builtin.password', '/dev/null', length=24) }}"
+            status_code: [200, 204]
+
+        - name: "OpenBao: прочитать secret/freeipa-directory (значение нужно play freeipa_hosts ниже)"
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_openbao_addr }}/v1/secret/data/freeipa-directory"
+            ca_path: "{{ platform_aicd_openbao_ca_path }}"
+            method: GET
+            headers:
+              X-Vault-Token: "{{ platform_aicd_openbao_root_token }}"
+            status_code: [200]
+          register: platform_aicd_openbao_secret_freeipa_directory_read
+          no_log: true
+
+        - name: Опубликовать пароль Ivan как факт хоста (для play freeipa_hosts, hostvars)
+          ansible.builtin.set_fact:
+            platform_aicd_freeipa_directory_password_ivan: "{{ platform_aicd_openbao_secret_freeipa_directory_read.json.data.data.ivan_password }}"
+          no_log: true
+
         # TLS-сертификаты — перевыпускаются автоматически при приближении к сроку истечения
         # (docs/adr/0016-openbao-secrets-pki.md §4, аннотация renew-after-epoch в
         # tasks/issue-tls-cert.yml), TTL 2160h (90 дней), renew за 30 дней до истечения.
@@ -1477,6 +1525,35 @@
         stdin: "{{ hostvars['cicd'].platform_aicd_monitoring_agent_ldap_bind_password }}\n{{ hostvars['cicd'].platform_aicd_monitoring_agent_ldap_bind_password }}\n"
       changed_when: true
       no_log: true
+
+    # ADR-0019 §3/§8 п.1 — ролевая модель: три платформенные группы-персоны и первый реальный
+    # человек в каталоге (platform-admins). Пароль сгенерирован и опубликован как факт хоста
+    # "cicd" в блоке "OpenBao: bootstrap" play выше (secret/freeipa-directory), читается здесь
+    # через hostvars — тот же приём, что пароли svc-*-аккаунтов выше. freeipa_directory_ipa_host
+    # явно = freeipa_hostname (не дефолтный ansible_fqdn роли) — роль freeipa парой задач выше по
+    # этому же play меняет системный hostname хоста на freeipa_hostname, факты gather_facts
+    # заново после этого не собираются, ansible_fqdn был бы устаревшим (см.
+    # roles/freeipa_directory/README.md, «Куда играть роль»).
+    - name: "Ролевая модель (ADR-0019): группы и первый реальный человек в каталоге"
+      ansible.builtin.include_role:
+        name: freeipa_directory
+      vars:
+        freeipa_directory_ipa_host: "{{ freeipa_hostname }}"
+        freeipa_directory_ipa_pass: "{{ freeipa_admin_password }}"
+        freeipa_directory_groups:
+          - name: platform-admins
+            description: "Полные права на все компоненты платформы (ADR-0019 §1)"
+          - name: platform-engineers
+            description: "Обычный пользователь/деплой; без администрирования сервисов"
+          - name: platform-viewers
+            description: "Read-only доступ там, где он предусмотрен (ADR-0019 §6)"
+        freeipa_directory_users:
+          - name: ivan
+            first: Ivan
+            last: Vinogradov
+            email: ivan@aicd.platform
+            password: "{{ hostvars['cicd'].platform_aicd_freeipa_directory_password_ivan }}"
+            groups: [platform-admins]
 
     # ADR-0017/monitoring_agent — node_exporter (базовые метрики хоста) + ipa_exporter (метрики
     # самого FreeIPA) как systemd-сервисы (этот хост не в k3s-кластере). В отличие от
