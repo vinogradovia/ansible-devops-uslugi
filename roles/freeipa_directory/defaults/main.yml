@@ -1,0 +1,70 @@
+---
+# defaults file for freeipa_directory
+# См. docs/adr/0019-platform-rbac-model.md §3 — обоснование каждого решения ниже.
+
+freeipa_directory_enabled: true
+
+# --- Подключение к JSON-RPC API уже поднятого сервера (роль freeipa, ADR-0011) --------------
+# Роль не разворачивает сервер (граница ADR-0011 §3 сохраняется дословно) — играется на самом
+# freeipa-хосте (см. README, «Куда играть роль»): системный trust store там уже доверяет
+# собственному самоподписанному CA сервера (ipa-server-install добавляет его сам при установке),
+# поэтому freeipa_directory_ipa_validate_certs можно оставить true по умолчанию без отдельной
+# раздачи CA-сертификата.
+freeipa_directory_ipa_host: "{{ ansible_fqdn }}"
+freeipa_directory_ipa_validate_certs: true
+
+# admin-принципал каталога и его пароль — тот же аккаунт, которым site.yml окружений сейчас
+# делает kinit перед сырыми ipa CLI-командами (freeipa_admin_password роли freeipa). Модули
+# community.general.ipa_* логинятся в JSON-RPC API напрямую по логину/паролю — kinit им не
+# нужен. Пароль обязателен, без дефолта намеренно (тот же fail-fast, что reverse_proxy_npm/
+# reverse_proxy_traefik/freeipa — см. tasks/validate.yml).
+freeipa_directory_ipa_user: admin
+freeipa_directory_ipa_pass: ""
+
+# --- Группы каталога (ADR-0019 §1/§2) --------------------------------------------------------
+# Каждый элемент: { name, description (опционально), state (по умолчанию present) }. Пусто по
+# умолчанию — роль не прошивает platform-admins/platform-engineers/platform-viewers жёстко:
+# список объявляет потребитель (site.yml окружения), чтобы одна и та же роль без изменений
+# годилась и под будущие proj-* группы (§2, зарезервировано, пока не заводится).
+freeipa_directory_groups: []
+# Пример:
+# freeipa_directory_groups:
+#   - name: platform-admins
+#     description: "Полные права на все компоненты платформы (ADR-0019 §1)"
+#   - name: platform-engineers
+#     description: "Обычный пользователь/деплой; без администрирования сервисов"
+#   - name: platform-viewers
+#     description: "Read-only доступ там, где он предусмотрен (ADR-0019 §6)"
+
+# --- Учётные записи людей (ADR-0019 §3 п.2) --------------------------------------------------
+# Каждый элемент: { name, first, last, email (опционально), password (опционально, только при
+# создании — см. ниже), groups: [] (опционально, имена должны быть объявлены в
+# freeipa_directory_groups — иначе validate.yml падает fail-fast), state (по умолчанию present) }.
+freeipa_directory_users: []
+# Пример:
+# freeipa_directory_users:
+#   - name: ivan
+#     first: Ivan
+#     last: Vinogradov
+#     email: ivan@aicd.platform
+#     password: "{{ vault_freeipa_directory_password_ivan }}"
+#     groups: [platform-admins]
+
+# Пароль применяется только при СОЗДАНИИ пользователя (update_password: on_create в tasks/
+# users.yml) — при повторных прогонах роль не перезаписывает пароль уже существующего аккаунта.
+# Иначе каждый прогон ansible откатывал бы реальный, уже смененный человеком пароль обратно на
+# начальный из OpenBao. Само требование "сменить пароль при первом входе" — штатное поведение
+# FreeIPA при административной установке пароля (krbpasswordexpiration выставляется в прошлое
+# сервером автоматически), роль его не трогает и не переопределяет — в отличие от svc-*-
+# аккаунтов в site.yml, которым явно выставлен --password-expiration далеко в будущем, потому
+# что они никогда не логинятся интерактивно (ADR-0019 §3 п.2).
+
+# --- Членство в группах (ADR-0019 §3 п.1 — аддитивность по умолчанию) -----------------------
+# По умолчанию роль только ДОБАВЛЯЕТ людей из freeipa_directory_users в группы, перечисленные у
+# них в groups[] (append: true) — не снимает членство, заведённое вручную или другим прогоном.
+# Установите true, чтобы членство каждой группы из freeipa_directory_groups стало РОВНО
+# множеством, вычисленным из freeipa_directory_users (снимет всех остальных участников этой
+# группы) — осознанное, редко нужное действие. Полного "вымести всё, чего нет в списках"
+# (глобальный diff по всему каталогу, включая svc-*-аккаунты и всё заведённое вручную) роль
+# сознательно не реализует — см. README, «Что дальше».
+freeipa_directory_prune_group_members: false

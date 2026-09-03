@@ -1,0 +1,39 @@
+---
+# Molecule-сценарий для freeipa_directory. driver: vagrant/libvirt (единое требование для всех
+# molecule-сценариев коллекции, см. CLAUDE.md, «Molecule-тесты»). converge разворачивает
+# ПОЛНЫЙ FreeIPA-сервер (роль freeipa как предусловие — freeipa_directory сама сервер не
+# ставит, см. её README, «Куда играть роль»), поэтому memory/cpus/box — те же, что у сценария
+# freeipa: local/rockylinux9-freeipa (собственный Packer-box, см.
+# extensions/molecule/freeipa/packer/rocky9.pkr.hcl и историю подбора box'а в
+# extensions/molecule/freeipa/molecule.yml — готовые боксы rockylinux/9 недоступны на этом
+# хосте, openlogic/* не принимает vagrant insecure keypair). Отдельный box под этот сценарий не
+# нужен — тот же образ, тот же дистрибутив, роль freeipa внутри converge идентична.
+driver:
+  name: vagrant
+  provider:
+    name: libvirt
+
+platforms:
+  - name: freeipa-directory
+    box: local/rockylinux9-freeipa
+    memory: 6144
+    cpus: 2
+
+scenario:
+  test_sequence:
+    - dependency
+    - destroy
+    - syntax
+    - create
+    - prepare
+    - converge
+    - idempotence
+    - verify
+    - destroy
+
+shared_state: false
+
+ansible:
+  executor:
+    args:
+      ansible_playbook: []

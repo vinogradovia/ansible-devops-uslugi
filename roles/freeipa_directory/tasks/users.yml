@@ -1,0 +1,23 @@
+---
+# ADR-0019 §3 п.2 — пароль людей применяется только при создании (update_password: on_create):
+# при повторных прогонах роль не перезаписывает пароль уже существующего аккаунта, который
+# человек мог уже сменить сам. krbpasswordexpiration намеренно не переопределяется — дефолтное
+# поведение FreeIPA "сменить пароль при первом входе" сохраняется как есть.
+
+- name: "Freeipa_directory: учётные записи людей"
+  community.general.ipa_user:
+    name: "{{ item.name }}"
+    givenname: "{{ item.first | default(omit) }}"
+    sn: "{{ item.last | default(omit) }}"
+    mail: "{{ [item.email] if item.email is defined else omit }}"
+    password: "{{ item.password | default(omit) }}"
+    update_password: on_create
+    state: "{{ item.state | default('present') }}"
+    ipa_host: "{{ freeipa_directory_ipa_host }}"
+    ipa_user: "{{ freeipa_directory_ipa_user }}"
+    ipa_pass: "{{ freeipa_directory_ipa_pass }}"
+    validate_certs: "{{ freeipa_directory_ipa_validate_certs }}"
+  loop: "{{ freeipa_directory_users }}"
+  loop_control:
+    label: "{{ item.name }} ({{ item.state | default('present') }})"
+  no_log: true

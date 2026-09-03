@@ -1,0 +1,20 @@
+---
+# ADR-0019 §1/§2 — три сквозные группы-персоны (platform-admins/-engineers/-viewers) плюс,
+# в будущем, точечные исключения/proj-* — список объявляет потребитель роли, не сама роль.
+# Удаление конкретной группы — через её же элемент списка с явным state: absent (та же схема,
+# что reverse_proxy_npm/manage-proxy-hosts.yml), а не отдельный глобальный prune-флаг: полный
+# diff по всему каталогу снёс бы svc-*-аккаунты и всё заведённое вручную (см. defaults/main.yml).
+
+- name: "Freeipa_directory: группы каталога"
+  community.general.ipa_group:
+    name: "{{ item.name }}"
+    description: "{{ item.description | default(omit) }}"
+    state: "{{ item.state | default('present') }}"
+    ipa_host: "{{ freeipa_directory_ipa_host }}"
+    ipa_user: "{{ freeipa_directory_ipa_user }}"
+    ipa_pass: "{{ freeipa_directory_ipa_pass }}"
+    validate_certs: "{{ freeipa_directory_ipa_validate_certs }}"
+  loop: "{{ freeipa_directory_groups }}"
+  loop_control:
+    label: "{{ item.name }} ({{ item.state | default('present') }})"
+  no_log: true

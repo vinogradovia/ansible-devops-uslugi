@@ -1,0 +1,47 @@
+---
+# Включается из group-membership.yml циклом по группам — freeipa_directory_group_result это
+# один элемент freeipa_directory_group_show.results (item.item — исходный элемент
+# freeipa_directory_groups, item.stdout — вывод "ipa group-show --all", строка вида
+# "  Member users: a, b" отсутствует целиком, если участников нет — regex_search возвращает None).
+
+- name: "Freeipa_directory: вычислить текущих/желаемых участников группы"
+  ansible.builtin.set_fact:
+    freeipa_directory_current_members: >-
+      {{ (freeipa_directory_group_result.stdout
+          | regex_search('Member users: .*')
+          | default('', true)
+          | regex_replace('^Member users: ', '')
+         ).split(',')
+         | map('trim')
+         | reject('equalto', '')
+         | list }}
+    freeipa_directory_desired_members: >-
+      {{ freeipa_directory_users
+         | selectattr('groups', 'defined')
+         | selectattr('groups', 'contains', freeipa_directory_group_result.item.name)
+         | map(attribute='name')
+         | list }}
+
+- name: "Freeipa_directory: добавить недостающих участников группы"
+  ansible.builtin.command:
+    argv:
+      - ipa
+      - group-add-member
+      - "{{ freeipa_directory_group_result.item.name }}"
+      - "--users={{ (freeipa_directory_desired_members | difference(freeipa_directory_current_members)) | join(',') }}"
+  when: (freeipa_directory_desired_members | difference(freeipa_directory_current_members) | length) > 0
+  changed_when: true
+
+# Только при freeipa_directory_prune_group_members: true (дефолт false, ADR-0019 §3 п.1) —
+# по умолчанию роль ничьё членство не снимает, см. defaults/main.yml.
+- name: "Freeipa_directory: снять лишних участников группы (prune)"
+  ansible.builtin.command:
+    argv:
+      - ipa
+      - group-remove-member
+      - "{{ freeipa_directory_group_result.item.name }}"
+      - "--users={{ (freeipa_directory_current_members | difference(freeipa_directory_desired_members)) | join(',') }}"
+  when:
+    - freeipa_directory_prune_group_members
+    - (freeipa_directory_current_members | difference(freeipa_directory_desired_members) | length) > 0
+  changed_when: true

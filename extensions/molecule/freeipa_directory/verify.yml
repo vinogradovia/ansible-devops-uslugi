@@ -1,0 +1,96 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    # Собственный kinit, не переиспользует состояние сценария freeipa — verify.yml выполняется
+    # отдельным прогоном ansible-playbook, тикет из converge не сохраняется между вызовами.
+    - name: Kinit admin с паролем freeipa_admin_password
+      ansible.builtin.command:
+        cmd: kinit admin
+        stdin: "{{ freeipa_admin_password }}\n"
+      changed_when: false
+      no_log: true
+
+    # --- Группы -------------------------------------------------------------------------------
+    - name: Ipa group-show для каждой группы freeipa_directory_groups
+      ansible.builtin.command: "ipa group-show {{ item.name }} --all"
+      register: molecule_freeipa_directory_group_show
+      changed_when: false
+      loop: "{{ freeipa_directory_groups }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Проверить description каждой группы
+      ansible.builtin.assert:
+        that:
+          - item.item.description in item.stdout
+        quiet: true
+      loop: "{{ molecule_freeipa_directory_group_show.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+
+    # --- Пользователи ---------------------------------------------------------------------------
+    - name: Ipa user-show для каждого пользователя freeipa_directory_users
+      ansible.builtin.command: "ipa user-show {{ item.name }} --all"
+      register: molecule_freeipa_directory_user_show
+      changed_when: false
+      loop: "{{ freeipa_directory_users }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Проверить givenname/sn каждого пользователя
+      ansible.builtin.assert:
+        that:
+          - "('First name: ' + item.item.first) in item.stdout"
+          - "('Last name: ' + item.item.last) in item.stdout"
+        quiet: true
+      loop: "{{ molecule_freeipa_directory_user_show.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+
+    - name: Проверить email molecule-admin (единственный пользователь с заданным email)
+      ansible.builtin.assert:
+        that:
+          - "'Email address: molecule-admin@freeipa.molecule.test' in molecule_freeipa_directory_user_show.results[0].stdout"
+        quiet: true
+
+    # --- Членство в группах (ADR-0019 §3 п.1, append по умолчанию) ---------------------------
+    - name: Ipa group-show platform-admins должен содержать molecule-admin в участниках
+      ansible.builtin.assert:
+        that:
+          - "'Member users: molecule-admin' in (molecule_freeipa_directory_group_show.results | selectattr('item.name', 'equalto', 'platform-admins') | map(attribute='stdout') | first)"
+        quiet: true
+
+    - name: Ipa group-show platform-viewers должен содержать molecule-viewer в участниках
+      ansible.builtin.assert:
+        that:
+          - "'Member users: molecule-viewer' in (molecule_freeipa_directory_group_show.results | selectattr('item.name', 'equalto', 'platform-viewers') | map(attribute='stdout') | first)"
+        quiet: true
+
+    - name: Ipa group-show platform-engineers не должен иметь участников (никто не объявлен)
+      ansible.builtin.assert:
+        that:
+          - "'Member users:' not in (molecule_freeipa_directory_group_show.results | selectattr('item.name', 'equalto', 'platform-engineers') | map(attribute='stdout') | first)"
+        quiet: true
+
+    # --- Аддитивность: ручное членство не снимается при append (freeipa_directory_prune_group_members: false) ---
+    - name: Добавить molecule-viewer в platform-engineers вручную (вне freeipa_directory_users)
+      ansible.builtin.command: ipa group-add-member platform-engineers --users=molecule-viewer
+      changed_when: true
+
+    - name: Повторно прогнать роль freeipa_directory (append, не должна снять ручное членство)
+      ansible.builtin.include_role:
+        name: devops.uslugi.freeipa_directory
+
+    - name: Ipa group-show platform-engineers должен по-прежнему содержать molecule-viewer
+      ansible.builtin.command: ipa group-show platform-engineers --all
+      register: molecule_freeipa_directory_engineers_after_manual_add
+      changed_when: false
+
+    - name: "Проверить, что ручное членство пережило повторный прогон роли (append: true)"
+      ansible.builtin.assert:
+        that:
+          - "'Member users: molecule-viewer' in molecule_freeipa_directory_engineers_after_manual_add.stdout"
+        quiet: true

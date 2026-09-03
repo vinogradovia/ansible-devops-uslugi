@@ -1,0 +1,52 @@
+---
+# Fail-fast до первого обращения к JSON-RPC API — тот же принцип, что check-and-install-
+# requirements.yml в reverse_proxy_npm: явная понятная ошибка вместо непонятного сбоя модуля
+# community.general.ipa_* или, хуже, тихого no-op (ADR-0019 §3, «декларативно и идемпотентно»).
+
+- name: "Freeipa_directory: freeipa_directory_ipa_pass обязателен"
+  ansible.builtin.assert:
+    that:
+      - freeipa_directory_ipa_pass | length > 0
+    fail_msg: >-
+      freeipa_directory_ipa_pass обязателен (пароль admin-принципала каталога, из
+      ansible-vault) — без дефолта намеренно, см. README.
+    quiet: true
+  no_log: true
+
+- name: "Freeipa_directory: у людей с state=present обязаны быть first/last"
+  ansible.builtin.assert:
+    that:
+      - item.first is defined
+      - item.last is defined
+    fail_msg: >-
+      Пользователь "{{ item.name }}" в freeipa_directory_users должен иметь first и last —
+      FreeIPA требует givenname/sn при создании учётной записи.
+    quiet: true
+  loop: "{{ freeipa_directory_users }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: (item.state | default('present')) == 'present'
+
+# Группа, на которую ссылается groups[] пользователя, но не объявленная в
+# freeipa_directory_groups, молча осталась бы без изменений в tasks/group-membership.yml
+# (роль обрабатывает членство только для объявленных групп) — это тихий no-op с потерей
+# доступа, а не ошибка. Ловим его здесь явно, до создания чего-либо.
+- name: "Freeipa_directory: собрать имена объявленных групп"
+  ansible.builtin.set_fact:
+    freeipa_directory_declared_group_names: "{{ freeipa_directory_groups | map(attribute='name') | list }}"
+
+- name: "Freeipa_directory: собрать имена групп, на которые ссылаются пользователи"
+  ansible.builtin.set_fact:
+    freeipa_directory_referenced_group_names: >-
+      {{ freeipa_directory_users | map(attribute='groups', default=[]) | list | flatten | unique }}
+
+- name: "Freeipa_directory: fail-fast, если пользователь ссылается на не объявленную группу"
+  ansible.builtin.assert:
+    that:
+      - item in freeipa_directory_declared_group_names
+    fail_msg: >-
+      Группа "{{ item }}", на которую ссылается freeipa_directory_users, не объявлена в
+      freeipa_directory_groups — членство не будет назначено (роль не создаёт группы неявно).
+      Добавьте группу в freeipa_directory_groups.
+    quiet: true
+  loop: "{{ freeipa_directory_referenced_group_names }}"

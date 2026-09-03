@@ -1,0 +1,13 @@
+---
+# SPDX-License-Identifier: MIT-0
+galaxy_info:
+  author: Ivan Vinogradov <vinogradovia@gmail.com>
+  description: manage FreeIPA directory data (groups, user accounts) on an already-provisioned server
+  license: WTFPL
+  min_ansible_version: "2.2"
+  galaxy_tags:
+    - freeipa
+    - ldap
+    - identity
+    - rbac
+dependencies: []

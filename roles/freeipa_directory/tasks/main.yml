@@ -1,0 +1,22 @@
+---
+# tasks file for freeipa_directory
+
+- name: Include validate tasks
+  when: freeipa_directory_enabled
+  ansible.builtin.include_tasks:
+    file: validate.yml
+
+- name: Include groups tasks
+  when: freeipa_directory_enabled
+  ansible.builtin.include_tasks:
+    file: groups.yml
+
+- name: Include users tasks
+  when: freeipa_directory_enabled
+  ansible.builtin.include_tasks:
+    file: users.yml
+
+- name: Include group-membership tasks
+  when: freeipa_directory_enabled
+  ansible.builtin.include_tasks:
+    file: group-membership.yml

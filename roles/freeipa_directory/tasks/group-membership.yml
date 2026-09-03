@@ -1,0 +1,47 @@
+---
+# ADR-0019 §3 п.1 — членство считается отдельно от существования группы/пользователя.
+#
+# НЕ через community.general.ipa_group (user:/append:), в отличие от groups.yml/users.yml —
+# подтверждённый живым прогоном баг апстрима (community.general 13.1.0,
+# https://github.com/ansible-collections/community.general/issues/1239, "исправлено" PR #11698):
+# IPAClient._post_json трактует ЛЮБОЙ непустой ключ "failed" в ответе FreeIPA как ошибку —
+# `if failed: self._fail(...)`. Ответ FreeIPA на group_add_member ВСЕГДА содержит этот ключ
+# (`{'member': {'user': [], 'group': [], 'service': [], 'idoverrideuser': []}}`), даже когда
+# реально ничего не упало (все вложенные списки пусты) — словарь с ключами truthy в Python
+# независимо от содержимого. На практике это значит: любой РЕАЛЬНЫЙ (не no-op) вызов
+# group_add_member через этот модуль падает. Затронуты только member-операции — group_add/
+# group_mod/user_add/user_mod так не ломаются (их ответ не содержит "failed"), поэтому
+# groups.yml/users.yml остаются на community.general.ipa_group/ipa_user.
+#
+# Обход — тот же приём, что уже используется в site.yml окружений для svc-*-аккаунтов: сырой
+# `ipa` CLI с kinit. Диф "текущие участники vs желаемые (freeipa_directory_users)" считаем сами —
+# ipa group-add-member/-remove-member сами не идемпотентны в нужную сторону: живым прогоном
+# molecule подтверждено, что group-add-member с уже существующим участником возвращает rc=1
+# ("This entry is already a member") — не полагаемся на это поведение, добавляем только реальный
+# diff. Источник текущих участников — обычный (не --raw) `ipa group-show --all`: живым прогоном
+# подтверждено, что строка "Member users: a, b" (не raw-атрибут member_user) — единственный
+# надёжно парсимый источник для человеко-читаемого вывода этой версии ipa CLI.
+
+- name: "Freeipa_directory: kinit (нужен тикет Kerberos для ipa CLI), ipa_user={{ freeipa_directory_ipa_user }}"
+  ansible.builtin.command:
+    cmd: "kinit {{ freeipa_directory_ipa_user }}"
+    stdin: "{{ freeipa_directory_ipa_pass }}\n"
+  changed_when: false
+  no_log: true
+
+- name: "Freeipa_directory: текущие участники объявленных групп"
+  ansible.builtin.command: "ipa group-show {{ item.name }} --all"
+  register: freeipa_directory_group_show
+  changed_when: false
+  loop: "{{ freeipa_directory_groups }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: (item.state | default('present')) == 'present'
+
+- name: "Freeipa_directory: применить членство для каждой группы"
+  ansible.builtin.include_tasks:
+    file: group-membership-apply.yml
+  loop: "{{ freeipa_directory_group_show.results | rejectattr('skipped', 'defined') | list }}"
+  loop_control:
+    loop_var: freeipa_directory_group_result
+    label: "{{ freeipa_directory_group_result.item.name }}"

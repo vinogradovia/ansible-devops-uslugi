@@ -1,0 +1,42 @@
+---
+# Переменные ролей freeipa + freeipa_directory для converge/verify этого сценария. Лежат в
+# group_vars/, а не в vars: playbook'ов — те же нужны и prepare.yml (косвенно, через
+# freeipa_hostname в verify.yml), и verify.yml, не только converge.yml (тот же паттерн, что
+# extensions/molecule/freeipa/group_vars/all.yml).
+
+# --- freeipa (сервер, предусловие converge — см. README роли freeipa_directory) -------------
+freeipa_domain: freeipa.molecule.test
+freeipa_realm: FREEIPA.MOLECULE.TEST
+freeipa_hostname: ipa-01.freeipa.molecule.test
+
+# Пароли в открытом виде — тестовый одноразовый стенд, не production (тот же подход, что
+# extensions/molecule/freeipa/group_vars/all.yml).
+freeipa_dm_password: "Molecule_Test_DM_Pass!23"
+freeipa_admin_password: "Molecule_Test_Admin_Pass!23"
+
+# --- freeipa_directory (данные каталога) -----------------------------------------------------
+# ipa_host явно = freeipa_hostname, не дефолтный ansible_fqdn роли (см. README роли
+# freeipa_directory, «Куда играть роль» — ansible_fqdn гостя необязательно совпадает с
+# FQDN, под которым ipa-server-install выпустил сертификат сервера).
+freeipa_directory_ipa_host: "{{ freeipa_hostname }}"
+freeipa_directory_ipa_pass: "{{ freeipa_admin_password }}"
+
+freeipa_directory_groups:
+  - name: platform-admins
+    description: "Molecule: полные права на все компоненты платформы"
+  - name: platform-engineers
+    description: "Molecule: обычный пользователь/деплой"
+  - name: platform-viewers
+    description: "Molecule: read-only доступ"
+
+freeipa_directory_users:
+  - name: molecule-admin
+    first: Molecule
+    last: Admin
+    email: molecule-admin@freeipa.molecule.test
+    password: "Molecule_Test_User_Pass!23"
+    groups: [platform-admins]
+  - name: molecule-viewer
+    first: Molecule
+    last: Viewer
+    groups: [platform-viewers]

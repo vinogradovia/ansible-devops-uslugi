@@ -17,9 +17,9 @@ poetry install              # установка dev + prod зависимост
 poetry run ansible-lint     # линтинг коллекции (использует .ansible-lint, profile: production)
 ```
 
-`.ansible-lint` исключает `helm/`, `trial/`, `extentions/` (обратите внимание: реальный каталог
-называется `extensions/`, поэтому molecule-контент в `extensions/` сейчас *не* исключён из линтинга —
-учитывайте это при добавлении новых molecule-фикстур туда).
+`.ansible-lint` исключает `helm/`, `extensions/`, `trial/` — molecule-контент в `extensions/`
+сейчас не проверяется `ansible-lint` (актуально на 2026-09-03; раньше в этом поле была опечатка
+`extentions/`, из-за которой каталог не исключался, — исправлено).
 
 ### Molecule-тесты
 
@@ -150,29 +150,45 @@ docker-путь, `monitoring_server` docker-путь — Docker ставится
   дефолтный пример homer из образа).
 - `extensions/molecule/freeipa/` — сценарий для роли `freeipa`
   (`docs/adr/0011-freeipa-role.md`). Единственный сценарий коллекции на RHEL-семействе —
-  box `cloud-image/rocky-9` (тот же издатель/пайплайн, что уже используемый везде
-  `cloud-image/ubuntu-24.04`, но не сам ubuntu-24.04 — `freeipa-server` пакетом для
-  Ubuntu/Debian не существует, см. `roles/freeipa/README.md`, «Целевая ОС»).
-  `memory: 4096`/`cpus: 2` — заметно больше дефолта других одно-сервисных сценариев,
+  box `local/rockylinux9-freeipa`, собственная Packer-сборка
+  (`extensions/molecule/freeipa/packer/rocky9.pkr.hcl`), не готовый box с Vagrant Cloud —
+  `freeipa-server` пакетом для Ubuntu/Debian не существует (см. `roles/freeipa/README.md`,
+  «Целевая ОС»), а готовые Rocky/Alma9-боксы упирались в блокеры окружения (см. историю ниже).
+  `memory: 6144`/`cpus: 2` — заметно больше дефолта других одно-сервисных сценариев,
   `ipa-server-install` разворачивает LDAP+Kerberos KDC+httpd+собственный CA одновременно.
   `verify.yml` — функциональные проверки поверх всех трёх интерфейсов каталога: `kinit`
   admin + `klist` (Kerberos), `ipa user-show admin` (ipa CLI поверх выданного тикета) и
   прямой `ldapsearch` по `cn=Directory Manager` (LDAP независимо от Kerberos/CLI).
-  **Известная проблема окружения** (полная диагностика и история подбора бокса — комментарий в
-  `extensions/molecule/freeipa/molecule.yml`, актуально на 2026-08-21) — исходный
-  `rockylinux/9 5.0.0` (официальный box) под QEMU/libvirt на этом хосте не доходит до
-  `create`: initramfs (`dracut`) не успевает смонтировать root за `rd.timeout` и уходит в
-  emergency mode; проверенные обходы (`machine_type: q35`, `cpu_model: qemu64`,
-  `disk_bus: scsi`) не помогли. Альтернатива `openlogic/rockylinux-9` реально грузится и
-  получает IP (подтверждает, что баг специфичен для `rockylinux/9`/dracut, не хоста и не
-  роли), но это cloud-marketplace-образ — vagrant insecure keypair не подсаживается через
-  NoCloud, `ssh`/`vagrant up` стабильно падает на `Authentication failure`. Текущий выбор
-  (`cloud-image/rocky-9`) сам пока не верифицирован реальным прогоном — на момент проверки
-  `vagrantcloud.com`/hashicorp-archivist CDN массово отдавал 404 (подтверждено даже на уже
-  используемом `cloud-image/ubuntu-24.04` — временная проблема инфраструктуры HashiCorp, не
-  наша конфигурация). Роль и сценарий линтуются и синтаксически верны (`ansible-lint`
-  профиль `production` проходит). Если archivist восстановится, стоит перепроверить
-  `molecule test -s freeipa` заново.
+  **История подбора box'а** (полная диагностика — комментарий в
+  `extensions/molecule/freeipa/molecule.yml`) — исходный `rockylinux/9 5.0.0` (официальный box)
+  под QEMU/libvirt на этом хосте не доходит до `create`: initramfs (`dracut`) не успевает
+  смонтировать root за `rd.timeout` и уходит в emergency mode; проверенные обходы
+  (`machine_type: q35`, `cpu_model: qemu64`, `disk_bus: scsi`) не помогли. Альтернатива
+  `openlogic/rockylinux-9` реально грузится и получает IP (подтверждает, что баг специфичен для
+  `rockylinux/9`/dracut, не хоста и не роли), но это cloud-marketplace-образ — vagrant insecure
+  keypair не подсаживается через NoCloud, `ssh`/`vagrant up` стабильно падает на
+  `Authentication failure`. Готовые боксы с vagrantcloud.com/hashicorp-archivist в моменте были
+  недоступны с этого хоста вообще (гео-блокировка, не наша конфигурация). Решение —
+  собственный Packer-образ (ISO + kickstart, партиционирование без LVM, vagrant insecure
+  keypair прописан прямо в kickstart) — снимает оба блокера разом. **`molecule test -s freeipa`
+  подтверждённо проходит целиком** (create → prepare → converge → idempotence → verify →
+  destroy, живой прогон 2026-08-21) — роль и сценарий больше не «линтуется, но не проверен».
+- `extensions/molecule/freeipa_directory/` — сценарий для роли `freeipa_directory`
+  (`docs/adr/0019-platform-rbac-model.md` §3). Тот же box/memory/cpus, что `freeipa` (см. выше) —
+  `converge.yml` прогоняет `freeipa` как предусловие (сервер), затем саму `freeipa_directory`
+  (три группы `platform-*` + два тестовых пользователя с `groups:`). `verify.yml` — реальные
+  `ipa group-show`/`user-show` (description/givenname/sn/email/членство), плюс отдельная
+  проверка аддитивности: ручное `ipa group-add-member` вне `freeipa_directory_users`, повторный
+  прогон роли, membership должно уцелеть (`append: true` по умолчанию). **Живым прогоном
+  (2026-09-03) пойман и обойдён баг апстрима** — `community.general` 13.1.0 `ipa_group`/`ipa_user`:
+  `IPAClient._post_json` трактует любой непустой ключ `failed` в ответе FreeIPA как ошибку, а
+  ответ на `group_add_member` всегда содержит `failed: {user: [], ...}`, даже при полном успехе
+  (issue [#1239](https://github.com/ansible-collections/community.general/issues/1239)/PR #11698)
+  — модуль падает на любом реальном добавлении участника в группу. Роль обходит это сырым `ipa
+  group-add-member`/`-remove-member` с `kinit` только для членства (см. `roles/freeipa_directory/
+  tasks/group-membership.yml`) — существование/атрибуты групп/пользователей остаются на модулях
+  (там бага нет). `molecule test -s freeipa_directory` подтверждённо проходит целиком (create →
+  prepare → converge → idempotence → verify → destroy).
 
 Запускать нужно из корня коллекции (molecule ищет `galaxy.yml` строго в текущей директории —
 `Path.cwd()`, без обхода родителей — поэтому `cd` в сам каталог сценария не работает с новыми
@@ -324,10 +340,30 @@ ansible-playbook -i inventory.yml monitoring-server.yml \
   либо `freeipa_manage_hosts_entry: true` (дефолт, self-entry в `/etc/hosts`), либо внешним
   `infra_dns` этой коллекции. `ipa-server-install` не открывает порты в firewalld сам (подтверждённое
   поведение апстрима) — роль тоже этого не делает, см. README. Molecule-покрытие —
-  `extensions/molecule/freeipa/` (см. раздел «Molecule-тесты» выше) — линтуется и синтаксически
-  верен, но пока не верифицирован реальным прогоном (блокер на стороне хоста/бокса). Федерация
-  OAuth/OIDC поверх этого каталога — открытая идея (`docs/adr/0011-freeipa-role.md`,
+  `extensions/molecule/freeipa/` (см. раздел «Molecule-тесты» выше) — подтверждённо проходит
+  целиком живым прогоном (2026-08-21, собственный Packer-box сняв блокер готовых boxes).
+  Федерация OAuth/OIDC поверх этого каталога — открытая идея (`docs/adr/0011-freeipa-role.md`,
   ROADMAP Backlog №49), не реализована.
+- **freeipa_directory** — заводит и обновляет данные каталога FreeIPA (группы, учётные записи
+  людей) декларативно и идемпотентно, поверх уже поднятого сервера — реализация ADR-0019 §3.
+  Отдельная от `freeipa` роль (граница ADR-0011 §3 «роль = сервер, не данные» сохраняется
+  дословно): `freeipa` только провижинит сервер, `freeipa_directory` управляет его содержимым —
+  существование/атрибуты групп и людей через `community.general.ipa_group`/`ipa_user` (JSON-RPC,
+  идемпотентны, без `kinit`), но членство в группах — сырым `ipa group-add-member`/
+  `-remove-member` с `kinit` (тем же приёмом, что заводит `svc-*`-bind-аккаунты в `site.yml`
+  окружений): живой прогон molecule поймал баг апстрима — `community.general` 13.1.0,
+  `IPAClient._post_json` трактует непустой ключ `failed` в ответе FreeIPA как ошибку, а ответ на
+  `group_add_member` всегда содержит `failed: {user: [], ...}` даже при полном успехе (issue
+  [#1239](https://github.com/ansible-collections/community.general/issues/1239)/PR #11698) —
+  модуль падает на любом реальном добавлении участника, см.
+  `roles/freeipa_directory/tasks/group-membership.yml`. Аддитивность по
+  умолчанию (ADR-0019 §3 п.1): роль создаёт/обновляет объекты из списков, но не удаляет
+  ничего, чего в списках нет — удаление конкретного объекта через его же элемент списка с
+  `state: absent`, членство в группах по умолчанию только добавляется
+  (`freeipa_directory_prune_group_members: false`). Пароль человека применяется только при
+  создании аккаунта (`update_password: on_create`) — иначе каждый прогон ansible откатывал бы
+  уже смененный человеком пароль обратно на начальный из OpenBao. Molecule-покрытие —
+  `extensions/molecule/freeipa_directory/` (см. раздел «Molecule-тесты» выше).
 
 ### Добавление нового экспортера мониторинга
 
