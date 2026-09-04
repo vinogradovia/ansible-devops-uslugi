@@ -1206,6 +1206,54 @@
                 }}
             status_code: [200, 204]
 
+        # ADR-0019 §3/§8 п.1 — пароль первого реального человека в каталоге (platform-admins).
+        # Тот же check-404-then-generate паттерн, что secret/authelia выше — пароль генерируется
+        # один раз; повторный прогон не должен подставлять новое значение (роль freeipa_directory
+        # и так не перезаписывает пароль существующего аккаунта, update_password: on_create, но
+        # ЗДЕСЬ, до роли, важно не генерировать новый секрет и не потерять уже читаемый человеком
+        # исходный пароль первого входа). Тот же приём, что platform/aicd/ansible/site.yml.
+        - name: "OpenBao: проверить наличие secret/freeipa-directory"
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/freeipa-directory"
+            ca_path: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
+            method: GET
+            headers:
+              X-Vault-Token: "{{ platform_aicd_devops_labs_ru_openbao_root_token }}"
+            status_code: [200, 404]
+          register: platform_aicd_devops_labs_ru_openbao_secret_freeipa_directory
+          no_log: true
+
+        - name: "OpenBao: сгенерировать и записать secret/freeipa-directory (только при первом прогоне)"
+          when: platform_aicd_devops_labs_ru_openbao_secret_freeipa_directory.status == 404
+          no_log: true
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/freeipa-directory"
+            ca_path: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
+            method: POST
+            headers:
+              X-Vault-Token: "{{ platform_aicd_devops_labs_ru_openbao_root_token }}"
+            body_format: json
+            body:
+              data:
+                ivan_password: "{{ lookup('ansible.builtin.password', '/dev/null', length=24) }}"
+            status_code: [200, 204]
+
+        - name: "OpenBao: прочитать secret/freeipa-directory (значение нужно play freeipa_hosts ниже)"
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/freeipa-directory"
+            ca_path: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
+            method: GET
+            headers:
+              X-Vault-Token: "{{ platform_aicd_devops_labs_ru_openbao_root_token }}"
+            status_code: [200]
+          register: platform_aicd_devops_labs_ru_openbao_secret_freeipa_directory_read
+          no_log: true
+
+        - name: Опубликовать пароль Ivan как факт хоста (для play freeipa_hosts, hostvars)
+          ansible.builtin.set_fact:
+            platform_aicd_devops_labs_ru_freeipa_directory_password_ivan: "{{ platform_aicd_devops_labs_ru_openbao_secret_freeipa_directory_read.json.data.data.ivan_password }}"
+          no_log: true
+
         # TLS-сертификаты — перевыпускаются автоматически при приближении к сроку истечения
         # (docs/adr/0016-openbao-secrets-pki.md §4, аннотация renew-after-epoch в
         # tasks/issue-tls-cert.yml), TTL 2160h (90 дней), renew за 30 дней до истечения.
@@ -1478,6 +1526,33 @@
         stdin: "{{ hostvars['aicd-labs'].platform_aicd_devops_labs_ru_monitoring_agent_ldap_bind_password }}\n{{ hostvars['aicd-labs'].platform_aicd_devops_labs_ru_monitoring_agent_ldap_bind_password }}\n"
       changed_when: true
       no_log: true
+
+    # ADR-0019 §3/§8 п.1 — ролевая модель: три платформенные группы-персоны и первый реальный
+    # человек в каталоге (platform-admins). Пароль сгенерирован и опубликован как факт хоста
+    # "aicd-labs" в блоке "OpenBao: bootstrap" play выше (secret/freeipa-directory), читается
+    # здесь через hostvars — тот же приём, что пароли svc-*-аккаунтов выше. Тот же приём, что
+    # platform/aicd/ansible/site.yml. freeipa_directory_ipa_host явно = freeipa_hostname (не
+    # дефолтный ansible_fqdn роли) — см. roles/freeipa_directory/README.md, «Куда играть роль».
+    - name: "Ролевая модель (ADR-0019): группы и первый реальный человек в каталоге"
+      ansible.builtin.include_role:
+        name: freeipa_directory
+      vars:
+        freeipa_directory_ipa_host: "{{ freeipa_hostname }}"
+        freeipa_directory_ipa_pass: "{{ freeipa_admin_password }}"
+        freeipa_directory_groups:
+          - name: platform-admins
+            description: "Полные права на все компоненты платформы (ADR-0019 §1)"
+          - name: platform-engineers
+            description: "Обычный пользователь/деплой; без администрирования сервисов"
+          - name: platform-viewers
+            description: "Read-only доступ там, где он предусмотрен (ADR-0019 §6)"
+        freeipa_directory_users:
+          - name: ivan
+            first: Ivan
+            last: Vinogradov
+            email: ivan@aicd.devops-labs.ru
+            password: "{{ hostvars['aicd-labs'].platform_aicd_devops_labs_ru_freeipa_directory_password_ivan }}"
+            groups: [platform-admins]
 
     # ADR-0017/monitoring_agent — node_exporter (базовые метрики хоста) + ipa_exporter (метрики
     # самого FreeIPA) как systemd-сервисы (этот хост не в k3s-кластере, docker-путь роли тут не
@@ -2170,6 +2245,91 @@
             - nx-repository-view-raw-internal-releases-browse
         status_code: [200]
 
+    # docs/adr/0019-platform-rbac-model.md §6 — маппинг platform-*-групп в роли Nexus по
+    # совпадению id, тем же REST-вызовом, что internal-releases-reader выше. Полный разбор —
+    # эталон, platform/aicd/ansible/site.yml.
+    - name: "Nexus: создать роль platform-admins (если ещё нет)"
+      when: "'platform-admins' not in (platform_aicd_devops_labs_ru_nexus_roles.json | map(attribute='id') | list)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
+      no_log: true
+      ansible.builtin.uri:
+        url: "https://nexus.aicd.devops-labs.ru/service/rest/v1/security/roles"
+        ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        method: POST
+        url_username: admin
+        url_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        force_basic_auth: true
+        body_format: json
+        body:
+          id: platform-admins
+          name: platform-admins
+          description: "ADR-0019 §6 — маппинг LDAP-группы platform-admins (по совпадению id)"
+          privileges: []
+          roles:
+            - nx-admin
+        status_code: [200]
+
+    - name: "Nexus: создать роль platform-engineers (если ещё нет)"
+      when: "'platform-engineers' not in (platform_aicd_devops_labs_ru_nexus_roles.json | map(attribute='id') | list)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
+      no_log: true
+      ansible.builtin.uri:
+        url: "https://nexus.aicd.devops-labs.ru/service/rest/v1/security/roles"
+        ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        method: POST
+        url_username: admin
+        url_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        force_basic_auth: true
+        body_format: json
+        body:
+          id: platform-engineers
+          name: platform-engineers
+          description: "ADR-0019 §6 — маппинг LDAP-группы platform-engineers (по совпадению id): publish/deploy"
+          privileges:
+            - nx-repository-view-*-*-browse
+            - nx-repository-view-*-*-read
+            - nx-repository-view-*-*-add
+            - nx-repository-view-*-*-edit
+          roles: []
+        status_code: [200]
+
+    - name: "Nexus: создать роль platform-viewers (если ещё нет)"
+      when: "'platform-viewers' not in (platform_aicd_devops_labs_ru_nexus_roles.json | map(attribute='id') | list)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
+      no_log: true
+      ansible.builtin.uri:
+        url: "https://nexus.aicd.devops-labs.ru/service/rest/v1/security/roles"
+        ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        method: POST
+        url_username: admin
+        url_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        force_basic_auth: true
+        body_format: json
+        body:
+          id: platform-viewers
+          name: platform-viewers
+          description: "ADR-0019 §6 — маппинг LDAP-группы platform-viewers (по совпадению id): read-only"
+          privileges:
+            - nx-repository-view-*-*-browse
+            - nx-repository-view-*-*-read
+          roles: []
+        status_code: [200]
+
     - name: "Nexus: получить список существующих пользователей"
       delegate_to: localhost
       become: false
@@ -2277,11 +2437,91 @@
           userRealNameAttribute: cn
           userEmailAddressAttribute: mail
           userPasswordAttribute: ""
+          # ldapGroupsAsRoles: true — реально главный переключатель (найдено живым прогоном на
+          # platform/aicd, ADR-0019 §6): без него Nexus вообще не резолвит LDAP-группы
+          # пользователя, groupType/userMemberOfAttribute ниже сами по себе не включают маппинг.
+          ldapGroupsAsRoles: true
           # DYNAMIC (не dynamic) — найдено сверкой со схемой /service/rest/swagger.json:
           # CreateLdapServerXo.groupType — enum [DYNAMIC, STATIC], регистрозависимо.
           groupType: DYNAMIC
           userMemberOfAttribute: memberOf
         status_code: [201]
+
+    # Ретрофит для уже забутстрапленного LDAP-сервера freeipa — тот же реальный баг, что найден
+    # и исправлен на platform/aicd (ADR-0019 §6): сервер здесь тоже создан задачей выше ДО того,
+    # как в неё добавили ldapGroupsAsRoles/groupType/userMemberOfAttribute, задача-создание
+    # гейтится "если ещё нет" и не перезапустится на уже существующем сервере. PUT — полная
+    # замена объекта (не merge), передаются все поля, не только недостающие; id — внутренний
+    # UUID сервера (не имя), обязателен для PUT в отличие от POST.
+    - name: "Nexus: обновить LDAP-сервер freeipa (ldapGroupsAsRoles/groupType, если рассинхронизировано)"
+      when: >-
+        not platform_aicd_devops_labs_ru_nexus_ldap_servers.json
+        | selectattr('name', 'equalto', 'freeipa')
+        | selectattr('ldapGroupsAsRoles', 'defined')
+        | selectattr('ldapGroupsAsRoles', 'equalto', true)
+        | list | length > 0
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
+      no_log: true
+      ansible.builtin.uri:
+        url: "https://nexus.aicd.devops-labs.ru/service/rest/v1/security/ldap/freeipa"
+        ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        method: PUT
+        url_username: admin
+        url_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        force_basic_auth: true
+        body_format: json
+        body:
+          id: "{{ platform_aicd_devops_labs_ru_nexus_ldap_servers.json | selectattr('name', 'equalto', 'freeipa') | map(attribute='id') | first }}"
+          name: freeipa
+          protocol: LDAP
+          host: ipa.aicd.devops-labs.ru
+          port: 389
+          searchBase: "DC=aicd,DC=devops-labs,DC=ru"
+          authScheme: SIMPLE
+          authUsername: "UID=svc-nexus,CN=users,CN=accounts,DC=aicd,DC=devops-labs,DC=ru"
+          authPassword: "{{ hostvars['aicd-labs'].platform_aicd_devops_labs_ru_nexus_ldap_bind_password }}"
+          connectionTimeoutSeconds: 30
+          connectionRetryDelaySeconds: 30
+          maxIncidentsCount: 3
+          userBaseDn: "CN=users,CN=accounts"
+          userSubtree: true
+          userObjectClass: person
+          userLdapFilter: ""
+          userIdAttribute: uid
+          userRealNameAttribute: cn
+          userEmailAddressAttribute: mail
+          userPasswordAttribute: ""
+          ldapGroupsAsRoles: true
+          groupType: DYNAMIC
+          userMemberOfAttribute: memberOf
+        status_code: [204]
+
+    - name: "Nexus: очистить LDAP-кэш (после обновления ldapGroupsAsRoles/groupType)"
+      when: >-
+        not platform_aicd_devops_labs_ru_nexus_ldap_servers.json
+        | selectattr('name', 'equalto', 'freeipa')
+        | selectattr('ldapGroupsAsRoles', 'defined')
+        | selectattr('ldapGroupsAsRoles', 'equalto', true)
+        | list | length > 0
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
+      ansible.builtin.uri:
+        url: "https://nexus.aicd.devops-labs.ru/service/rest/v1/security/ldap/cache"
+        ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        method: DELETE
+        url_username: admin
+        url_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        force_basic_auth: true
+        status_code: [204]
 
     - name: "Nexus: активировать LDAP-realm"
       delegate_to: localhost

@@ -89,9 +89,20 @@ configMaps:
             # claims_policies — официальный механизм Authelia (authelia.com/configuration/
             # identity-providers/openid-connect/claims/) принудительно скопировать claim'ы в
             # ID Token сверх стандартного поведения.
+            # docs/adr/0019-platform-rbac-model.md §4/§8 шаг 2 — claim 'groups' тем же приёмом,
+            # что email/nickname ниже. 'groups' — НЕ регистрируется как custom scope в scopes:
+            # (в отличие от 'nickname') — живым прогоном на platform/aicd найдено: Authelia
+            # отказывается стартовать ("scope with name 'groups' can't be used as a custom scope
+            # because it's a standard scope") — 'groups' уже встроенный scope. custom_claims.
+            # groups.attribute: 'groups' всё равно нужен — сам claim в ID Token без него не
+            # попадает, хотя в userinfo уже виден (тот же паттерн, что email/nickname). Полный
+            # разбор — helm/values/platform/namespaces/platform/authelia/values.yaml (эталон).
             claims_policies:
               email_in_id_token:
-                id_token: ['email', 'email_verified']
+                custom_claims:
+                  groups:
+                    attribute: 'groups'
+                id_token: ['email', 'email_verified', 'groups']
               # Найдено реальным прогоном: Gitea (goth/openidConnect) требует ОБА claim'а
               # email и nickname в ID Token, иначе "Auto Registration ... returned missing
               # fields: email,nickname". "nickname" не входит в стандартный набор claim'ов,
@@ -105,7 +116,9 @@ configMaps:
                 custom_claims:
                   nickname:
                     attribute: 'username'
-                id_token: ['email', 'email_verified', 'nickname']
+                  groups:
+                    attribute: 'groups'
+                id_token: ['email', 'email_verified', 'nickname', 'groups']
             scopes:
               nickname:
                 claims: ['nickname']
@@ -130,7 +143,7 @@ configMaps:
                 claims_policy: 'email_in_id_token'
                 redirect_uris:
                   - 'https://semaphore.aicd.devops-labs.ru/api/auth/oidc/authelia/redirect'
-                scopes: ['openid', 'profile', 'email']
+                scopes: ['openid', 'profile', 'email', 'groups']
                 response_types: ['code']
                 grant_types: ['authorization_code']
               - client_id: 'gitea'
@@ -144,7 +157,7 @@ configMaps:
                 claims_policy: 'gitea_claims'
                 redirect_uris:
                   - 'https://gitea.aicd.devops-labs.ru/user/oauth2/authelia/callback'
-                scopes: ['openid', 'profile', 'email', 'nickname']
+                scopes: ['openid', 'profile', 'email', 'nickname', 'groups']
                 response_types: ['code']
                 grant_types: ['authorization_code']
               # docs/adr/0017-platform-cicd-default-addons.md — третий аддон, тот же принцип, что
@@ -161,12 +174,21 @@ configMaps:
                 claims_policy: 'email_in_id_token'
                 redirect_uris:
                   - 'https://grafana.aicd.devops-labs.ru/login/generic_oauth'
-                scopes: ['openid', 'profile', 'email']
+                scopes: ['openid', 'profile', 'email', 'groups']
                 response_types: ['code']
                 grant_types: ['authorization_code']
 
 deployments:
   authelia:
+    # Найдено живым прогоном на platform/aicd (ADR-0019 §8 шаг 2): configuration.yml монтируется
+    # ниже через configMap + subPath, который kubelet НЕ перемонтирует живому поду при изменении
+    # ConfigMap — helmwave up показывает "changed", но уже запущенный под молча продолжает
+    # работать со старым конфигом без единой ошибки. checksum-аннотация форсирует rolling restart
+    # при любом изменении configMaps.config.data. Применяется здесь превентивно (тот же чарт, та
+    # же subPath-схема, что на platform/aicd) — см. эталон,
+    # helm/values/platform/namespaces/platform/authelia/values.yaml.
+    podAnnotations:
+      checksum/config: '{{ include "helpers.workload.checksum" $.Values.configMaps.config.data }}'
     containers:
       - name: authelia
         image: authelia/authelia

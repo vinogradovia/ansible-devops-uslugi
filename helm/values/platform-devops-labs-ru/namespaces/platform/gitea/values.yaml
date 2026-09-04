@@ -68,7 +68,13 @@ gitea:
       # fields: email,nickname"), т.к. Authelia не выдаёт claim'ы, на которые у клиента нет
       # разрешённого scope. 'nickname' — custom scope Authelia (см. authelia/values.yaml,
       # claims_policies.gitea_claims), не стандартный OIDC scope.
-      scopes: "profile email nickname"
+      # 'groups' — ADR-0019 §6/§8 шаг 4, тем же приёмом: platform-admins → Gitea admin,
+      # platform-viewers → restricted user, platform-engineers — обычный пользователь (дефолт).
+      # Полный разбор — эталон, helm/values/platform/namespaces/platform/gitea/values.yaml.
+      scopes: "profile email nickname groups"
+      groupClaimName: groups
+      adminGroup: platform-admins
+      restrictedGroup: platform-viewers
 
 # strategy.type: Recreate — найдено реальным прогоном на первом стенде (platform/aicd) — дефолтный
 # RollingUpdate чарта создаёт новый под ДО остановки старого, а оба пода делят один PVC и один и
