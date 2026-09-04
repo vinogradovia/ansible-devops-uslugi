@@ -2248,6 +2248,99 @@
             - nx-repository-view-raw-internal-releases-browse
         status_code: [200]
 
+    # docs/adr/0019-platform-rbac-model.md §6 — маппинг platform-*-групп в роли Nexus. Публичный
+    # REST не создаёт "external role mapping" отдельным объектом (POST .../security/roles с
+    # "source": "ldap" молча игнорируется — подтверждено официально Sonatype, community.sonatype.com,
+    # см. ссылку в ADR) — вместо этого Nexus сопоставляет LDAP-группу с ролью ПО СОВПАДЕНИЮ id:
+    # обычная роль с id, равным имени группы каталога, тем же REST-вызовом, что уже создаёт
+    # internal-releases-reader выше. platform-admins — вложенная роль nx-admin (не копируем её
+    # привилегии вручную — nx-admin: nx-all, встроенная роль Nexus, id стабилен между версиями).
+    # platform-engineers/platform-viewers — явные privileges (в ADR только словесно "publish/
+    # deploy"/"read-only", точный список — решение на этапе реализации): *-add/-edit дают
+    # публикацию поверх *-read/-browse у engineers, viewers — только browse/read (тот же набор,
+    # что встроенная nx-anonymous, но НЕ анонимный доступ — привязан к LDAP-группе).
+    - name: "Nexus: создать роль platform-admins (если ещё нет)"
+      when: "'platform-admins' not in (platform_aicd_nexus_roles.json | map(attribute='id') | list)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.platform"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.platform"
+      no_log: true
+      ansible.builtin.uri:
+        url: "https://nexus.aicd.platform/service/rest/v1/security/roles"
+        ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        method: POST
+        url_username: admin
+        url_password: "{{ platform_aicd_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        force_basic_auth: true
+        body_format: json
+        body:
+          id: platform-admins
+          name: platform-admins
+          description: "ADR-0019 §6 — маппинг LDAP-группы platform-admins (по совпадению id)"
+          privileges: []
+          roles:
+            - nx-admin
+        status_code: [200]
+
+    - name: "Nexus: создать роль platform-engineers (если ещё нет)"
+      when: "'platform-engineers' not in (platform_aicd_nexus_roles.json | map(attribute='id') | list)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.platform"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.platform"
+      no_log: true
+      ansible.builtin.uri:
+        url: "https://nexus.aicd.platform/service/rest/v1/security/roles"
+        ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        method: POST
+        url_username: admin
+        url_password: "{{ platform_aicd_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        force_basic_auth: true
+        body_format: json
+        body:
+          id: platform-engineers
+          name: platform-engineers
+          description: "ADR-0019 §6 — маппинг LDAP-группы platform-engineers (по совпадению id): publish/deploy"
+          privileges:
+            - nx-repository-view-*-*-browse
+            - nx-repository-view-*-*-read
+            - nx-repository-view-*-*-add
+            - nx-repository-view-*-*-edit
+          roles: []
+        status_code: [200]
+
+    - name: "Nexus: создать роль platform-viewers (если ещё нет)"
+      when: "'platform-viewers' not in (platform_aicd_nexus_roles.json | map(attribute='id') | list)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.platform"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.platform"
+      no_log: true
+      ansible.builtin.uri:
+        url: "https://nexus.aicd.platform/service/rest/v1/security/roles"
+        ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        method: POST
+        url_username: admin
+        url_password: "{{ platform_aicd_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        force_basic_auth: true
+        body_format: json
+        body:
+          id: platform-viewers
+          name: platform-viewers
+          description: "ADR-0019 §6 — маппинг LDAP-группы platform-viewers (по совпадению id): read-only"
+          privileges:
+            - nx-repository-view-*-*-browse
+            - nx-repository-view-*-*-read
+          roles: []
+        status_code: [200]
+
     - name: "Nexus: получить список существующих пользователей"
       delegate_to: localhost
       become: false
@@ -2358,11 +2451,98 @@
           userRealNameAttribute: cn
           userEmailAddressAttribute: mail
           userPasswordAttribute: ""
+          # ldapGroupsAsRoles: true — реально главный переключатель (найдено живым прогоном,
+          # ADR-0019 §6): без него Nexus вообще не резолвит LDAP-группы пользователя (ни в
+          # roles, ни в externalRoles GET .../security/users?userId=X — пусто), groupType/
+          # userMemberOfAttribute ниже сами по себе не включают маппинг. Схема
+          # CreateLdapServerXo (/service/rest/swagger.json) явно требует его для groupType.
+          ldapGroupsAsRoles: true
           # DYNAMIC (не dynamic) — найдено сверкой со схемой /service/rest/swagger.json:
           # CreateLdapServerXo.groupType — enum [DYNAMIC, STATIC], регистрозависимо.
           groupType: DYNAMIC
           userMemberOfAttribute: memberOf
         status_code: [201]
+
+    # Ретрофит для уже забутстрапленного LDAP-сервера freeipa (наш реальный случай — сервер был
+    # создан задачей выше ДО того, как в неё добавили ldapGroupsAsRoles/groupType/
+    # userMemberOfAttribute для ADR-0019 §6, задача-создание гейтится "если ещё нет" и никогда не
+    # перезапустится на уже существующем сервере). Найдено живым прогоном: GET .../security/ldap/
+    # freeipa у уже развёрнутого стенда отдавал ldapGroupsAsRoles: false, groupType: null —
+    # LDAP-пользователь reallly аутентифицировался (401 на неверный пароль, значит бинд работал),
+    # но roles/externalRoles оставались пустыми при любом реальном членстве в platform-*-группах.
+    # PUT — полная замена объекта (не merge), поэтому переданы все поля, не только недостающие.
+    - name: "Nexus: обновить LDAP-сервер freeipa (ldapGroupsAsRoles/groupType, если рассинхронизировано)"
+      when: >-
+        not platform_aicd_nexus_ldap_servers.json
+        | selectattr('name', 'equalto', 'freeipa')
+        | selectattr('ldapGroupsAsRoles', 'defined')
+        | selectattr('ldapGroupsAsRoles', 'equalto', true)
+        | list | length > 0
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.platform"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.platform"
+      no_log: true
+      ansible.builtin.uri:
+        url: "https://nexus.aicd.platform/service/rest/v1/security/ldap/freeipa"
+        ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        method: PUT
+        url_username: admin
+        url_password: "{{ platform_aicd_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        force_basic_auth: true
+        body_format: json
+        body:
+          # id — внутренний UUID уже существующего сервера (не имя!), обязателен для PUT в
+          # отличие от POST/создания (найдено живым прогоном: без него — 400 "PARAMETER id must
+          # not be empty", PUT — full-resource-replace, а не merge по имени).
+          id: "{{ platform_aicd_nexus_ldap_servers.json | selectattr('name', 'equalto', 'freeipa') | map(attribute='id') | first }}"
+          name: freeipa
+          protocol: LDAP
+          host: ipa.aicd.platform
+          port: 389
+          searchBase: "DC=aicd,DC=platform"
+          authScheme: SIMPLE
+          authUsername: "UID=svc-nexus,CN=users,CN=accounts,DC=aicd,DC=platform"
+          authPassword: "{{ hostvars['cicd'].platform_aicd_nexus_ldap_bind_password }}"
+          connectionTimeoutSeconds: 30
+          connectionRetryDelaySeconds: 30
+          maxIncidentsCount: 3
+          userBaseDn: "CN=users,CN=accounts"
+          userSubtree: true
+          userObjectClass: person
+          userLdapFilter: ""
+          userIdAttribute: uid
+          userRealNameAttribute: cn
+          userEmailAddressAttribute: mail
+          userPasswordAttribute: ""
+          ldapGroupsAsRoles: true
+          groupType: DYNAMIC
+          userMemberOfAttribute: memberOf
+        status_code: [204]
+
+    - name: "Nexus: очистить LDAP-кэш (после обновления ldapGroupsAsRoles/groupType)"
+      when: >-
+        not platform_aicd_nexus_ldap_servers.json
+        | selectattr('name', 'equalto', 'freeipa')
+        | selectattr('ldapGroupsAsRoles', 'defined')
+        | selectattr('ldapGroupsAsRoles', 'equalto', true)
+        | list | length > 0
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.platform"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.platform"
+      ansible.builtin.uri:
+        url: "https://nexus.aicd.platform/service/rest/v1/security/ldap/cache"
+        ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        method: DELETE
+        url_username: admin
+        url_password: "{{ platform_aicd_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        force_basic_auth: true
+        status_code: [204]
 
     - name: "Nexus: активировать LDAP-realm"
       delegate_to: localhost

@@ -23,6 +23,13 @@ ADR-0013 закрыл **аутентификацию**: единый катал�
 | Gitea / Semaphore | Авторегистрация OIDC без маппинга групп; админ — только локальный (`gitea_admin`, `admin`) |
 | Nexus | LDAP-realm активен, `groupType: DYNAMIC` + `userMemberOfAttribute: memberOf` — **группы уже читаются каталогом**, но ни одной Nexus-роли на LDAP-группу не заведено → LDAP-пользователь входит с нулевыми правами |
 
+**Приписка (2026-09-04):** утверждение «группы уже читаются каталогом» в строке Nexus выше не
+проверялось живым прогоном на момент написания и оказалось неточным — в отдельном поле
+`ldapGroupsAsRoles` (обязательный переключатель, без которого `groupType`/`userMemberOfAttribute`
+не имеют эффекта) на этом стенде стояло `false`. Не было замечено раньше, потому что ни один
+реальный LDAP-логин в Nexus до §6/§8 шага 4 в этой сессии не проверялся. Подробности исправления
+— §6 ниже, строка Nexus.
+
 Практический смысл этого состояния: **любой заведённый в каталоге человек получает одинаковый
 доступ ко всей платформе** — от дашбордов Grafana до Semaphore, запускающего ansible на живой
 инфраструктуре. Пока в каталоге нет ни одного реального пользователя, это безопасно; в момент
@@ -257,7 +264,7 @@ restart автоматически при любом изменении соде
 | Grafana | Admin | Editor | Viewer | **Сделано и живо проверено (2026-09-04, `platform/aicd`)**: `auth.generic_oauth.role_attribute_path` (JMESPath по `groups`) + `role_attribute_strict: true` в `helm/values/platform/namespaces/monitoring/grafana-operator/values.yaml`. Выражение — `contains(groups[*], 'platform-admins') && 'Admin' || contains(groups[*], 'platform-engineers') && 'Editor' || contains(groups[*], 'platform-viewers') && 'Viewer'`, БЕЗ catch-all `\| 'Viewer'` в конце — с `role_attribute_strict: true` пользователь не из `platform-*`-групп получает отказ в логине (`False`, не строка-роль), а не дефолтную роль организации. Проверено на реальных данных claim'а (JMESPath-реализация, не Grafana напрямую — полноценный браузерный клик-тест уперся в системный прокси control-хоста, не роутящий сеть `platform/aicd`, см. §8 шаг 3): `admin`→`'Admin'`, `engineer`→`'Editor'`, `viewer`→`'Viewer'`, без `platform-*`-группы→`False`, при нескольких группах — старшая побеждает. `allow_assign_grafana_admin` не потребовался — не нужен изнутри chart'а для этого пути |
 | Gitea | admin | обычный пользователь | restricted-пользователь | **Сделано и живо проверено (2026-09-04, `platform/aicd`)**: `helm/values/platform/namespaces/platform/gitea/values.yaml`, `gitea.oauth[]` — `groupClaimName: groups`/`adminGroup: platform-admins`/`restrictedGroup: platform-viewers` (camelCase-ключи, чарт конвертирует в `--group-claim-name`/`--admin-group`/`--restricted-group` для `gitea admin auth add-oauth`/`update-oauth`, тем же механизмом, что уже настроены `autoDiscoverUrl`/`key`/`secret`); `'groups'` добавлен в `scopes` OAuth-клиента Gitea (без этого Authelia не выдала бы claim — тот же принцип, что `nickname`). `platform-engineers` — обычный пользователь без специального флага (дефолт, когда ни admin-, ни restricted-group не совпали). Init-контейнер `configure-gitea` живьём подтвердил применение (`Existing oauth configuration with name 'authelia': '53'. Running update to sync settings... done`), точные имена флагов сверены с `--help` реально развёрнутого бинарника Gitea 1.23.4 в поде. Идемпотентность подтверждена повторным прогоном `site.yml` |
 | Semaphore | admin | обычный пользователь | — (не пускать) | Маппинг админа из claim — **сверено, не поддерживается**: официальная документация (v2.19.8) описывает только `username_claim`/`email_claim`/`name_claim`, ни ролевого маппинга, ни admin-по-claim'у нет и в roadmap; допуск — только через Authelia, админ остаётся локальным (§7) |
-| Nexus | `nx-admin` | роль с правами publish/deploy | read-only | **Сверено**: публичный REST (`POST .../security/roles` с `"source": "ldap"`) не работает — Sonatype подтвердил, что поле молча игнорируется, всегда `"default"`. Рабочий путь проще: Nexus сопоставляет LDAP-группу с ролью **по совпадению `id`**, отдельного объекта «external mapping» не требуется — обычная роль с `id`, равным имени группы каталога (`platform-admins`/`-engineers`/`-viewers`), созданная тем же REST-вызовом, что уже работает для `internal-releases-reader` (ADR-0018 §9), автоматически становится назначена этой LDAP-группе |
+| Nexus | `nx-admin` | роль с правами publish/deploy | read-only | **Сделано и живо проверено (2026-09-04, `platform/aicd`)**: три роли созданы тем же REST-вызовом, что `internal-releases-reader` (ADR-0018 §9) — `platform-admins` вложенно ссылается на встроенную `nx-admin` (`roles: ["nx-admin"]`, не копирует её `privileges`), `platform-engineers`/`platform-viewers` — явные `nx-repository-view-*-*-{browse,read,add,edit}`/`{browse,read}`. **Найден и исправлен независимый баг** (см. ниже, приписка к «Контексту»): `ldapGroupsAsRoles: true` — обязательный переключатель, без которого Nexus не резолвит LDAP-группы пользователя вообще (ни `roles`, ни `externalRoles`), и в live-конфиге этого стенда он был не выставлен, хотя `groupType`/`userMemberOfAttribute` в коде ansible-задачи присутствовали давно — задача создания LDAP-сервера гейтится «если ещё нет», сервер уже существовал с более старой версией тела запроса. Исправлено ретрофит-задачей (PUT полного объекта, требует поле `id` — внутренний UUID сервера, не имя) + `DELETE .../security/ldap/cache`. Верификация — сквозная, реальными LDAP-аккаунтами: пользователь в `platform-admins` получил `200` на `/security/roles` (admin-эндпоинт) и `201` на `PUT` загрузку в `internal-releases`; пользователь в `platform-viewers` получил `403` на оба, но `200` на чтение существующего артефакта — все пять проверок подтвердили именно то поведение, что задумано моделью. Идемпотентность подтверждена повторным прогоном `site.yml` (все новые задачи — `skipping`) |
 | OpenBao | root/policy (вне каталога) | — | — | Не интегрируется этим ADR — см. «Не проработано» |
 
 **Обоснование:** `platform-viewers` намеренно не допускается в Semaphore: Semaphore запускает
@@ -306,8 +313,10 @@ Grafana, когда каталог лежит.
    Authelia, не полноценный клик-тест через реальную форму логина каждого из трёх сервисов
    (Semaphore/Gitea/Grafana). Остаётся сделать до перехода к шагу 4.
 4. Включается маппинг ролей внутри приложений (§6) — на этом шаге ошибка ещё не запирает доступ,
-   а лишь выдаёт неверную роль. **Частично сделано (2026-09-04)**: Grafana и Gitea — см. §6.
-   Nexus — ещё нет.
+   а лишь выдаёт неверную роль. **Сделано для `platform/aicd` (2026-09-04)**: Grafana, Gitea,
+   Nexus — см. §6 (все три живо проверены реальными учётными данными/токенами, не только
+   декларативным применением конфига). Semaphore не входит в этот шаг — см. §6, маппинг там не
+   поддерживается платформой, fallback уже описан в §7 (break-glass).
 5. Только теперь `access_control`/`authorization_policies` ужесточаются с `one_factor` до
    group-gated.
 
