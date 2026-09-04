@@ -65,7 +65,16 @@ gitea:
       # падает ("returned missing fields: email,nickname"), т.к. Authelia не выдаёт claim'ы, на
       # которые у клиента нет разрешённого scope. 'nickname' — custom scope Authelia (см.
       # authelia/values.yaml, claims_policies.gitea_claims), не стандартный OIDC scope.
-      scopes: "profile email nickname"
+      # 'groups' — тем же приёмом, ADR-0019 §6/§8 шаг 4: platform-admins → Gitea admin,
+      # platform-viewers → restricted user, platform-engineers → обычный пользователь (дефолт,
+      # отдельный флаг не нужен — срабатывает, когда ни admin-, ни restricted-group не совпали).
+      # Ключи ниже camelCase → конвертируются чартом в kebab-case CLI-флаги gitea admin auth
+      # add-oauth/update-oauth (groupClaimName → --group-claim-name и т.д., generic passthrough,
+      # см. CLAUDE.md/roles-раздел про Gitea — сверено 2026-09-03, до реализации).
+      scopes: "profile email nickname groups"
+      groupClaimName: groups
+      adminGroup: platform-admins
+      restrictedGroup: platform-viewers
 
 # strategy.type: Recreate — найдено реальным прогоном (первый helm upgrade Gitea после Фазы 0,
 # смена admin.password/ingress.tls): дефолтный RollingUpdate чарта создаёт новый под ДО остановки
