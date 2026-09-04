@@ -78,8 +78,20 @@ configMaps:
           rules:
             - domain: 'sso.aicd.platform'
               policy: bypass
+            # docs/adr/0019-platform-rbac-model.md §8 шаг 5 — первый домен, ужесточённый с
+            # one_factor до group-gated (пилотный, единственный на данный момент — остальные
+            # домены/OIDC-клиенты остаются one_factor до отдельной проверки каждого). subject —
+            # плоский список = OR (authelia.com/configuration/security/access-control/,
+            # «The first level of the list defines the OR logic») — доступ есть у члена ЛЮБОЙ
+            # из трёх платформенных групп, остальным (включая admin-only каталог без ни одной из
+            # групп) — отказ. policy остаётся one_factor — это НЕ второй фактор, только фильтр
+            # по группе поверх существующего уровня аутентификации.
             - domain: 'infra-panel.aicd.platform'
               policy: one_factor
+              subject:
+                - 'group:platform-admins'
+                - 'group:platform-engineers'
+                - 'group:platform-viewers'
             - domain: 'radar.aicd.platform'
               policy: one_factor
 
