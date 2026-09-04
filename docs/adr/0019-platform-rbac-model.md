@@ -4,10 +4,11 @@
   сделаны и живо проверены на ОБОИХ окружениях (`platform/aicd`, `platform/aicd-devops-labs-ru`):
   роль `freeipa_directory` подключена, группы `platform-*` и первый реальный человек заведены в
   обоих каталогах, claim `groups` доезжает до ID Token, маппинг ролей работает в Grafana/Gitea/
-  Nexus. Шаг 5 (ужесточение `access_control`) начат пилотно — один домен (`infra-panel.
-  aicd.platform`) на `platform/aicd`, живо проверено, остальные домены/клиенты и второе
-  окружение — впереди. Не сделано: шаг 3 (полноценный браузерный клик-тест — упирается в
-  системный прокси control-хоста)
+  Nexus. Шаг 5 (ужесточение `access_control`/`authorization_policies`) сделан на `platform/aicd`
+  целиком — `infra-panel`/`radar` (forwardAuth, `access_control.subject`) и Semaphore/Gitea/
+  Grafana (OIDC, именованные `authorization_policies`), все живо проверены реальными сессиями.
+  `platform/aicd-devops-labs-ru` — шаг 5 впереди. Не сделано: шаг 3 (полноценный браузерный
+  клик-тест — упирается в системный прокси control-хоста)
 - **Дата:** 2026-09-02
 - **Авторы:** Ivan Vinogradov (решения), Claude Code (оформление по итогам обсуждения)
 
@@ -341,8 +342,28 @@ Grafana, когда каталог лежит.
    поддоменов) против самого `infra-panel.aicd.platform`, не debug-инструмента: доступ
    подтверждён/отклонён ровно как задумано (`200` для группы, `403` без неё), `radar.aicd.
    platform` при этом остался доступен обоим — доказывает, что ужесточение не затронуло другие
-   домены. Идемпотентность подтверждена. Остальные домены/клиенты — следующая итерация этого же
-   шага, не начаты; `platform/aicd-devops-labs-ru` — тоже не начата.
+   домены. Идемпотентность подтверждена. **Продолжено (2026-09-04, тем же прогоном сессии)**:
+   `radar.aicd.platform` — тот же `subject`, что у `infra-panel` (по матрице §6 у radar тоже все
+   три группы допущены). OIDC-клиенты (Semaphore/Gitea/Grafana) — другой механизм,
+   `identity_providers.oidc.authorization_policies` (именованные политики, клиент ссылается на
+   политику через `authorization_policy` вместо плоского `'one_factor'`; `rules[].subject` — тот
+   же формат/OR-семантика, что `access_control`, authelia.com/configuration/identity-providers/
+   openid-connect/provider/, «Subject criteria follow the same format as Access Control Rules»).
+   Две политики, не одна — по матрице §6: `platform_all_groups` (все три группы) для
+   Grafana/Gitea, `platform_engineers_admins` (без viewers) для Semaphore — единственный сервис,
+   где `platform-viewers` осознанно не допускаются (§6, «безопасного read-only» там нет).
+   **Найдена и исправлена собственная ошибка редактирования** (не баг Authelia): при добавлении
+   `subject` к правилу `radar` в файл случайно попала задвоенная (осиротевшая от предыдущей
+   версии строки) `policy: one_factor` — Authelia корректно отказалась стартовать
+   (`yaml: unmarshal errors: mapping key "policy" already defined`, плюс каскад из шести
+   дальнейших ошибок валидации — все они лишь следствие несостоявшегося парсинга файла целиком,
+   не отдельные проблемы). Пойман сразу же (под `0/1 Error`, `RESTARTS` растут), не через глухое
+   молчание — та же дисциплина живой проверки, что и весь остальной ADR-0019. Живой прогон на
+   двух одноразовых тестовых аккаунтах (`platform-admins`, `platform-viewers`-only) через
+   реальный `POST /api/firstfactor` + `GET /api/oidc/authorization` для каждого из трёх
+   client_id: admin-аккаунт — редирект на consent для всех трёх; viewers-аккаунт — редирект на
+   consent для Gitea/Grafana, но `error=access_denied` для Semaphore, ровно по матрице §6.
+   Идемпотентность подтверждена. `platform/aicd-devops-labs-ru` — весь шаг 5 ещё не начат.
 
 **Обоснование:** шаги 1 и 5, выполненные в обратном порядке, дают гарантированную блокировку:
 `default_policy: deny` плюс правило, требующее членства в группе, которой ещё нет ни у кого,
