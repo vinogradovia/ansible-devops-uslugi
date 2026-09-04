@@ -1,14 +1,14 @@
 # ADR-0019: Ролевая модель доступа к компонентам платформы — группы `freeipa` как единый источник прав
 
-- **Статус:** Предложено; реализация в процессе (2026-09-04) — шаги 1/2/4 порядка внедрения §8
+- **Статус:** Предложено; реализация в процессе (2026-09-04) — шаги 1/2/4/5 порядка внедрения §8
   сделаны и живо проверены на ОБОИХ окружениях (`platform/aicd`, `platform/aicd-devops-labs-ru`):
   роль `freeipa_directory` подключена, группы `platform-*` и первый реальный человек заведены в
   обоих каталогах, claim `groups` доезжает до ID Token, маппинг ролей работает в Grafana/Gitea/
-  Nexus. Шаг 5 (ужесточение `access_control`/`authorization_policies`) сделан на `platform/aicd`
-  целиком — `infra-panel`/`radar` (forwardAuth, `access_control.subject`) и Semaphore/Gitea/
-  Grafana (OIDC, именованные `authorization_policies`), все живо проверены реальными сессиями.
-  `platform/aicd-devops-labs-ru` — шаг 5 впереди. Не сделано: шаг 3 (полноценный браузерный
-  клик-тест — упирается в системный прокси control-хоста)
+  Nexus, `access_control`/`authorization_policies` ужесточены с `one_factor` до group-gated —
+  `infra-panel`/`radar` (forwardAuth, `access_control.subject`) и Semaphore/Gitea/Grafana (OIDC,
+  именованные `authorization_policies`), все живо проверены реальными сессиями на обоих
+  окружениях. Не сделано: шаг 3 (полноценный браузерный клик-тест — упирается в системный прокси
+  control-хоста)
 - **Дата:** 2026-09-02
 - **Авторы:** Ivan Vinogradov (решения), Claude Code (оформление по итогам обсуждения)
 
@@ -363,7 +363,22 @@ Grafana, когда каталог лежит.
    реальный `POST /api/firstfactor` + `GET /api/oidc/authorization` для каждого из трёх
    client_id: admin-аккаунт — редирект на consent для всех трёх; viewers-аккаунт — редирект на
    consent для Gitea/Grafana, но `error=access_denied` для Semaphore, ровно по матрице §6.
-   Идемпотентность подтверждена. `platform/aicd-devops-labs-ru` — весь шаг 5 ещё не начат.
+   Идемпотентность подтверждена. **Реплицировано на `platform/aicd-devops-labs-ru`
+   (2026-09-04)**: те же изменения одним объединённым редактированием (оба правила
+   `access_control` — `infra-panel`/`radar` — плюс блок `authorization_policies` и три
+   `authorization_policy` клиентов внесены за один заход, с полным перечитыванием получившегося
+   блока перед прогоном — намеренно другая дисциплина против повторения именно той ошибки, что
+   нашлась выше на `platform/aicd`). `site.yml` отработал без ошибок, `authelia` пересоздался
+   (`checksum/config` сработал). Живой прогон на трёх одноразовых тестовых аккаунтах
+   (`platform-admins`, `platform-viewers`-only, без единой платформенной группы) через реальный
+   `POST /api/firstfactor` + сессионную cookie против `infra-panel.aicd.devops-labs.ru`/
+   `radar.aicd.devops-labs.ru` (forwardAuth) и `GET /api/oidc/authorization` для всех трёх
+   client_id (OIDC): все 8 проверок прошли ровно по матрице §6 — admin допущен везде; viewer
+   допущен везде, кроме Semaphore (`error=access_denied`); аккаунт без групп отклонён (`403`) на
+   обоих forwardAuth-доменах. Тестовые аккаунты удалены (`ipa user-del`), идемпотентность
+   подтверждена повторным `site.yml` (`freeipa: changed=0`, остальные `changed` — только уже
+   известные не-идемпотентные задачи: подстановка IP в kubeconfig, `Helmwave up` без
+   changed_when-анализа). Шаг 5 закрыт на обоих окружениях.
 
 **Обоснование:** шаги 1 и 5, выполненные в обратном порядке, дают гарантированную блокировку:
 `default_policy: deny` плюс правило, требующее членства в группе, которой ещё нет ни у кого,
