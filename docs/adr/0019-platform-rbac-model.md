@@ -202,6 +202,31 @@ Token через `claims_policies` — тем же механизмом, кот�
 scope'ом claim в токен — значит `groups` обязан быть и в `scopes` клиента (та же оговорка, что уже
 записана в комментарии к `nickname` в `authelia/values.yaml`).
 
+**Реализовано и живо проверено (2026-09-04)** — `helm/values/platform/namespaces/platform/
+authelia/values.yaml`. Формулировка выше не совсем точна в одной детали, найденной только живым
+прогоном: `groups`, в отличие от `nickname`, **не может быть зарегистрирован как custom scope** —
+Authelia отказывается стартовать (`scope with name 'groups' can't be used as a custom scope
+because it's a standard scope», `groups` уже входит в её встроенный набор). Рабочая версия:
+клиентам просто добавляется `'groups'` в `scopes:` (без блока `scopes.groups` в конфиге), а
+`custom_claims.groups.attribute: 'groups'` в `claims_policies` по-прежнему нужен — сам claim в
+ID Token без него не попадает (проверено `authelia debug oidc claims` — в "User Information" уже
+исправно, в "ID Token" пусто без `custom_claims`). LDAP-атрибут `groups` уже вычисляется
+`implementation: freeipa` пресетом (`groups_filter`, `memberOf`/`cn`) — никакой дополнительной
+настройки LDAP-бэкенда не потребовалось. Живым прогоном на одноразовом тестовом пользователе (член
+`platform-admins`) подтверждено: `authelia debug oidc claims` отдаёт `"groups": ["ipausers",
+"platform-admins"]` и в ID Token, и для `email_in_id_token`, и для `gitea_claims` политик.
+
+Тем же прогоном найден и исправлен независимый баг деплоя: `configuration.yml` монтируется через
+`configMap` + `subPath`, который kubelet **не перемонтирует живому поду** при изменении ConfigMap
+(в отличие от обычного volume mount на директорию) — `helmwave up` показывал `changed`, новый
+Helm-релиз реально создавался, но уже запущенный под молча продолжал работать со старым конфигом
+без единой ошибки, пока не будет вручную перезапущен. Тот же класс бага, что htpasswd/subPath в
+`infra_panel` (ADR-0008 §2). Исправлено добавлением `podAnnotations.checksum/config` (Helm-хелпер
+`helpers.workload.checksum` из `nxs-universal-chart`) — теперь `helmwave up` форсирует rolling
+restart автоматически при любом изменении содержимого `configMaps.config.data`, без ручного
+`kubectl rollout restart`. Подтверждено двумя последовательными прогонами `site.yml`: первый
+пересоздал под (новый hash ReplicaSet), второй — `changed=0`, под не тронут.
+
 ### 5. Два независимых уровня контроля: допуск и роль внутри приложения
 
 **Решение:** одна и та же группа проверяется дважды, разными механизмами, и это не дублирование:
@@ -271,9 +296,15 @@ Grafana, когда каталог лежит.
    aicd-devops-labs-ru` пока не подключена — то же ограничение «два независимых каталога», что
    зафиксировано в §3 выше.
 2. Authelia начинает отдавать `groups` (scope + `claims_policy`), политики допуска при этом
-   **остаются прежними** (`one_factor`).
+   **остаются прежними** (`one_factor`). **Сделано (2026-09-04, `platform/aicd`)** — подробности и
+   найденные по пути два независимых бага (custom-scope-конфликт, subPath-checksum) — §4 выше.
 3. Живой клик-тест: вход каждым из потребителей, claim `groups` реально виден в ID Token
-   (проверять по токену/логам сервиса, а не по факту «логин прошёл»).
+   (проверять по токену/логам сервиса, а не по факту «логин прошёл»). **Частично сделано**: claim
+   реально виден в токене, подтверждено `authelia debug oidc claims` (одноразовый тестовый
+   пользователь — член `platform-admins`, не `ivan`, чтобы не трогать его ещё не смененный при
+   первом входе пароль) для политик `email_in_id_token` и `gitea_claims` — но это симуляция
+   Authelia, не полноценный клик-тест через реальную форму логина каждого из трёх сервисов
+   (Semaphore/Gitea/Grafana). Остаётся сделать до перехода к шагу 4.
 4. Включается маппинг ролей внутри приложений (§6) — на этом шаге ошибка ещё не запирает доступ,
    а лишь выдаёт неверную роль.
 5. Только теперь `access_control`/`authorization_policies` ужесточаются с `one_factor` до

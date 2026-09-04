@@ -132,9 +132,22 @@ configMaps:
             # (проверено ldapsearch). claims_policies — официальный механизм Authelia
             # (authelia.com/configuration/identity-providers/openid-connect/claims/) принудительно
             # скопировать claim'ы в ID Token сверх стандартного поведения.
+            # docs/adr/0019-platform-rbac-model.md §4/§8 шаг 2 — claim 'groups' тем же приёмом,
+            # что email/nickname выше: 'groups' — уже готовый common-атрибут (populated из LDAP
+            # groups_filter пресета freeipa, authelia.com/integration/ldap/freeipa/ — memberOf/cn,
+            # работает и без этого блока для access_control subject: ['group:...'], §5), но в
+            # ID Token сам по себе не попадает — нужен custom_claims.groups.attribute: 'groups' в
+            # каждой релевантной claims_policy (копирует уже вычисленный список групп в claim,
+            # ничего заново не ищет в LDAP) + сам claim в id_token: ниже. Политики допуска
+            # (authorization_policy/access_control) на этом шаге НЕ меняются — остаются
+            # 'one_factor' (ADR-0019 §8, шаг 2 из 5: сначала данные видны в токене, ужесточение —
+            # отдельным, последним шагом).
             claims_policies:
               email_in_id_token:
-                id_token: ['email', 'email_verified']
+                custom_claims:
+                  groups:
+                    attribute: 'groups'
+                id_token: ['email', 'email_verified', 'groups']
               # Найдено реальным прогоном (platform/aicd-devops-labs-ru): Gitea
               # (goth/openidConnect) требует ОБА claim'а email и nickname в ID Token, иначе
               # "Auto Registration ... returned missing fields: email,nickname". "nickname" не
@@ -149,7 +162,14 @@ configMaps:
                 custom_claims:
                   nickname:
                     attribute: 'username'
-                id_token: ['email', 'email_verified', 'nickname']
+                  groups:
+                    attribute: 'groups'
+                id_token: ['email', 'email_verified', 'nickname', 'groups']
+            # 'groups' — НЕ регистрируется здесь как custom scope (в отличие от 'nickname') —
+            # живым прогоном найдено: Authelia отказывается стартовать ("scope with name 'groups'
+            # can't be used as a custom scope because it's a standard scope") — 'groups' уже
+            # встроенный scope (виден в дефолте authelia debug oidc claims --scopes, включает его
+            # автоматически), клиентам достаточно перечислить 'groups' в своих scopes: ниже.
             scopes:
               nickname:
                 claims: ['nickname']
@@ -177,7 +197,7 @@ configMaps:
                 claims_policy: 'email_in_id_token'
                 redirect_uris:
                   - 'https://semaphore.aicd.platform/api/auth/oidc/authelia/redirect'
-                scopes: ['openid', 'profile', 'email']
+                scopes: ['openid', 'profile', 'email', 'groups']
                 response_types: ['code']
                 grant_types: ['authorization_code']
               - client_id: 'gitea'
@@ -191,7 +211,7 @@ configMaps:
                 claims_policy: 'gitea_claims'
                 redirect_uris:
                   - 'https://gitea.aicd.platform/user/oauth2/authelia/callback'
-                scopes: ['openid', 'profile', 'email', 'nickname']
+                scopes: ['openid', 'profile', 'email', 'nickname', 'groups']
                 response_types: ['code']
                 grant_types: ['authorization_code']
               # docs/adr/0017-platform-cicd-default-addons.md — третий аддон (мониторинг),
@@ -212,12 +232,21 @@ configMaps:
                 claims_policy: 'email_in_id_token'
                 redirect_uris:
                   - 'https://grafana.aicd.platform/login/generic_oauth'
-                scopes: ['openid', 'profile', 'email']
+                scopes: ['openid', 'profile', 'email', 'groups']
                 response_types: ['code']
                 grant_types: ['authorization_code']
 
 deployments:
   authelia:
+    # Найдено живым прогоном (ADR-0019 §8 шаг 2, добавление claim 'groups'): configuration.yml
+    # монтируется ниже через configMap + subPath — kubelet НЕ перемонтирует subPath-файл живому
+    # поду при изменении ConfigMap (в отличие от обычного volume mount на директорию), поэтому
+    # без принудительного рестарта уже работающий под продолжает работать со старым конфигом
+    # сколько угодно долго после `helmwave up`, который сам по себе покажет "changed" и ничего не
+    # заподозрит — тот же класс бага, что htpasswd/subPath в infra_panel (ADR-0008 §2). checksum
+    # аннотация форсирует rolling restart при любом изменении содержимого configMaps.config.data.
+    podAnnotations:
+      checksum/config: '{{ include "helpers.workload.checksum" $.Values.configMaps.config.data }}'
     containers:
       - name: authelia
         image: authelia/authelia
