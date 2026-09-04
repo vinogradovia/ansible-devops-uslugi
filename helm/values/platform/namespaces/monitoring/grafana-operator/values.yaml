@@ -46,16 +46,26 @@ extraObjects:
         # authelia/values.yaml) выставлен client_secret_basic (задокументированный дефолт
         # Grafana для generic_oauth) — если реальный логин упадёт на invalid_client (тот же класс
         # находки, что у Semaphore, ADR-0013 §7), сверить и поправить на client_secret_post.
+        # docs/adr/0019-platform-rbac-model.md §6 — маппинг platform-* групп в роль Grafana.
+        # role_attribute_path проверяется в трёх источниках по порядку (ID Token → userinfo →
+        # access token, grafana.com/docs/.../generic-oauth/) — ID Token уже содержит claim
+        # 'groups' (helm/values/.../authelia/values.yaml, custom_claims), этого достаточно, без
+        # него сработал бы api_url (userinfo) ниже как второй источник. Намеренно БЕЗ catch-all
+        # `|| 'Viewer'` в конце выражения — с role_attribute_strict: true пользователь не из
+        # platform-*-групп должен получить отказ в логине, а не дефолтную роль организации
+        # (ADR-0019 §6, обоснование: иначе любой допущенный каталогом получает права Grafana).
         auth.generic_oauth:
           enabled: "true"
           name: Authelia
           client_id: grafana
           client_secret: '[[ (ds "vault_authelia").data.grafana_client_secret ]]'
-          scopes: "openid profile email"
+          scopes: "openid profile email groups"
           auth_url: https://sso.aicd.platform/api/oidc/authorization
           token_url: https://sso.aicd.platform/api/oidc/token
           api_url: https://sso.aicd.platform/api/oidc/userinfo
           use_pkce: "true"
+          role_attribute_path: "contains(groups[*], 'platform-admins') && 'Admin' || contains(groups[*], 'platform-engineers') && 'Editor' || contains(groups[*], 'platform-viewers') && 'Viewer'"
+          role_attribute_strict: "true"
       # Реальный пароль — Secret grafana-admin-credentials-custom (site.yml, из secret/grafana
       # в OpenBao), не автосгенерированный секрет оператора.
       disableDefaultAdminSecret: true
