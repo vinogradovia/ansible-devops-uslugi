@@ -147,9 +147,9 @@ variable "llm1_cores" {
 }
 
 variable "llm1_memory" {
-  description = "RAM, MiB (реальное значение с GET .../config: memory=10240)"
+  description = "RAM, MiB — 25600 (25 ГиБ), увеличено вручную на Proxmox 2026-09-05 (ADR-0021 §3: блокирующая предпосылка перед запуском llama-server, прежнее значение 10240 МиБ было на грани/за гранью расчётной потребности). Изменено напрямую через Proxmox (stop+start VM), не через tofu apply — атрибут memory под lifecycle.ignore_changes (llm1-target.tf), значение здесь только документирует факт"
   type        = number
-  default     = 10240
+  default     = 25600
 }
 
 variable "llm1_disk_datastore_id" {

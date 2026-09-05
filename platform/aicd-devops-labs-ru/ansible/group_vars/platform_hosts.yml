@@ -56,3 +56,34 @@ platform_aicd_devops_labs_ru_grafana_addons_dashboards:
   # свой node-exporter-full, он покрывает и внешние хосты того же job'а.
   - name: freeipa-exporter
     file: freeipa_exporter.json
+
+# docs/adr/0021-agent-platform-model-selection.md — локальный инференс на llm1 (namespace llm,
+# ADR-0015 §7/§10). Не Helm-релиз (как RuntimeClass/device-plugin/namespace-каркас выше по этому
+# же принципу) — простые Deployment/PVC/Service, заводятся напрямую задачами site.yml.
+
+# §7 — конкретный источник GGUF-квантования пинуется явно (не "любой на HuggingFace"), ревизия —
+# не ветка main. unsloth — выбор пользователя (активно поддерживает свежие релизы Qwen, часто
+# первым чинит баги chat-темплейта/токенизатора под llama.cpp tool-calling).
+# Ревизия/файл/точный размер (для идемпотентной проверки в initContainer ниже) сверены вручную
+# 2026-09-05 через HF API (huggingface.co/api/models/unsloth/Qwen3.6-35B-A3B-GGUF).
+platform_aicd_devops_labs_ru_llm_gguf_repo: unsloth/Qwen3.6-35B-A3B-GGUF
+platform_aicd_devops_labs_ru_llm_gguf_revision: a483e9e6cbd595906af30beda3187c2663a1118c
+platform_aicd_devops_labs_ru_llm_gguf_file: Qwen3.6-35B-A3B-UD-Q4_K_M.gguf
+platform_aicd_devops_labs_ru_llm_gguf_size_bytes: 22134528992
+
+# §1 — движок llama.cpp llama-server, CUDA-образ. server-cuda(-без тега сборки) — плавающий тег,
+# не годится (docs/adr/0007-monitoring-server-role.md §10.2 о вреде незакреплённых версий) —
+# пинуем конкретный build (ghcr.io/ggml-org/llama.cpp). cuda12, не cuda13 — тот же CUDA-major, что
+# уже используется на llm1 (nvcr.io/nvidia/cuda:12.8.0-base-ubi9 для device-plugin, ADR-0015 §10,
+# находка №3).
+#
+# Найдено реальным прогоном (2026-09-06): изначально выбранный b7739 (последняя на тот момент
+# видимая сборка) падает при загрузке модели — "unknown model architecture: 'qwen35moe'" (у
+# Qwen3.6 гибридная SSM/Gated-Delta-Net + MoE архитектура, апстрим добавил её поддержку позже
+# b7739). Поднято до b9002 (следующая по факту доступная актуальная сборка на момент прогона) —
+# модель грузится и работает (fused Gated Delta Net подтверждён в логе старта).
+platform_aicd_devops_labs_ru_llm_llama_server_image: "ghcr.io/ggml-org/llama.cpp:server-cuda12-b9002"
+
+# §6 — эмбеддинги bge-m3 на CPU, версия TEI пинуется тем же принципом.
+platform_aicd_devops_labs_ru_llm_tei_image: "ghcr.io/huggingface/text-embeddings-inference:cpu-1.7.0"
+platform_aicd_devops_labs_ru_llm_tei_model_id: BAAI/bge-m3

@@ -3375,3 +3375,382 @@
                     port: 53
                   - protocol: TCP
                     port: 53
+
+# docs/adr/0021-agent-platform-model-selection.md — сам инференс в namespace llm (каркас которого
+# завела play выше): llama-server (Qwen3.6-35B-A3B, GGUF Q4_K_M) на GPU-ноде llm1, TEI (bge-m3) на
+# CPU там же. Не Helm-релиз (тем же принципом, что RuntimeClass/device-plugin/namespace-каркас
+# play выше не заводятся helmwave) — простые Deployment/PVC/Service напрямую задачами. Отдельная
+# play (не расширение play выше) по той же причине, что "GPU-нода llm1" отделена от play с
+# k3s_gpu_agents — переиспользует facts hosts platform_hosts того же прогона, не требует их
+# повторной передачи.
+#
+# Веса скачиваются initContainer'ом прямо на PVC (не отдельным k8s Job) — проще, идемпотентность
+# по конструкции: сверка размера файла с platform_aicd_devops_labs_ru_llm_gguf_size_bytes
+# (group_vars/platform_hosts.yml) до и после закачки, повторный старт пода без более быстро
+# пропускает уже скачанный файл. strategy: Recreate у обоих Deployment — RollingUpdate по
+# умолчанию попытался бы на секунду поднять второй под той же GPU/того же RWO PVC.
+- name: "ADR-0021 — локальный инференс: llama-server (Qwen3.6-35B-A3B) + TEI (bge-m3)"
+  hosts: platform_hosts
+  become: true
+  environment:
+    KUBECONFIG: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+    NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+    no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+  tasks:
+    - name: "LLM: PVC llm-weights (для GGUF, local-path, привязывается к llm1 первым consumer'ом)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      kubernetes.core.k8s:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: llm-weights
+            namespace: llm
+            labels:
+              app.kubernetes.io/managed-by: ansible
+          spec:
+            accessModes: [ReadWriteOnce]
+            storageClassName: local-path
+            resources:
+              requests:
+                storage: 30Gi
+
+    - name: "LLM: PVC tei-cache (кэш весов bge-m3 между рестартами)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      kubernetes.core.k8s:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: tei-cache
+            namespace: llm
+            labels:
+              app.kubernetes.io/managed-by: ansible
+          spec:
+            accessModes: [ReadWriteOnce]
+            storageClassName: local-path
+            resources:
+              requests:
+                storage: 5Gi
+
+    # ADR-0021 §4/§5 — флаги дословно те же, что уже проверены на идентичной модели GPU в
+    # moon-local-engineer (RTX 5060 Ti, 16 ГБ VRAM), кроме порта (:8080 — внутрикластерный, не
+    # :11435 из исходного проекта — тот выбор был под конкретный host-bind, здесь просто ClusterIP
+    # Service). --n-cpu-moe 17 подлежит повторной калибровке по факту (ADR §4) — стартовая точка,
+    # не финальное значение.
+    - name: "LLM: Deployment llama-server"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      kubernetes.core.k8s:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: llama-server
+            namespace: llm
+            labels:
+              app.kubernetes.io/managed-by: ansible
+              app: llama-server
+          spec:
+            replicas: 1
+            strategy:
+              type: Recreate
+            selector:
+              matchLabels:
+                app: llama-server
+            template:
+              metadata:
+                labels:
+                  app: llama-server
+              spec:
+                runtimeClassName: nvidia
+                nodeSelector:
+                  kubernetes.io/hostname: llm1
+                tolerations:
+                  - key: dedicated
+                    operator: Equal
+                    value: agents
+                    effect: NoSchedule
+                initContainers:
+                  - name: fetch-weights
+                    image: docker.io/curlimages/curl:8.22.0
+                    command: ["sh", "-c"]
+                    args:
+                      - |
+                        set -eu
+                        DEST=/models/{{ platform_aicd_devops_labs_ru_llm_gguf_file }}
+                        EXPECTED={{ platform_aicd_devops_labs_ru_llm_gguf_size_bytes }}
+                        if [ -f "$DEST" ]; then
+                          # stat -c%s, не "wc -c < file" — найдено реальным прогоном (2026-09-06):
+                          # `<`-редирект в stdin лишает wc возможности stat()-нуть файл по имени,
+                          # busybox wc в этом случае реально читает все 20+ ГБ через pipe (~2 минуты
+                          # чистого CPU на каждый идемпотентный старт пода). busybox stat поддерживает
+                          # -c, как и GNU coreutils.
+                          ACTUAL=$(stat -c%s "$DEST")
+                          if [ "$ACTUAL" = "$EXPECTED" ]; then
+                            echo "model already present ($ACTUAL bytes), skip download"
+                            exit 0
+                          fi
+                          echo "existing file size mismatch ($ACTUAL != $EXPECTED), re-downloading"
+                        fi
+                        curl -fSL --retry 5 --retry-delay 5 -o "$DEST.tmp" \
+                          "https://huggingface.co/{{ platform_aicd_devops_labs_ru_llm_gguf_repo }}/resolve/{{ platform_aicd_devops_labs_ru_llm_gguf_revision }}/{{ platform_aicd_devops_labs_ru_llm_gguf_file }}"
+                        ACTUAL=$(stat -c%s "$DEST.tmp")
+                        if [ "$ACTUAL" != "$EXPECTED" ]; then
+                          echo "downloaded size mismatch: got $ACTUAL expected $EXPECTED" >&2
+                          rm -f "$DEST.tmp"
+                          exit 1
+                        fi
+                        mv "$DEST.tmp" "$DEST"
+                    volumeMounts:
+                      - name: weights
+                        mountPath: /models
+                    resources:
+                      requests:
+                        cpu: "250m"
+                        memory: "256Mi"
+                      limits:
+                        memory: "512Mi"
+                containers:
+                  - name: llama-server
+                    image: "{{ platform_aicd_devops_labs_ru_llm_llama_server_image }}"
+                    args:
+                      - "--model"
+                      - "/models/{{ platform_aicd_devops_labs_ru_llm_gguf_file }}"
+                      - "--host"
+                      - "0.0.0.0"
+                      - "--port"
+                      - "8080"
+                      - "--n-gpu-layers"
+                      - "99"
+                      - "--n-cpu-moe"
+                      - "17"
+                      - "--flash-attn"
+                      - "on"
+                      - "--cache-type-k"
+                      - "q8_0"
+                      - "--cache-type-v"
+                      - "q8_0"
+                      # Найдено реальным прогоном (2026-09-06): "--reasoning off" — флаг из
+                      # CLAUDE.md moon-local-engineer (ADR-0021 §4), устаревший для пинненой здесь
+                      # сборки llama-server (server-cuda12-b7739) — "error: invalid argument:
+                      # --reasoning". Актуальный эквивалент по --help этой сборки —
+                      # "--reasoning-budget 0" (0 = отключить thinking, тот же эффект, которого
+                      # добивался исходный флаг).
+                      - "--reasoning-budget"
+                      - "0"
+                      - "--jinja"
+                    ports:
+                      - name: http
+                        containerPort: 8080
+                    volumeMounts:
+                      - name: weights
+                        mountPath: /models
+                    resources:
+                      requests:
+                        cpu: "2"
+                        memory: "10Gi"
+                      limits:
+                        nvidia.com/gpu: 1
+                        memory: "18Gi"
+                    # Загрузка ~20 ГБ весов (GPU + офлоад части в RAM) может занимать заметное
+                    # время — startupProbe даёт ей до 15 минут прежде, чем readiness/liveness
+                    # начнут действовать в штатном режиме.
+                    startupProbe:
+                      httpGet:
+                        path: /health
+                        port: 8080
+                      periodSeconds: 10
+                      failureThreshold: 90
+                    readinessProbe:
+                      httpGet:
+                        path: /health
+                        port: 8080
+                      periodSeconds: 10
+                      failureThreshold: 3
+                    livenessProbe:
+                      httpGet:
+                        path: /health
+                        port: 8080
+                      periodSeconds: 30
+                      failureThreshold: 3
+                volumes:
+                  - name: weights
+                    persistentVolumeClaim:
+                      claimName: llm-weights
+
+    - name: "LLM: Service llama-server"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      kubernetes.core.k8s:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: llama-server
+            namespace: llm
+            labels:
+              app.kubernetes.io/managed-by: ansible
+          spec:
+            selector:
+              app: llama-server
+            ports:
+              - name: http
+                port: 8080
+                targetPort: 8080
+
+    # ADR-0021 §6 — без изменений относительно первой версии ADR, TEI на CPU. Тот же узел llm1
+    # (не control-plane aicd-labs) — часть агентного стека физически размещается на выделенной
+    # ноде с taint dedicated=agents, а не подмешивается к уже нагруженному control-plane.
+    - name: "LLM: Deployment tei"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      kubernetes.core.k8s:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: tei
+            namespace: llm
+            labels:
+              app.kubernetes.io/managed-by: ansible
+              app: tei
+          spec:
+            replicas: 1
+            strategy:
+              type: Recreate
+            selector:
+              matchLabels:
+                app: tei
+            template:
+              metadata:
+                labels:
+                  app: tei
+              spec:
+                nodeSelector:
+                  kubernetes.io/hostname: llm1
+                tolerations:
+                  - key: dedicated
+                    operator: Equal
+                    value: agents
+                    effect: NoSchedule
+                containers:
+                  - name: tei
+                    image: "{{ platform_aicd_devops_labs_ru_llm_tei_image }}"
+                    args:
+                      - "--model-id"
+                      - "{{ platform_aicd_devops_labs_ru_llm_tei_model_id }}"
+                    ports:
+                      - name: http
+                        containerPort: 80
+                    volumeMounts:
+                      - name: cache
+                        mountPath: /data
+                    resources:
+                      requests:
+                        cpu: "500m"
+                        memory: "2Gi"
+                      limits:
+                        cpu: "2"
+                        memory: "4Gi"
+                    # Найдено реальным прогоном (2026-09-05): без startupProbe livenessProbe
+                    # начинает отсчёт сразу от старта контейнера — скачивание bge-m3 (~2.2 ГБ) при
+                    # первом запуске занимает больше 90с (periodSeconds 30 * failureThreshold 3),
+                    # под убивался по liveness раньше, чем успевал поднять порт, и уходил в
+                    # CrashLoopBackOff, так и не становясь Ready.
+                    startupProbe:
+                      httpGet:
+                        path: /health
+                        port: 80
+                      periodSeconds: 10
+                      failureThreshold: 30
+                    readinessProbe:
+                      httpGet:
+                        path: /health
+                        port: 80
+                      periodSeconds: 10
+                      failureThreshold: 30
+                    livenessProbe:
+                      httpGet:
+                        path: /health
+                        port: 80
+                      periodSeconds: 30
+                      failureThreshold: 3
+                volumes:
+                  - name: cache
+                    persistentVolumeClaim:
+                      claimName: tei-cache
+
+    - name: "LLM: Service tei"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      kubernetes.core.k8s:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: tei
+            namespace: llm
+            labels:
+              app.kubernetes.io/managed-by: ansible
+          spec:
+            selector:
+              app: tei
+            ports:
+              - name: http
+                port: 80
+                targetPort: 80
+
+    - name: "LLM: дождаться готовности tei (bge-m3 — быстрая загрузка, CPU)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        api_version: apps/v1
+        kind: Deployment
+        namespace: llm
+        name: tei
+      register: platform_aicd_devops_labs_ru_tei_deploy
+      until: >-
+        platform_aicd_devops_labs_ru_tei_deploy.resources | length > 0 and
+        (platform_aicd_devops_labs_ru_tei_deploy.resources[0].status.readyReplicas | default(0)) >= 1
+      retries: 60
+      delay: 10
+
+    - name: "LLM: дождаться готовности llama-server (загрузка ~20 ГБ весов — самый долгий шаг)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        api_version: apps/v1
+        kind: Deployment
+        namespace: llm
+        name: llama-server
+      register: platform_aicd_devops_labs_ru_llama_server_deploy
+      until: >-
+        platform_aicd_devops_labs_ru_llama_server_deploy.resources | length > 0 and
+        (platform_aicd_devops_labs_ru_llama_server_deploy.resources[0].status.readyReplicas | default(0)) >= 1
+      retries: 120
+      delay: 15
