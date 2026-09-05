@@ -904,6 +904,31 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
     `update-ca-certificates`-паттерн (control-plane, `llm1`) в любом случае остаётся отдельной
     задачей ansible. Требует отдельного ADR перед реализацией — сейчас зафиксирована только идея.
 
+57. **Агентная платформа (ADR-0015) — стек ещё не полностью развёрнут, локальный инференс уже
+    работает.** Архитектура целиком решена ADR-0015 (пять агентов, слой `агенты → инструменты →
+    ресурсы`, три `RuntimeClass` для изоляции, namespace-каркас `llm/gateway/agents/data/obs/
+    egress`) и ADR-0021 (конкретные модель/движок). Реализовано и живо проверено на
+    `platform/aicd-devops-labs-ru`: Фаза 1 ADR-0015 §10 — нода `llm1` (второй узел кластера,
+    GPU passthrough, `RuntimeClass: nvidia`/`runsc`, taint-изоляция, namespace-каркас,
+    default-deny `NetworkPolicy`); и локальный инференс ADR-0021 (2026-09-06) — `llama-server`
+    (`Qwen3.6-35B-A3B-UD-Q4_K_M`, llama.cpp, GPU) и TEI (`BAAI/bge-m3`, CPU) в namespace `llm`,
+    оба проверены реальными HTTP-запросами (chat completion, tool-calling, эмбеддинги), RAM `llm1`
+    увеличена до 25 ГиБ под это (предпосылка ADR-0021 §3).
+
+    Не сделано — весь остальной стек агентной платформы: `ns: gateway` (LiteLLM, MCP-gateway) —
+    **следующий шаг**, без него `llm1` доступен только прямыми HTTP-запросами к подам, не через
+    единый эндпоинт агентов, как задумано архитектурой §6/схемой размещения ADR-0015; `ns: data`
+    (CloudNativePG+pgvector, MinIO, retriever-сервис) — RAG-слой, §7; `ns: platform` (Temporal) —
+    оркестрация агентов, §9 bootstrap-порядок ставит это после гейтвея; `ns: obs` (Langfuse) —
+    трейсинг вызовов моделей; `egress-proxy` — единственный разрешённый исходящий путь из
+    `ns: agents` во внешний интернет (§7); сами пять агентов (`ai infra agent` и т.д.) и первый
+    `agent-job` (bootstrap-порядок ADR-0015 §9, шаг 9 — вручную, один `kubectl create job`, до
+    Temporal и расписаний). Также не решены открытые вопросы обоих ADR: мультитенантность/права
+    агентов (ADR-0015 «Не проработано»), способ подключения `Senior`-яруса `moon-local-engineer`
+    через платформенный LiteLLM или в обход (ADR-0021 §8), совместимость `tool_calls.arguments` с
+    конкретным HTTP-клиентом MCP-gateway (проверено только прямым запросом к `llama-server`, не
+    через сам MCP-gateway, которого ещё нет).
+
 ---
 
 ## Предлагаемая последовательность работ
