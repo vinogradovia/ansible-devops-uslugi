@@ -38,9 +38,31 @@ configMaps:
               api_key: "sk-noauth"
         general_settings:
           master_key: os.environ/LITELLM_MASTER_KEY
+        # ADR-0015 §6/§7 — MCP-гейтвей: не отдельный продукт (IBM mcp-context-forge и т.п.
+        # тянут за собой Postgres+Redis, забегая вперёд ns: data), а встроенная в LiteLLM
+        # proxy поддержка MCP (тот же процесс, тот же config.yaml, БД не требуется для
+        # статической регистрации — `mcp>=1.28.1` в базовых зависимостях litellm[proxy]).
+        # Пока пусто — ни одного реального MCP-инструмента-бэкенда ещё нет (git/shell/browser
+        # песочницы, ADR-0015 §9 шаг 9), задача этого этапа — только поднять и проверить сам
+        # `/mcp`/`/mcp-rest` эндпоинт. Добавлять сюда серверы вида
+        # `<name>: {transport: http, url: ..., allow_all_keys: true}` по мере появления
+        # реальных инструментов.
+        mcp_servers: {}
 
 deployments:
   litellm:
+    # Найдено реальным прогоном на Authelia (ADR-0013) — kubelet не перечитывает subPath-моунт
+    # ConfigMap для уже запущенного пода само по себе. checksum/config через тот же
+    # helpers.workload.checksum, что уже применяется в этой коллекции — при изменении
+    # config.yaml Deployment получает новую аннотацию, что вызывает штатный rollout.
+    podAnnotations:
+      checksum/config: '{{ include "helpers.workload.checksum" (.Values.configMaps.config.data | toYaml) }}'
+    # Найдено реальным прогоном (добавление mcp_servers): дефолт Deployment — RollingUpdate,
+    # который пытается поднять новый под ДО того, как убьёт старый — застряло в Pending
+    # ("Insufficient cpu") на единственном подходящем узле (aicd-labs; llm1 занят taint'ом).
+    # Recreate — тот же приём, что уже используется для llama-server/tei (site.yml, ADR-0021).
+    strategy:
+      type: Recreate
     containers:
       - name: litellm
         image: ghcr.io/berriai/litellm
