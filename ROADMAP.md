@@ -905,39 +905,51 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
     задачей ansible. Требует отдельного ADR перед реализацией — сейчас зафиксирована только идея.
 
 57. **Агентная платформа (ADR-0015) — стек ещё не полностью развёрнут, локальный инференс и
-    LiteLLM-гейтвей уже работают.** Архитектура целиком решена ADR-0015 (пять агентов, слой
-    `агенты → инструменты → ресурсы`, три `RuntimeClass` для изоляции, namespace-каркас
-    `llm/gateway/agents/data/obs/egress`) и ADR-0021 (конкретные модель/движок). Реализовано и
-    живо проверено на `platform/aicd-devops-labs-ru`: Фаза 1 ADR-0015 §10 — нода `llm1` (второй
-    узел кластера, GPU passthrough, `RuntimeClass: nvidia`/`runsc`, taint-изоляция,
-    namespace-каркас, default-deny `NetworkPolicy`); локальный инференс ADR-0021 (2026-09-06) —
-    `llama-server` (`Qwen3.6-35B-A3B-UD-Q4_K_M`, llama.cpp, GPU) и TEI (`BAAI/bge-m3`, CPU) в
-    namespace `llm`, RAM `llm1` увеличена до 25 ГиБ под это (предпосылка ADR-0021 §3); и
-    LiteLLM-гейтвей (2026-09-06, ADR-0015 §6/§7) — Helm-релиз (generic-чарт `universal-chart`,
-    как nexus/semaphore/authelia/infra-panel) в namespace `gateway`, маршрутизирует псевдонимы
-    `local-default`/`local-embeddings` на `llama-server`/`tei`, master key — k8s Secret (не
-    gomplate `vault://` — render-token ограничен тремя путями, `secret/litellm` не входит),
-    добавлено разрешающее правило `allow-egress-litellm` в `NetworkPolicy` `ns: agents`. Всё
-    проверено реальными HTTP-запросами (chat completion, tool-calling, эмбеддинги, 401 без
-    ключа) — как напрямую на `llama-server`/`tei`, так и через сам гейтвей.
+    LiteLLM-гейтвей (LLM + MCP) уже работают.** Архитектура целиком решена ADR-0015 (пять
+    агентов, слой `агенты → инструменты → ресурсы`, три `RuntimeClass` для изоляции,
+    namespace-каркас `llm/gateway/agents/data/obs/egress`) и ADR-0021 (конкретные
+    модель/движок). Реализовано и живо проверено на `platform/aicd-devops-labs-ru`: Фаза 1
+    ADR-0015 §10 — нода `llm1` (второй узел кластера, GPU passthrough, `RuntimeClass:
+    nvidia`/`runsc`, taint-изоляция, namespace-каркас, default-deny `NetworkPolicy`);
+    локальный инференс ADR-0021 (2026-09-06) — `llama-server` (`Qwen3.6-35B-A3B-UD-Q4_K_M`,
+    llama.cpp, GPU) и TEI (`BAAI/bge-m3`, CPU) в namespace `llm`, RAM `llm1` увеличена до 25 ГиБ
+    под это (предпосылка ADR-0021 §3); LiteLLM-гейтвей (2026-09-06, ADR-0015 §6/§7) — Helm-релиз
+    (generic-чарт `universal-chart`, как nexus/semaphore/authelia/infra-panel) в namespace
+    `gateway`, маршрутизирует псевдонимы `local-default`/`local-embeddings` на `llama-server`/
+    `tei`, master key — k8s Secret (не gomplate `vault://` — render-token ограничен тремя
+    путями, `secret/litellm` не входит), добавлено разрешающее правило `allow-egress-litellm` в
+    `NetworkPolicy` `ns: agents`; и **MCP-гейтвей (2026-09-06, тоже ADR-0015 §6/§7) — без
+    отдельного продукта.** ADR-0015 не называл конкретное ПО для «mcp-gateway» — рассмотрены
+    IBM `mcp-context-forge` (самый зрелый, но официальный чарт тянет Postgres+Redis, забегая
+    вперёд `ns: data`) и `microsoft/mcp-gateway` (Azure-ориентирован) — вместо любого из них
+    включена уже существующая, зрелая встроенная MCP-поддержка LiteLLM proxy (не
+    экспериментальная на практике, несмотря на путь `_experimental/` в исходниках — полноценные
+    auth-флоу, stdio/SSE/streamable-HTTP транспорты, cost tracking, guardrails; `mcp_servers:` —
+    тот же `config.yaml`, что `model_list`, без БД для статической регистрации). Один процесс
+    вместо двух, `ns: data` не понадобился. Пока `mcp_servers: {}` — реальных
+    инструментов-бэкендов (git/shell/browser-песочницы, ADR-0015 §9 шаг 9) ещё нет.
 
-    Не сделано — весь остальной стек агентной платформы: `mcp-gateway` (вторая часть `ns:
-    gateway`) — **следующий шаг**; `ns: data` (CloudNativePG+pgvector, MinIO, retriever-сервис) —
-    RAG-слой, §7; `ns: platform` (Temporal) — оркестрация агентов, §9 bootstrap-порядок ставит
-    это после гейтвея; `ns: obs` (Langfuse) — трейсинг вызовов моделей; `egress-proxy` —
-    единственный разрешённый исходящий путь из `ns: agents` во внешний интернет (§7); сами пять
-    агентов (`ai infra agent` и т.д.) и первый `agent-job` (bootstrap-порядок ADR-0015 §9, шаг 9
-    — вручную, один `kubectl create job`, до Temporal и расписаний). Также не решены открытые
-    вопросы обоих ADR: мультитенантность/права агентов (ADR-0015 «Не проработано»), способ
-    подключения `Senior`-яруса `moon-local-engineer` через платформенный LiteLLM или в обход
-    (ADR-0021 §8; сейчас у LiteLLM нет БД — конфиг-режим, без virtual keys/spend tracking, этого
-    достаточно для пилота, но не для мультитенантного биллинга), совместимость
-    `tool_calls.arguments` с конкретным HTTP-клиентом MCP-gateway (проверено только прямым
-    запросом к `llama-server`/через LiteLLM, не через сам MCP-gateway, которого ещё нет). Также
-    замечена (не расследована до конца) нестабильность chat-темплейта: один из тестовых запросов
-    через LiteLLM вернул ответ с лишним `</think>` и задвоенным содержимым, хотя
-    `--reasoning-budget 0` в большинстве запросов подавляет thinking полностью — возможно,
-    зависит от конкретного промпта, не универсально воспроизведено.
+    Всё проверено реальными HTTP/JSON-RPC-запросами: chat completion, tool-calling, эмбеддинги,
+    401 без ключа (напрямую на `llama-server`/`tei` и через сам гейтвей), а также `POST /mcp`
+    (`tools/list` → корректный пустой JSON-RPC ответ) и `GET /mcp-rest/tools/list` (REST-фасад).
+
+    Не сделано — весь остальной стек агентной платформы: `ns: data` (CloudNativePG+pgvector,
+    MinIO, retriever-сервис) — RAG-слой, §7; `ns: platform` (Temporal) — оркестрация агентов,
+    §9 bootstrap-порядок ставит это после гейтвея; `ns: obs` (Langfuse) — трейсинг вызовов
+    моделей; `egress-proxy` — единственный разрешённый исходящий путь из `ns: agents` во внешний
+    интернет (§7); сами пять агентов (`ai infra agent` и т.д.) и первый реальный
+    MCP-инструмент-бэкенд + первый `agent-job` (bootstrap-порядок ADR-0015 §9, шаг 9 — вручную,
+    один `kubectl create job`, до Temporal и расписаний) — **следующий шаг**. Также не решены
+    открытые вопросы обоих ADR: мультитенантность/права агентов (ADR-0015 «Не проработано»),
+    способ подключения `Senior`-яруса `moon-local-engineer` через платформенный LiteLLM или в
+    обход (ADR-0021 §8; сейчас у LiteLLM нет БД — конфиг-режим, без virtual keys/spend tracking,
+    этого достаточно для пилота, но не для мультитенантного биллинга), совместимость
+    `tool_calls.arguments` с реальным MCP-инструментом (проверен только пустой `tools/list`, не
+    вызов реального инструмента — нечего пока вызывать). Также замечена (не расследована до
+    конца) нестабильность chat-темплейта: один из тестовых запросов через LiteLLM вернул ответ с
+    лишним `</think>` и задвоенным содержимым, хотя `--reasoning-budget 0` в большинстве
+    запросов подавляет thinking полностью — возможно, зависит от конкретного промпта, не
+    универсально воспроизведено.
 
 58. **Изоляция `ns: agents` (default-deny `NetworkPolicy`, ADR-0015 §7) сейчас фактически не
     работает на `platform/aicd-devops-labs-ru` — требует расследования.** Найдено при развёртывании
