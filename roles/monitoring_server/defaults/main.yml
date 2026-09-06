@@ -176,6 +176,21 @@ monitoring_server_grafana_server_root_url: "https://grafana.docker.localhost"
 # GF_SERVER_DOMAIN
 monitoring_server_grafana_server_domain: .docker.localhost
 
+# docs/adr/0022-new-component-requirements.md §5 — домены Ingress k3s-пути (vmsingle.yaml,
+# grafana-operator/values.yaml в helm/values/k3s-monitoring/) — статический пример, не
+# gomplate-шаблон, поэтому эти домены здесь дублируют, а не читают значения из values.yaml
+# напрямую. При адаптации примера под реальные домены нужно поменять оба места (тот же класс
+# несостыковки, что уже задокументирован в ADR-0007 §6 для vm-filesd-prom-client).
+monitoring_server_k3s_tls_domains:
+  - vm.in.example.com
+  - grafana.in.example.com
+
+# roles/infra_panel — авто-ссылка на Grafana под k3s (тот же приём, что docker-путь через
+# monitoring_server_grafana_server_domain, но отдельная переменная: у k3s-Grafana свой домен,
+# заданный в helm/values/k3s-monitoring/namespaces/monitoring/grafana-operator/values.yaml
+# статично, не через эту переменную — держите оба места синхронными при смене домена).
+monitoring_server_k3s_grafana_domain: grafana.in.example.com
+
 monitoring_server_grafana_dashboard_provisioning: "{{ true if monitoring_server_orchestrator == 'k3s' else monitoring_server_grafana_enabled }}"
 monitoring_server_grafana_dashboard_default_folder: addons
 

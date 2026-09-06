@@ -704,8 +704,59 @@ ansible-задачи всегда `changed=true`; реальная идемпо�
 
 ---
 
+## 12. Доработки под ADR-0022 (2026-09-06)
+
+Аудит роли против чек-листа `docs/adr/0022-new-component-requirements.md` (12 пунктов, роль
+формально не обязана соответствовать — принята позже реализации роли, но три конкретные находки
+устранены целенаправленно, не «на будущее»):
+
+**TLS (§5).** `vmsingle`/`grafana` Ingress в `helm/values/k3s-monitoring/namespaces/monitoring/`
+не имели TLS вообще (`tls: []` / отсутствовал), plain HTTP наружу. Роль, в отличие от компонентов
+самой платформы (`platform/aicd*`), не может опираться на внутренний PKI CA OpenBao — она
+предназначена и для standalone-использования без остального стека платформы. Решение — тот же
+приём, что уже применяется в коллекции для похожих reference-сценариев
+(`roles/fail2ban_ui/tasks/fail2ban-ui.yml`, `openbao-server-tls` в `platform/*/ansible/site.yml`):
+`community.crypto.openssl_privatekey`/`openssl_csr`/`x509_certificate` (`provider: selfsigned`,
+10 лет) в новых задачах `monitoring-server.k3s.yml`, результат — `Secret monitoring-tls`
+(`kubernetes.io/tls`), подключённый в `tls:` обоих Ingress. SAN берётся из новой переменной
+`monitoring_server_k3s_tls_domains` (`defaults/main.yml`) — список дублирует хосты, зашитые
+статично в `vmsingle.yaml`/`grafana-operator/values.yaml` (те файлы не gomplate-шаблонизированы
+для этой части), при смене примерных доменов нужно менять оба места вручную.
+
+**Resources (§9).** `vmsingle` — единственный компонент релиза `vm` без явных
+`resources.requests/limits` (у `vmagent`/`vmalert`/оператора они уже были) — при этом самый
+тяжёлый по нагрузке (движок хранения/запросов). Добавлены `requests: {memory: 512Mi, cpu: 250m}`,
+`limits: {memory: 1Gi, cpu: 1000m}` — того же порядка, что у соседних компонентов файла.
+
+**infra-panel (§3).** Авто-ссылка на Grafana в `roles/infra_panel` (оба шаблона,
+`config.yml.j2`/`homer-values.k3s.yml.j2`) была принудительно ограничена
+`monitoring_server_orchestrator == 'docker'` — комментарий в коде объяснял это тем, что у
+k3s-Grafana не было внешнего Ingress/домена вообще. TLS-фикс выше это условие снимает — добавлена
+новая переменная `monitoring_server_k3s_grafana_domain` (дублирует `grafana.in.example.com` из
+`grafana-operator/values.yaml`, тот же класс ручной синхронизации, что у TLS SAN выше), шаблоны
+теперь выбирают домен по оркестратору вместо жёсткого docker-only условия.
+
+**Проверено реальным прогоном:** `molecule test -s monitoring_server_k3s` целиком (create → prepare
+→ converge → verify → destroy) — все 4 новые TLS-задачи и `Helmwave up` отработали (`changed`),
+все поды `monitoring`-namespace дождались `Running`, включая `vmsingle`/`grafana` с новыми
+`resources`/`tls` полями (значит, ни VMSingle CRD, ни схема Ingress эти поля не отклонили),
+`verify.yml` (не переписан под эту доработку — существующие проверки) прошёл целиком без
+регрессий. Логика выбора домена в `infra_panel`-шаблонах отдельно проверена прямым рендером
+Jinja2 (все четыре комбинации `orchestrator`×`grafana_enabled`, включая «роль `monitoring_server`
+вообще не применялась» — без ошибки, пустой список).
+
+**Не проверено этим прогоном** (существующий `verify.yml` не писался под эту доработку): реальное
+TLS-рукопожатие снаружи кластера (`curl -k https://vm.in.example.com`/`grafana.in.example.com`) —
+подтверждено только что `Secret monitoring-tls` создан и Helm принял `tls:`-блок без ошибок
+валидации схемы, не то, что браузер/curl реально видит сертификат с ожидаемым SAN.
+
+---
+
 ## Ссылки
 
+- `docs/adr/0022-new-component-requirements.md` §3/§5/§9 — чек-лист, по которому проведён аудит
+  раздела 12; роль формально не обязана соответствовать (добавлена позже), три пункта исправлены
+  целенаправленно.
 - `ROADMAP.md`, раздел P0 «monitoring_server» (пункты 1–5) — история находок и фиксов, отражённых
   в разделах 2–8 этого документа как уже исправленное текущее состояние.
 - `ROADMAP.md`, P5-33 — архитектурное решение «алертинг — k3s-only» (раздел 7).

@@ -48,8 +48,12 @@
 
 1. **Авто** — если в этом же play применена роль `monitoring_server` с
    `monitoring_server_grafana_enabled: true`, в группу `infra_panel_auto_monitoring_group_name`
-   (по умолчанию "Monitoring") автоматически добавляется ссылка на Grafana
-   (`monitoring_server_grafana_server_domain`). Переменные `monitoring_server_*` читаются как
+   (по умолчанию "Monitoring") автоматически добавляется ссылка на Grafana — домен берётся
+   per-оркестратор: `monitoring_server_grafana_server_domain` под `docker`,
+   `monitoring_server_k3s_grafana_domain` под `k3s` (docs/adr/0022-new-component-requirements.md
+   §5 — до 2026-09-06 k3s-Grafana не имела внешнего Ingress вовсе, поэтому авто-ссылка была
+   принудительно отключена для этого оркестратора; сейчас есть реальный Ingress+TLS, см.
+   `docs/adr/0007-monitoring-server-role.md` §6). Переменные `monitoring_server_*` читаются как
    обычные vars той же плейбук-области видимости — если роль `monitoring_server` не применялась,
    просто ничего не добавляется, без ошибки.
 2. **Ручное** — `infra_panel_extra_services`, список групп/пунктов в родном формате homer

@@ -14,6 +14,16 @@ vmsingle:
     replicaCount: 1
     extraArgs:
       maxLabelsPerTimeseries: "50"
+    # docs/adr/0022-new-component-requirements.md §9 — единственный компонент этого релиза без
+    # явных pod-лимитов (у vmagent/vmalert уже были, см. values.yaml) — движок хранения/запросов,
+    # самый тяжёлый по нагрузке компонент стека, необъявленный лимит здесь рискованнее всего.
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "250m"
+      limits:
+        memory: "1Gi"
+        cpu: "1000m"
     storage:
       storageClassName: local-monitoring-storage
       accessModes:
@@ -53,10 +63,13 @@ vmsingle:
     #         name: service
 
     # -- Array of TLS objects
-    tls: []
-    #  - secretName: vmsingle-ingress-tls
-    #    hosts:
-    #      - vmsingle.domain.com
+    # docs/adr/0022-new-component-requirements.md §5 — self-signed Secret monitoring-tls
+    # (roles/monitoring_server/tasks/monitoring-server.k3s.yml), SAN покрывает
+    # monitoring_server_k3s_tls_domains (defaults/main.yml), включая этот хост.
+    tls:
+      - secretName: monitoring-tls
+        hosts:
+          - vm.in.example.com
   route:
     # -- Enable deployment of HTTPRoute for server component
     enabled: false

@@ -123,6 +123,13 @@ extraObjects:
                           number: 3000
                     path: /
                     pathType: Prefix
+          # docs/adr/0022-new-component-requirements.md §5 — тот же self-signed Secret
+          # monitoring-tls, что у vmsingle (../vm/vmsingle.yaml) — общий SAN на оба хоста
+          # (roles/monitoring_server/defaults/main.yml, monitoring_server_k3s_tls_domains).
+          tls:
+            - secretName: monitoring-tls
+              hosts:
+                - grafana.in.example.com
       persistentVolumeClaim:
         spec:
           storageClassName: local-monitoring-storage

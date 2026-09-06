@@ -87,6 +87,64 @@
         GF_SECURITY_ADMIN_USER: "{{ monitoring_server_grafana_security_admin_user }}"
       type: Opaque
 
+# docs/adr/0022-new-component-requirements.md §5 — Ingress vmsingle/grafana (helm/values/
+# k3s-monitoring/) не имел TLS вообще (tls: [] / отсутствовал), plain HTTP наружу. Self-signed
+# сертификат — тот же приём, что уже применяется в этой коллекции для reference-сценариев без
+# внешнего PKI (roles/fail2ban_ui/tasks/fail2ban-ui.yml, openbao-server-tls в
+# platform/*/ansible/site.yml) — этой роли, в отличие от компонентов платформы, неоткуда взять
+# внутренний CA OpenBao (роль предназначена и для standalone-использования без платформы).
+- name: "TLS (self-signed): приватный ключ"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  community.crypto.openssl_privatekey:
+    path: "{{ monitoring_server_helmwave_tmp }}/monitoring-server-tls.key"
+    size: 4096
+
+- name: "TLS (self-signed): CSR"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  community.crypto.openssl_csr:
+    path: "{{ monitoring_server_helmwave_tmp }}/monitoring-server-tls.csr"
+    privatekey_path: "{{ monitoring_server_helmwave_tmp }}/monitoring-server-tls.key"
+    common_name: "{{ monitoring_server_k3s_tls_domains[0] }}"
+    subject_alt_name: "{{ monitoring_server_k3s_tls_domains | map('regex_replace', '^', 'DNS:') | list }}"
+
+- name: "TLS (self-signed): сертификат (10 лет)"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  community.crypto.x509_certificate:
+    path: "{{ monitoring_server_helmwave_tmp }}/monitoring-server-tls.crt"
+    privatekey_path: "{{ monitoring_server_helmwave_tmp }}/monitoring-server-tls.key"
+    csr_path: "{{ monitoring_server_helmwave_tmp }}/monitoring-server-tls.csr"
+    provider: selfsigned
+    selfsigned_not_after: "+3650d"
+
+- name: "TLS (self-signed): Secret monitoring-tls"
+  delegate_to: localhost
+  delegate_facts: true
+  become: false
+  run_once: true
+  kubernetes.core.k8s:
+    kubeconfig: "{{ monitoring_server_orchestrator_context.dest }}"
+    name: monitoring-tls
+    namespace: "{{ monitoring_server_kubernetes_namespace }}"
+    state: present
+    kind: Secret
+    definition:
+      apiVersion: v1
+      metadata:
+        labels:
+          app.kubernetes.io/managed-by: ansible
+          ansible.com/role: "{{ role_name }}"
+      type: kubernetes.io/tls
+      stringData:
+        tls.crt: "{{ lookup('ansible.builtin.file', monitoring_server_helmwave_tmp + '/monitoring-server-tls.crt') }}"
+        tls.key: "{{ lookup('ansible.builtin.file', monitoring_server_helmwave_tmp + '/monitoring-server-tls.key') }}"
+  no_log: true
+
 - name: Helmwave up
   delegate_to: localhost
   delegate_facts: true
