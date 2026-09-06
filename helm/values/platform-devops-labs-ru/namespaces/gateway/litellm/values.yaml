@@ -1,0 +1,97 @@
+# LiteLLM (https://github.com/BerriAI/litellm) — гейтвей перед локальным инференсом ADR-0021
+# (llama-server/TEI, namespace llm, нода llm1) — ADR-0015 §6/§7: единственный HTTP-эндпоинт,
+# который знают агенты и moon-local-engineer, ни адреса `llm1`, ни ключей внешних провайдеров они
+# не видят (§6 диаграммы: "agent-job не знает адреса vllm... видит только svc litellm").
+#
+# Официального Helm-чарта под этот же паттерн (простой ConfigMap+Deployment+Service из
+# декларативных полей) нет — тот же generic-чарт, что nexus/semaphore/authelia/infra-panel
+# (helm/localrepo/universal-chart).
+#
+# master_key НЕ читается gomplate-датасорсом vault:// (в отличие от secret/gitea/semaphore/
+# authelia) — render-token, которым пользуется gomplate, ограничен policy
+# aicd-devops-labs-ru-render строго тремя путями, secret/litellm в их числе нет (см. site.yml,
+# комментарий у "OpenBao: проверить наличие secret/litellm"). Вместо этого — обычный k8s Secret
+# litellm-master-key (создан задачей той же play в site.yml ДО этого Helm-релиза), подключён
+# переменной окружения LITELLM_MASTER_KEY — тот же приём, что secret/grafana →
+# grafana-admin-credentials-custom. LiteLLM поддерживает `os.environ/VAR_NAME` прямо в
+# config.yaml (официальный механизм подстановки секретов в конфиг), поэтому сам этот файл —
+# обычный YAML, без gomplate-делимитеров.
+
+configMaps:
+  config:
+    data:
+      # БД (Postgres) сознательно не подключена на этом этапе (ADR-0015 §7, ns: data ещё не
+      # развёрнут) — без database_url LiteLLM работает в конфиг-режиме: маршрутизация по
+      # model_list, проверка master_key, без virtual keys/UI/spend tracking. Резерв под внешний
+      # provider (ADR-0021 §8) сюда сознательно не заводится — решение отложено тем ADR.
+      config.yaml: |
+        model_list:
+          - model_name: local-default
+            litellm_params:
+              model: openai/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf
+              api_base: http://llama-server.llm.svc.cluster.local:8080/v1
+              api_key: "sk-noauth"
+          - model_name: local-embeddings
+            litellm_params:
+              model: openai/bge-m3
+              api_base: http://tei.llm.svc.cluster.local:80/v1
+              api_key: "sk-noauth"
+        general_settings:
+          master_key: os.environ/LITELLM_MASTER_KEY
+
+deployments:
+  litellm:
+    containers:
+      - name: litellm
+        image: ghcr.io/berriai/litellm
+        imageTag: v1.99.1
+        args:
+          - "--config"
+          - "/app/config.yaml"
+          - "--host"
+          - "0.0.0.0"
+          - "--port"
+          - "4000"
+        env:
+          - name: LITELLM_MASTER_KEY
+            valueFrom:
+              secretKeyRef:
+                name: litellm-master-key
+                key: master_key
+        ports:
+          - name: http
+            containerPort: 4000
+        volumeMounts:
+          - name: config
+            mountPath: /app/config.yaml
+            subPath: config.yaml
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "512Mi"
+          limits:
+            memory: "1Gi"
+        # /health/liveliness — только пинг самого процесса, не ходит к бэкендам (в отличие от
+        # /health, который реально дёргает каждую model_list-запись и был бы нестабильной пробой,
+        # если llama-server временно перезагружается).
+        readinessProbe:
+          httpGet:
+            path: /health/liveliness
+            port: 4000
+          periodSeconds: 10
+          failureThreshold: 12
+        livenessProbe:
+          httpGet:
+            path: /health/liveliness
+            port: 4000
+          periodSeconds: 30
+          failureThreshold: 3
+    volumes:
+      - name: config
+        type: configMap
+
+services:
+  litellm:
+    ports:
+      - name: http
+        port: 4000

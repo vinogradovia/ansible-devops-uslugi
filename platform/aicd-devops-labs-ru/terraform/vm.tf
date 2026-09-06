@@ -12,6 +12,14 @@ resource "proxmox_virtual_environment_vm" "aicd_labs" {
 
   cpu {
     cores = var.vcpu
+    # Найдено реальным прогоном (2026-09-06, деплой LiteLLM): дефолт provider'а без явного type —
+    # "qemu64"/"kvm64", в котором нет SSE4.2/x86-64-v2 — свежий glibc в образе LiteLLM
+    # (ghcr.io/berriai/litellm) падал с "Fatal glibc error: CPU does not support x86-64-v2".
+    # Ранее предполагалось (см. freeipa-target.tf), что у aicd_labs (Ubuntu) этой проблемы нет —
+    # предположение оказалось неверным: раньше здесь просто не запускалось ничего с настолько
+    # новым glibc. Тот же класс бага, что уже чинили для freeipa/llm1 (docs/adr/
+    # 0015-ai-agent-platform-architecture.md §10, находка №6) — теперь третья VM этого окружения.
+    type = "x86-64-v2-AES"
   }
 
   memory {

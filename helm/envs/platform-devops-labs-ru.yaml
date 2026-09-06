@@ -91,3 +91,17 @@ releases:
     namespace: monitoring
     chart: oci://ghcr.io/grafana/helm-charts/grafana-operator
     version: 5.22.0
+
+  # ADR-0015 §6/§7, ADR-0021 §8 — LiteLLM-гейтвей перед локальным инференсом (llama-server/TEI
+  # в namespace llm, ADR-0021, нода llm1). Тот же generic-чарт, что nexus/semaphore/authelia/
+  # infra-panel выше — у LiteLLM нет официального чарта, подходящего под этот же паттерн
+  # (values.yaml собирает ConfigMap/Deployment/Service из простых декларативных полей, секрет —
+  # тем же gomplate vault:// приёмом). tags: [litellm] в отдельном `helmwave up` (см. site.yml,
+  # play "ADR-0021" в конце файла) — ПОСЛЕ того, как llama-server/TEI подняты задачами того же
+  # play, а не вместе с безусловным `helmwave up` Gitea/Semaphore/... выше по этому файлу (тот
+  # раньше во времени прогона, чем существуют namespace llm и его сервисы).
+  - name: litellm
+    namespace: gateway
+    chart: localrepo/universal-chart
+    tags: [litellm]
+    version: 2.8.1

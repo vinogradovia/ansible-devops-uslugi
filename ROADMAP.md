@@ -904,30 +904,59 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
     `update-ca-certificates`-паттерн (control-plane, `llm1`) в любом случае остаётся отдельной
     задачей ansible. Требует отдельного ADR перед реализацией — сейчас зафиксирована только идея.
 
-57. **Агентная платформа (ADR-0015) — стек ещё не полностью развёрнут, локальный инференс уже
-    работает.** Архитектура целиком решена ADR-0015 (пять агентов, слой `агенты → инструменты →
-    ресурсы`, три `RuntimeClass` для изоляции, namespace-каркас `llm/gateway/agents/data/obs/
-    egress`) и ADR-0021 (конкретные модель/движок). Реализовано и живо проверено на
-    `platform/aicd-devops-labs-ru`: Фаза 1 ADR-0015 §10 — нода `llm1` (второй узел кластера,
-    GPU passthrough, `RuntimeClass: nvidia`/`runsc`, taint-изоляция, namespace-каркас,
-    default-deny `NetworkPolicy`); и локальный инференс ADR-0021 (2026-09-06) — `llama-server`
-    (`Qwen3.6-35B-A3B-UD-Q4_K_M`, llama.cpp, GPU) и TEI (`BAAI/bge-m3`, CPU) в namespace `llm`,
-    оба проверены реальными HTTP-запросами (chat completion, tool-calling, эмбеддинги), RAM `llm1`
-    увеличена до 25 ГиБ под это (предпосылка ADR-0021 §3).
+57. **Агентная платформа (ADR-0015) — стек ещё не полностью развёрнут, локальный инференс и
+    LiteLLM-гейтвей уже работают.** Архитектура целиком решена ADR-0015 (пять агентов, слой
+    `агенты → инструменты → ресурсы`, три `RuntimeClass` для изоляции, namespace-каркас
+    `llm/gateway/agents/data/obs/egress`) и ADR-0021 (конкретные модель/движок). Реализовано и
+    живо проверено на `platform/aicd-devops-labs-ru`: Фаза 1 ADR-0015 §10 — нода `llm1` (второй
+    узел кластера, GPU passthrough, `RuntimeClass: nvidia`/`runsc`, taint-изоляция,
+    namespace-каркас, default-deny `NetworkPolicy`); локальный инференс ADR-0021 (2026-09-06) —
+    `llama-server` (`Qwen3.6-35B-A3B-UD-Q4_K_M`, llama.cpp, GPU) и TEI (`BAAI/bge-m3`, CPU) в
+    namespace `llm`, RAM `llm1` увеличена до 25 ГиБ под это (предпосылка ADR-0021 §3); и
+    LiteLLM-гейтвей (2026-09-06, ADR-0015 §6/§7) — Helm-релиз (generic-чарт `universal-chart`,
+    как nexus/semaphore/authelia/infra-panel) в namespace `gateway`, маршрутизирует псевдонимы
+    `local-default`/`local-embeddings` на `llama-server`/`tei`, master key — k8s Secret (не
+    gomplate `vault://` — render-token ограничен тремя путями, `secret/litellm` не входит),
+    добавлено разрешающее правило `allow-egress-litellm` в `NetworkPolicy` `ns: agents`. Всё
+    проверено реальными HTTP-запросами (chat completion, tool-calling, эмбеддинги, 401 без
+    ключа) — как напрямую на `llama-server`/`tei`, так и через сам гейтвей.
 
-    Не сделано — весь остальной стек агентной платформы: `ns: gateway` (LiteLLM, MCP-gateway) —
-    **следующий шаг**, без него `llm1` доступен только прямыми HTTP-запросами к подам, не через
-    единый эндпоинт агентов, как задумано архитектурой §6/схемой размещения ADR-0015; `ns: data`
-    (CloudNativePG+pgvector, MinIO, retriever-сервис) — RAG-слой, §7; `ns: platform` (Temporal) —
-    оркестрация агентов, §9 bootstrap-порядок ставит это после гейтвея; `ns: obs` (Langfuse) —
-    трейсинг вызовов моделей; `egress-proxy` — единственный разрешённый исходящий путь из
-    `ns: agents` во внешний интернет (§7); сами пять агентов (`ai infra agent` и т.д.) и первый
-    `agent-job` (bootstrap-порядок ADR-0015 §9, шаг 9 — вручную, один `kubectl create job`, до
-    Temporal и расписаний). Также не решены открытые вопросы обоих ADR: мультитенантность/права
-    агентов (ADR-0015 «Не проработано»), способ подключения `Senior`-яруса `moon-local-engineer`
-    через платформенный LiteLLM или в обход (ADR-0021 §8), совместимость `tool_calls.arguments` с
-    конкретным HTTP-клиентом MCP-gateway (проверено только прямым запросом к `llama-server`, не
-    через сам MCP-gateway, которого ещё нет).
+    Не сделано — весь остальной стек агентной платформы: `mcp-gateway` (вторая часть `ns:
+    gateway`) — **следующий шаг**; `ns: data` (CloudNativePG+pgvector, MinIO, retriever-сервис) —
+    RAG-слой, §7; `ns: platform` (Temporal) — оркестрация агентов, §9 bootstrap-порядок ставит
+    это после гейтвея; `ns: obs` (Langfuse) — трейсинг вызовов моделей; `egress-proxy` —
+    единственный разрешённый исходящий путь из `ns: agents` во внешний интернет (§7); сами пять
+    агентов (`ai infra agent` и т.д.) и первый `agent-job` (bootstrap-порядок ADR-0015 §9, шаг 9
+    — вручную, один `kubectl create job`, до Temporal и расписаний). Также не решены открытые
+    вопросы обоих ADR: мультитенантность/права агентов (ADR-0015 «Не проработано»), способ
+    подключения `Senior`-яруса `moon-local-engineer` через платформенный LiteLLM или в обход
+    (ADR-0021 §8; сейчас у LiteLLM нет БД — конфиг-режим, без virtual keys/spend tracking, этого
+    достаточно для пилота, но не для мультитенантного биллинга), совместимость
+    `tool_calls.arguments` с конкретным HTTP-клиентом MCP-gateway (проверено только прямым
+    запросом к `llama-server`/через LiteLLM, не через сам MCP-gateway, которого ещё нет). Также
+    замечена (не расследована до конца) нестабильность chat-темплейта: один из тестовых запросов
+    через LiteLLM вернул ответ с лишним `</think>` и задвоенным содержимым, хотя
+    `--reasoning-budget 0` в большинстве запросов подавляет thinking полностью — возможно,
+    зависит от конкретного промпта, не универсально воспроизведено.
+
+58. **Изоляция `ns: agents` (default-deny `NetworkPolicy`, ADR-0015 §7) сейчас фактически не
+    работает на `platform/aicd-devops-labs-ru` — требует расследования.** Найдено при развёртывании
+    LiteLLM-гейтвея (2026-09-06): тестовый под в `ns: agents` без каких-либо разрешающих правил
+    смог достучаться и до `kubernetes.default.svc` (ожидался `Connection reset by peer`, как было
+    задокументировано живым тестом в ADR-0015 §10), и до `litellm.gateway` до появления
+    соответствующего allow-правила — то есть весь egress фактически проходит, несмотря на
+    `default-deny` + `allow-egress-kube-dns` в кластере. Воспроизведено дважды, включая после
+    `systemctl restart k3s` на `aicd-labs` (не помогло). Встроенный в k3s network-policy
+    контроллер (`kube-router`) стартует без ошибок в логе (`journalctl -u k3s`), iptables-цепочки
+    `KUBE-NWPLCY-*` присутствуют — но реального блокирования нет; точная причина не установлена
+    (не похоже на баг конкретно моих правил — `kubernetes.default.svc` не имеет никакого allow-
+    правила вообще и всё равно доступен). Не расследовано до конца намеренно — увело бы далеко за
+    рамки задачи, ради которой было найдено (деплой LiteLLM). Пока это открыто — `ns: agents`
+    предоставляет только namespace-уровневую логическую группировку, но не реальную сетевую
+    изоляцию агентных песочниц от остального кластера (kube-api, будущие Postgres/MinIO в
+    `ns: data`), что напрямую противоречит обоснованию ADR-0015 §7. Приоритет — до реального
+    появления первого `agent-job`/песочницы с исполнением стороннего кода (ADR-0015 §9, шаг 9),
+    иначе исполнение кода в агентном поде получает беспрепятственный доступ к kube-api.
 
 ---
 
