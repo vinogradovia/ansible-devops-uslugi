@@ -176,6 +176,7 @@ graph TD
 | Формальные требования (где есть) | `docs/Requirements Specification/` | Пока только `mysql-ha.txt` |
 | Рабочий пример целиком | `demo/*` | Terraform+libvirt стенды, собирающие несколько ролей вместе |
 | Реестр всех компонентов с перекрёстными ссылками | `docs/components.md` | Таблица роль → README/ADR/runbook/molecule/статус |
+| Платформенная k3s-инфраструктура (`platform/aicd*`) — HLD/LLD/DD | `docs/platform/` | Отдельный файл на компонент (Gitea, OpenBao, Authelia, Semaphore, …), граф зависимостей и физическая топология — `docs/platform/overview.md`, реестр — `docs/platform/README.md` |
 
 ## Текущий статус
 
@@ -189,18 +190,25 @@ graph TD
   ограничивается рендером values-файла для уже существующего Helmwave-релиза (см.
   `docs/adr/0008-infra-panel-role.md`, §2).
 
-Отдельно — архитектура решена (ADR написан), но роль(-и) ещё не реализованы:
+CI/CD-платформа (`docs/adr/0012-cicd-platform-architecture.md`), единая авторизация
+(`docs/adr/0013-unified-auth-architecture.md`) и платформенный контроллер
+(`docs/adr/0014-platform-controller-architecture.md`) — не роли коллекции, а отдельная
+персистентная k3s-инфраструктура `platform/aicd*` (не `demo/*`, см. §6 ADR-0012); что из неё
+реально развёрнуто, а что только спроектировано — `docs/platform/README.md` и
+`docs/platform/overview.md`, по компоненту на файл (HLD/LLD/DD). Коротко:
 
-- **CI/CD-платформа** (`docs/adr/0012-cicd-platform-architecture.md`) — Execution Environment
-  (Harbor) + self-hosted git с CI (Gitea Actions) + веб-панель запуска ansible/terraform
-  (Semaphore UI) + внешнее хранилище секретов (OpenBao). Закрывает ROADMAP №50/№52.
-- **Единая авторизация** (`docs/adr/0013-unified-auth-architecture.md`) — Authelia (OIDC) поверх
-  уже существующего `freeipa` (LDAP), общая переменная `*_auth_method` для ролей-потребителей.
-  Закрывает ROADMAP №49.
-- **Платформенный контроллер** (`docs/adr/0014-platform-controller-architecture.md`) — `Module`
-  CRD над существующими ролями, GitOps-reconcile через K3s-контроллер, оркестрирующий Semaphore
-  (не заменяющий его). Самая крупная из нереализованных архитектур — переопределяет
-  позиционирование всего проекта с «набора ролей» на «платформу», см. раздел «Целевая
-  архитектура платформы» выше.
+- **Реализовано на обоих окружениях**: self-hosted git с CI (Gitea + Gitea Actions runner,
+  закрывает ROADMAP №52), веб-панель запуска ansible/terraform (Semaphore, закрывает
+  ROADMAP №50), внешнее хранилище секретов и PKI (OpenBao), единая авторизация (Authelia поверх
+  `freeipa`, закрывает ROADMAP №49) с ролевой моделью (`docs/adr/0019-platform-rbac-model.md`),
+  GitOps-синхронизация (Flux2), стандартные аддоны (Radar, infra-panel, self-мониторинг).
+- **Реализовано пилотно, только на `platform/aicd`**: платформенный контроллер (`Module` CRD,
+  GitOps-reconcile через Semaphore) — `docs/platform/platform-controller.md`. Самая крупная из
+  архитектур — переопределяет позиционирование проекта с «набора ролей» на «платформу», см.
+  раздел «Целевая архитектура платформы» выше.
+- **Реализовано пилотно, только на `platform/aicd-devops-labs-ru`**: локальный LLM-инференс и
+  гейтвей (ADR-0015/0021) — `docs/platform/agent-platform.md`.
+- **Архитектурно решено, не реализовано**: Execution Environment/Harbor (ADR-0012 §1), доступ к
+  `kube-apiserver` по OIDC (`docs/adr/0020-kube-apiserver-oidc.md`).
 
 За полным и актуальным списком приоритизированных находок — `ROADMAP.md`.

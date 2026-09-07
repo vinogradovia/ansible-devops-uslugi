@@ -27,15 +27,23 @@
 | [`infra_panel`](../roles/infra_panel/README.md) | homer — дашборд-стартовая страница платформы | ✅ | [0008](adr/0008-infra-panel-role.md) | — | `infra_panel` | готово (docker), частично (k3s — см. ADR §2) |
 | [`freeipa`](../roles/freeipa/README.md) | FreeIPA — LDAP + Kerberos KDC + CA, центральный каталог платформы | ✅ | [0011](adr/0011-freeipa-role.md) | [create-platform-user.md](runbooks/create-platform-user.md) | `freeipa` | готово |
 
-## Архитектура решена, роль не реализована
+## Платформенная k3s-инфраструктура — не роли коллекции
 
-| Компонент | Назначение | ADR | Закрывает |
-|---|---|---|---|
-| Harbor | Self-hosted OCI registry для Execution Environment | [0012 §1](adr/0012-cicd-platform-architecture.md) | — |
-| Gitea | Self-hosted git + CI (Gitea Actions; раннер `molecule` — вне k3s) | [0012 §4](adr/0012-cicd-platform-architecture.md) | ROADMAP №52 |
-| Semaphore UI | Веб-панель запуска ansible/terraform | [0012 §5](adr/0012-cicd-platform-architecture.md) | ROADMAP №50 |
-| OpenBao | Внешнее хранилище секретов (Vault-совместимый форк — HashiCorp Vault geo-blocked) | [0012 §3](adr/0012-cicd-platform-architecture.md) | — |
-| Authelia (имя роли не выбрано) | OIDC-провайдер поверх `freeipa` (LDAP-федерация), `forwardAuth` для admin-панелей | [0013](adr/0013-unified-auth-architecture.md) | ROADMAP №49 |
+`docs/adr/0012-cicd-platform-architecture.md` §6 зафиксировал: Gitea/Semaphore/OpenBao/Authelia/
+Radar/infra-panel и т.д. реализуются Helm-релизами на персистентной k3s-инфраструктуре
+`platform/aicd*`, а не ansible-ролями коллекции с molecule-покрытием (в отличие от всех ролей в
+таблице выше) — поэтому в реестр `roles/*` они не входят. Реестр этих компонентов со своими
+HLD/LLD/DD — [`docs/platform/README.md`](platform/README.md).
+
+| Компонент | Назначение | Статус |
+|---|---|---|
+| Harbor | Self-hosted OCI registry для Execution Environment | архитектура решена ([0012 §1](adr/0012-cicd-platform-architecture.md)), не реализовано |
+| Gitea + gitea-actions-runner | Self-hosted git + CI (раннер `molecule` — вне k3s) | реализовано, оба окружения ([platform/gitea.md](platform/gitea.md)) |
+| Semaphore | Веб-панель запуска ansible/terraform | реализовано, оба окружения ([platform/semaphore.md](platform/semaphore.md)) |
+| OpenBao | Секреты (Vault-совместимый форк — HashiCorp Vault geo-blocked) + PKI | реализовано, оба окружения ([platform/openbao.md](platform/openbao.md)) |
+| Authelia | OIDC-провайдер поверх `freeipa`, `forwardAuth`, RBAC (ADR-0019) | реализовано, оба окружения ([platform/authelia.md](platform/authelia.md)) |
+| platform-controller | `Module` CRD, GitOps-reconcile через Semaphore | пилот, только `platform/aicd` ([platform/platform-controller.md](platform/platform-controller.md)) |
+| agent-platform | Локальный LLM-инференс + гейтвей (ADR-0015/0021) | пилот, только `platform/aicd-devops-labs-ru` ([platform/agent-platform.md](platform/agent-platform.md)) |
 
 ## Что не является ролью коллекции, но относится к документации
 
