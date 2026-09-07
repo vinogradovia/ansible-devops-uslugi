@@ -2033,6 +2033,12 @@
 
     - name: "OpenBao: прочитать secret/gitea (проверить наличие actions_runner_token)"
       when: platform_aicd_devops_labs_ru_gitea_actions_runner_enabled | default(true)
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
       ansible.builtin.uri:
         url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/gitea"
         ca_path: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
@@ -2067,6 +2073,12 @@
       when:
         - platform_aicd_devops_labs_ru_gitea_actions_runner_enabled | default(true)
         - "'actions_runner_token' not in platform_aicd_devops_labs_ru_openbao_secret_gitea_for_runner.json.data.data"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
       no_log: true
       ansible.builtin.uri:
         url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/gitea"
@@ -3231,7 +3243,12 @@
           spec:
             insecureSkipVerify: true
 
+    # Найдено живым прогоном на platform/aicd: no_log: true у самой задачи helmwave up защищает
+    # только вывод В МОМЕНТ её выполнения — эта задача открыто печатала уже зарегистрированный
+    # platform_aicd_devops_labs_ru_helmwave_up.stderr_lines (rendered Helm values/release notes)
+    # без no_log, полностью обходя защиту исходной задачи.
     - name: Вывод helmwave up
+      no_log: true
       ansible.builtin.debug:
         var: platform_aicd_devops_labs_ru_helmwave_up.stderr_lines
 
