@@ -61,6 +61,14 @@ configMaps:
                 - 'group:platform-admins'
                 - 'group:platform-engineers'
                 - 'group:platform-viewers'
+            # docs/adr/0024-platform-docs-site.md §4 — read-only, без ролевой дифференциации,
+            # тот же профиль допуска, что radar/infra-panel выше.
+            - domain: 'docs.aicd.devops-labs.ru'
+              policy: one_factor
+              subject:
+                - 'group:platform-admins'
+                - 'group:platform-engineers'
+                - 'group:platform-viewers'
 
         session:
           secret: '[[ (ds "vault").data.session_secret ]]'

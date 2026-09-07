@@ -233,7 +233,7 @@
             # от `template`, который такого ограничения не имеет).
             aicd-devops-labs-ru.override: |
               template IN A aicd.devops-labs.ru {
-                match "^(gitea|semaphore|radar|infra-panel|openbao|sso)\.aicd\.devops-labs\.ru\.$"
+                match "^(gitea|semaphore|radar|infra-panel|docs|openbao|sso)\.aicd\.devops-labs\.ru\.$"
                 answer "{{ '{{' }} .Name {{ '}}' }} 60 IN A {{ platform_aicd_devops_labs_ru_traefik_cluster_ip }}"
                 fallthrough
               }
@@ -267,7 +267,7 @@
               # rcode NOERROR без answer — корректный пустой ответ ("имя есть, IPv6-записи нет"),
               # а не NXDOMAIN.
               template IN AAAA aicd.devops-labs.ru {
-                match "^(gitea|semaphore|radar|infra-panel|openbao|sso|ipa|postgresql-infra-1)\.aicd\.devops-labs\.ru\.$"
+                match "^(gitea|semaphore|radar|infra-panel|docs|openbao|sso|ipa|postgresql-infra-1)\.aicd\.devops-labs\.ru\.$"
                 rcode NOERROR
                 fallthrough
               }
@@ -790,6 +790,7 @@
                 admin_password: "{{ lookup('ansible.builtin.password', '/dev/null', length=24) }}"
                 ldap_bind_password: "{{ lookup('ansible.builtin.password', '/dev/null', length=32) }}"
                 internal_releases_reader_password: "{{ lookup('ansible.builtin.password', '/dev/null', length=32) }}"
+                docs_site_publisher_password: "{{ lookup('ansible.builtin.password', '/dev/null', length=32) }}"
             status_code: [200, 204]
 
         - name: "OpenBao: прочитать secret/nexus (ldap_bind_password нужен play freeipa_hosts ниже)"
@@ -824,6 +825,39 @@
             status_code: [200, 204]
 
         - name: "OpenBao: перечитать secret/nexus (после возможного ретрофита выше)"
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/nexus"
+            ca_path: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
+            method: GET
+            headers:
+              X-Vault-Token: "{{ platform_aicd_devops_labs_ru_openbao_root_token }}"
+            status_code: [200]
+          register: platform_aicd_devops_labs_ru_openbao_secret_nexus_read
+          no_log: true
+
+        # docs/adr/0024-platform-docs-site.md — пароль svc-docs-site-publisher (write-доступ к
+        # новому raw-hosted репозиторию docs-site, не к internal-releases выше). Тот же
+        # ретрофит-приём, ПОСЛЕ перечитывания выше — иначе `combine()` уйдёт от устаревшего снимка
+        # без только что добавленного internal_releases_reader_password и молча потеряет его.
+        - name: "OpenBao: добавить docs_site_publisher_password в существующий secret/nexus"
+          when: "'docs_site_publisher_password' not in platform_aicd_devops_labs_ru_openbao_secret_nexus_read.json.data.data"
+          no_log: true
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/nexus"
+            ca_path: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
+            method: POST
+            headers:
+              X-Vault-Token: "{{ platform_aicd_devops_labs_ru_openbao_root_token }}"
+            body_format: json
+            body:
+              data: >-
+                {{
+                  platform_aicd_devops_labs_ru_openbao_secret_nexus_read.json.data.data
+                  | combine({'docs_site_publisher_password': lookup('ansible.builtin.password', '/dev/null', length=32)})
+                }}
+            status_code: [200, 204]
+
+        - name: "OpenBao: перечитать secret/nexus (после ретрофита docs_site_publisher_password)"
           ansible.builtin.uri:
             url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/nexus"
             ca_path: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
@@ -1361,7 +1395,7 @@
         # openbao.aicd.devops-labs.ru/openbao-ingress-tls — docs/adr/0017-platform-cicd-default-addons.md
         # §3, внешний Ingress-сертификат OpenBao (отдельный от внутреннего bootstrap-сертификата
         # openbao-server-tls самого listener'а).
-        - name: "OpenBao: выпустить/перевыпустить TLS-сертификаты (gitea, semaphore, radar, infra-panel, openbao, authelia, grafana, nexus)"
+        - name: "OpenBao: выпустить/перевыпустить TLS-сертификаты (gitea, semaphore, radar, infra-panel, docs-site, openbao, authelia, grafana, nexus)"
           no_log: true
           ansible.builtin.include_tasks: tasks/issue-tls-cert.yml
           loop:
@@ -1369,6 +1403,7 @@
             - {host: semaphore.aicd.devops-labs.ru, secret: semaphore-tls}
             - {host: radar.aicd.devops-labs.ru, secret: radar-tls}
             - {host: infra-panel.aicd.devops-labs.ru, secret: infra-panel-tls}
+            - {host: docs.aicd.devops-labs.ru, secret: docs-site-tls}
             - {host: openbao.aicd.devops-labs.ru, secret: openbao-ingress-tls}
             - {host: sso.aicd.devops-labs.ru, secret: authelia-tls}
             # namespace: monitoring/cache — тот же фикс, что platform/aicd/ansible/site.yml
@@ -2398,6 +2433,36 @@
             writePolicy: ALLOW_ONCE
         status_code: [201]
 
+    # docs/adr/0024-platform-docs-site.md — второй raw-hosted репозиторий, отдельный от
+    # internal-releases выше: docs-site пересобирается CI-джобой (.gitea/workflows/docs-site.yml)
+    # при КАЖДОМ push в main и публикуется по фиксированному пути docs-site/latest.tar.gz — этому
+    # принципиально нужен ALLOW (перезаписываемый путь), а не ALLOW_ONCE у internal-releases.
+    - name: "Nexus: создать docs-site (raw hosted, если ещё нет)"
+      when: "'docs-site' not in (platform_aicd_devops_labs_ru_nexus_repos.json | map(attribute='name') | list)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
+      no_log: true
+      ansible.builtin.uri:
+        url: "https://nexus.aicd.devops-labs.ru/service/rest/v1/repositories/raw/hosted"
+        ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        method: POST
+        url_username: admin
+        url_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        force_basic_auth: true
+        body_format: json
+        body:
+          name: docs-site
+          online: true
+          storage:
+            blobStoreName: default
+            strictContentTypeValidation: true
+            writePolicy: ALLOW
+        status_code: [201]
+
     # Найдено живым прогоном (2026-09-02): anonymous access в этом Nexus глобально выключен
     # (security/anonymous: enabled=false) — по умолчанию у свежей Community Edition, не наш
     # осознанный выбор. Значит "нет forwardAuth" из ADR-0018 для nexus-cache — не то же самое, что
@@ -2449,6 +2514,37 @@
           privileges:
             - nx-repository-view-raw-internal-releases-read
             - nx-repository-view-raw-internal-releases-browse
+        status_code: [200]
+
+    # docs/adr/0024-platform-docs-site.md — write-роль для CI-джобы (.gitea/workflows/docs-site.yml),
+    # публикующей собранный сайт в docs-site/latest.tar.gz. add/edit (не только read/browse, как у
+    # internal-releases-reader выше) — единственный сегодня консьюмер, которому реально нужна запись.
+    - name: "Nexus: создать роль docs-site-publisher (если ещё нет)"
+      when: "'docs-site-publisher' not in (platform_aicd_devops_labs_ru_nexus_roles.json | map(attribute='id') | list)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
+      no_log: true
+      ansible.builtin.uri:
+        url: "https://nexus.aicd.devops-labs.ru/service/rest/v1/security/roles"
+        ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        method: POST
+        url_username: admin
+        url_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        force_basic_auth: true
+        body_format: json
+        body:
+          id: docs-site-publisher
+          name: docs-site-publisher
+          description: "Публикация docs-site/latest.tar.gz (.gitea/workflows/docs-site.yml)"
+          privileges:
+            - nx-repository-view-raw-docs-site-read
+            - nx-repository-view-raw-docs-site-browse
+            - nx-repository-view-raw-docs-site-add
+            - nx-repository-view-raw-docs-site-edit
         status_code: [200]
 
     # docs/adr/0019-platform-rbac-model.md §6 — маппинг platform-*-групп в роли Nexus по
@@ -2581,6 +2677,53 @@
           status: active
           roles:
             - internal-releases-reader
+        status_code: [200]
+
+    - name: "Nexus: получить список существующих пользователей (docs-site-publisher)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
+      ansible.builtin.uri:
+        url: "https://nexus.aicd.devops-labs.ru/service/rest/v1/security/users?userId=svc-docs-site-publisher"
+        ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        method: GET
+        url_username: admin
+        url_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        force_basic_auth: true
+        return_content: true
+        status_code: [200]
+      register: platform_aicd_devops_labs_ru_nexus_docs_site_users
+      no_log: true
+
+    - name: "Nexus: создать пользователя svc-docs-site-publisher (если ещё нет)"
+      when: platform_aicd_devops_labs_ru_nexus_docs_site_users.json | length == 0
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
+      no_log: true
+      ansible.builtin.uri:
+        url: "https://nexus.aicd.devops-labs.ru/service/rest/v1/security/users"
+        ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        method: POST
+        url_username: admin
+        url_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        force_basic_auth: true
+        body_format: json
+        body:
+          userId: svc-docs-site-publisher
+          firstName: Service
+          lastName: "Docs Site Publisher"
+          emailAddress: svc-docs-site-publisher@aicd.devops-labs.ru
+          password: "{{ platform_aicd_devops_labs_ru_openbao_secret_nexus_read.json.data.data.docs_site_publisher_password }}"
+          status: active
+          roles:
+            - docs-site-publisher
         status_code: [200]
 
     - name: "Nexus: получить список существующих LDAP-серверов"

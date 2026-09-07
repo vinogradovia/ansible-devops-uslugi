@@ -7,3 +7,7 @@ exclude_paths:
   - helm/
   - extensions/
   - trial/
+  # docs/adr/0024-platform-docs-site.md — не Ansible-контент, ansible-lint не умеет разобрать
+  # штатный YAML-тег `!!python/name:...`, который MkDocs Material сам рекомендует для mermaid
+  # (pymdownx.superfences), см. mkdocs.yml.
+  - mkdocs.yml

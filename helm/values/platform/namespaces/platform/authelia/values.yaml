@@ -100,6 +100,14 @@ configMaps:
                 - 'group:platform-admins'
                 - 'group:platform-engineers'
                 - 'group:platform-viewers'
+            # docs/adr/0024-platform-docs-site.md §4 — read-only, без ролевой дифференциации,
+            # тот же профиль допуска, что radar/infra-panel выше.
+            - domain: 'docs.aicd.platform'
+              policy: one_factor
+              subject:
+                - 'group:platform-admins'
+                - 'group:platform-engineers'
+                - 'group:platform-viewers'
 
         # default_redirection_url НЕ может совпадать с authelia_url (найдено реальным прогоном —
         # Authelia отказывается стартовать: "which is not permitted", иначе после логина

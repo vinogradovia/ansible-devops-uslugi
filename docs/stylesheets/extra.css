@@ -1,0 +1,33 @@
+/* docs/adr/0024-platform-docs-site.md, «Открытые вопросы» №4 — визуальный бейдж статуса ADR.
+   Классы проставляются .gitea/scripts/build-docs-site.py при сборке (инъекция под заголовком
+   H1), не вручную в исходных docs/adr/*.md — источник правды остаётся строкой
+   "- **Статус:** ..." в самом документе. */
+.adr-status {
+  display: inline-block;
+  padding: 0.15em 0.7em;
+  border-radius: 999px;
+  font-size: 0.75em;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 0.02em;
+}
+
+.adr-status-draft {
+  background-color: #9e9e9e;
+}
+
+.adr-status-proposed {
+  background-color: #fb8c00;
+}
+
+.adr-status-accepted {
+  background-color: #1e88e5;
+}
+
+.adr-status-implemented {
+  background-color: #43a047;
+}
+
+.adr-status-unknown {
+  background-color: #757575;
+}

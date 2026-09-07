@@ -52,3 +52,9 @@ platform/*/ansible/.kube-tmp/
 extensions/molecule/freeipa/packer/cache/
 extensions/molecule/freeipa/packer/output-*/
 extensions/molecule/freeipa/packer/*.box
+
+# docs/adr/0024-platform-docs-site.md — docs_build/ (staging-дерево) и site/ (mkdocs build output)
+# — транзиентные артефакты .gitea/scripts/build-docs-site.py / `mkdocs build`, пересобираются
+# CI-джобой .gitea/workflows/docs-site.yml при каждом push, не коммитятся.
+docs_build/
+site/

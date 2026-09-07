@@ -1,0 +1,35 @@
+---
+# docs/adr/0024-platform-docs-site.md — статический сайт документации платформы (docs-site).
+# Собирается CI-джобой .gitea/workflows/docs-site.yml в staging-каталог docs_build/
+# (.gitea/scripts/build-docs-site.py), не разворачивается в git — ни этот файл, ни сам скрипт не
+# знают заранее о содержимом docs_build/, поэтому docs_dir указывает именно на него, а не на docs/.
+site_name: "devops.uslugi — документация платформы"
+site_description: "Архитектура платформы и справочник ролей Ansible-коллекции devops.uslugi"
+docs_dir: docs_build
+
+theme:
+  name: material
+  language: ru
+  features:
+    - navigation.expand
+    - navigation.top
+    - content.code.copy
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  # pymdownx.superfences с custom_fences для mermaid — весь docs/platform/*.md уже написан на
+  # ```mermaid code fence, MkDocs Material рендерит их без переписывания (ADR-0024 §1).
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+plugins:
+  - search
+
+extra_css:
+  - stylesheets/extra.css

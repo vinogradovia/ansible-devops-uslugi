@@ -1,0 +1,60 @@
+name: Docs site
+
+# docs/adr/0024-platform-docs-site.md §2 — сборка в CI, не init-container'ом при каждом старте
+# пода: собирает статический сайт из docs/ + roles/*/README.md и публикует в Nexus raw-hosted
+# репозиторий docs-site (writePolicy: ALLOW, перезаписываемый — в отличие от internal-releases,
+# ADR-0018 §9, где ALLOW_ONCE и путь неизменяем после первой публикации). Под docs-site при
+# старте лишь скачивает готовый архив (helm/values/*/namespaces/platform/docs-site/values.yaml).
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/**
+      - roles/*/README.md
+      - mkdocs.yml
+      - .gitea/scripts/build-docs-site.py
+      - .gitea/workflows/docs-site.yml
+
+jobs:
+  build-and-publish:
+    runs-on: linux_amd64
+    steps:
+      - uses: actions/checkout@v4
+
+      # Раннер — голый alpine (helm/values/*/namespaces/platform/gitea-actions-runner/values.yaml),
+      # без Python — тот же приём, что .gitea/workflows/lint.yml (ставим на время джобы, не печём
+      # кастомный образ ради одной задачи).
+      - name: Установить mkdocs-material
+        run: |
+          apk add --no-cache python3 py3-pip
+          pip install --break-system-packages mkdocs-material
+
+      - name: Собрать staging-дерево (два раздела навигации + бейджи статуса ADR)
+        run: python3 .gitea/scripts/build-docs-site.py
+
+      # Без --strict: часть перелинковки исходников намеренно ведёт на неопубликованный контент
+      # (ROADMAP.md, docs/runbooks/, docs/Requirements Specification/ — ADR §3, не входят ни в один
+      # из двух разделов навигации) — это ожидаемые, не по ошибке возникшие предупреждения, не
+      # повод останавливать публикацию. Warnings остаются видны в логе джобы.
+      - name: mkdocs build
+        run: mkdocs build
+
+      - name: Упаковать артефакт
+        run: tar czf docs-site.tar.gz -C site .
+
+      # Nexus: репозиторий docs-site + роль/пользователь docs-site-publisher заводятся идемпотентно
+      # ansible'ом (site.yml, play "Platform CI/CD infra") — здесь только публикация контента, тот
+      # же принцип владения, что ADR-0018 §9 ("site.yml владеет только идемпотентным существованием
+      # репозитория, не его содержимым"). URL — внутрикластерный Service (namespace cache, тот же
+      # приём, что gitea-actions-runner ходит на gitea-http.platform.svc.cluster.local вместо
+      # публичного домена) — не зависит от TLS/Traefik и одинаков в обоих окружениях платформы.
+      # Секреты NEXUS_DOCS_PUBLISHER_USER/_PASSWORD вписываются в Gitea вручную (README окружения,
+      # «Ручные шаги») — REST-автоматизации Gitea Actions secrets в коллекции пока нет.
+      - name: Опубликовать в Nexus (docs-site/latest.tar.gz)
+        run: |
+          curl -fsS --user "${NEXUS_DOCS_PUBLISHER_USER}:${NEXUS_DOCS_PUBLISHER_PASSWORD}" \
+            --upload-file docs-site.tar.gz \
+            "http://nexus.cache.svc.cluster.local:8081/repository/docs-site/latest.tar.gz"
+        env:
+          NEXUS_DOCS_PUBLISHER_USER: ${{ secrets.NEXUS_DOCS_PUBLISHER_USER }}
+          NEXUS_DOCS_PUBLISHER_PASSWORD: ${{ secrets.NEXUS_DOCS_PUBLISHER_PASSWORD }}

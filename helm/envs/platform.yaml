@@ -65,6 +65,23 @@ releases:
       - name: authelia
     version: 2.8.1
 
+  # docs/adr/0012-cicd-platform-architecture.md §4, docs/adr/0022-new-component-requirements.md
+  # §12 — раннер Gitea Actions для host-задач (lint), НЕ раннер molecule (тот сознательно вне
+  # k3s, см. §4). depends_on: gitea — очевидная зависимость по смыслу (раннер регистрируется В
+  # Gitea), но НЕ единственная защита от гонки: этот релиз выведен из общего --tags combined-
+  # вызова (helm/envs/platform.yaml применяется одним `helmwave up`, а controlling tag-фильтр —
+  # platform/aicd/ansible/group_vars/platform_hosts.yml, platform_aicd_gitea_actions_runner_enabled)
+  # — применяется отдельным поздним `helmwave up --tags gitea-actions-runner` (site.yml), уже
+  # после того как токен actions_runner_token гарантированно существует в secret/gitea. depends_on
+  # здесь актуален только если кто-то запустит `helmwave up` без --tags вообще (весь envs/platform.yaml
+  # разом) — на этот случай тоже должно сработать корректно.
+  - name: gitea-actions-runner
+    namespace: platform
+    chart: localrepo/universal-chart
+    depends_on:
+      - name: gitea
+    version: 2.8.1
+
   # Фаза 2 (ROADMAP.md, пункт 7; docs/adr/0014-platform-controller-architecture.md §4) — Flux
   # выбран вместо ArgoCD (CRD-first, без второго web UI, легче для одной ноды). Namespace
   # flux-system — конвенция апстрима (не "platform", в отличие от Gitea/Semaphore выше), чтобы
@@ -93,6 +110,15 @@ releases:
   # как называется одноимённая роль/ADR-0008) — подчёркивание сломало бы RFC-1123 имена k8s-объектов,
   # которые universal-chart генерирует как "<release>-<key>".
   - name: infra-panel
+    namespace: platform
+    chart: localrepo/universal-chart
+    version: 2.8.1
+
+  # docs/adr/0024-platform-docs-site.md — статический сайт документации платформы (MkDocs
+  # Material), тот же приём localrepo/universal-chart, что semaphore/infra-panel выше. Без
+  # depends_on: authelia — forwardAuth-периметр (Middleware), не OIDC-клиент, тот же профиль,
+  # что radar/infra-panel (не gitea/semaphore).
+  - name: docs-site
     namespace: platform
     chart: localrepo/universal-chart
     version: 2.8.1

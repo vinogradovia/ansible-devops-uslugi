@@ -1,0 +1,116 @@
+#!/usr/bin/env python3
+"""Сборка staging-дерева для `mkdocs build` (docs/adr/0024-platform-docs-site.md §3).
+
+Запускается CI-джобой .gitea/workflows/docs-site.yml перед `mkdocs build`, не рукам — источник
+правды остаётся docs/ и roles/*/README.md в git, docs_build/ никогда не коммитится.
+
+Два независимых top-level раздела навигации (ADR §3): "Архитектура" — docs/overview.md,
+docs/components.md, docs/adr/, docs/platform/ (ровно этот список, ADR явно не включает
+docs/runbooks/, docs/proxmox-templates.md, docs/Requirements Specification/ — не публикуются);
+"Роли коллекции" — README каждой роли. ROADMAP.md не публикуется нигде (ADR §3).
+"""
+import re
+import shutil
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+STAGING = REPO_ROOT / "docs_build"
+
+STATUS_RE = re.compile(r"^-\s+\*\*Статус:\*\*\s+(.+)$", re.MULTILINE)
+
+# Оба раздела навигации ссылаются друг на друга в исходном дереве (roles/*/README.md -> docs/adr/,
+# docs/components.md -> roles/*/README.md) — после разнесения по двум staging-каталогам
+# относительные пути меняют глубину/родителя, поэтому переписываются на лету. Остальные внешние
+# ссылки исходников (ROADMAP.md, docs/runbooks/, docs/Requirements Specification/ — ни один не
+# публикуется, ADR §3) намеренно не переписываются и остаются битыми в собранном сайте.
+ROLE_README_DOCS_LINK_RE = re.compile(r"\]\(\.\./\.\./docs/(adr|platform)/([^)]+)\)")
+COMPONENTS_ROLE_LINK_RE = re.compile(r"\]\(\.\./roles/([\w-]+)/README\.md([^)]*)\)")
+
+
+def rewrite_role_readme_links(text: str) -> str:
+    return ROLE_README_DOCS_LINK_RE.sub(r"](../Архитектура/\1/\2)", text)
+
+
+def rewrite_components_links(text: str) -> str:
+    return COMPONENTS_ROLE_LINK_RE.sub(r"](../Роли коллекции/\1.md\2)", text)
+
+
+def classify_status(label: str) -> str:
+    """Грубая категория для цвета бейджа — не парсер точной семантики статуса."""
+    lowered = label.lower()
+    if "реализован" in lowered:
+        return "implemented"
+    if lowered.startswith("принято"):
+        return "accepted"
+    if lowered.startswith("предложено"):
+        return "proposed"
+    if lowered.startswith("черновик"):
+        return "draft"
+    return "unknown"
+
+
+def inject_status_badge(text: str) -> str:
+    match = STATUS_RE.search(text)
+    if not match:
+        return text
+
+    full_label = match.group(1).strip()
+    display_label = re.split(r"[;,]| \(", full_label)[0].strip()
+    css_class = classify_status(full_label)
+    badge = f'<span class="adr-status adr-status-{css_class}">{display_label}</span>\n'
+
+    lines = text.splitlines(keepends=True)
+    for i, line in enumerate(lines):
+        if line.startswith("# "):
+            lines.insert(i + 1, "\n" + badge)
+            break
+    return "".join(lines)
+
+
+def build_architecture_section() -> None:
+    dest = STAGING / "Архитектура"
+    dest.mkdir(parents=True, exist_ok=True)
+
+    shutil.copy(REPO_ROOT / "docs/overview.md", dest / "overview.md")
+
+    components_text = (REPO_ROOT / "docs/components.md").read_text(encoding="utf-8")
+    (dest / "components.md").write_text(rewrite_components_links(components_text), encoding="utf-8")
+
+    adr_dest = dest / "adr"
+    adr_dest.mkdir(exist_ok=True)
+    for adr_file in sorted((REPO_ROOT / "docs/adr").glob("*.md")):
+        text = adr_file.read_text(encoding="utf-8")
+        (adr_dest / adr_file.name).write_text(inject_status_badge(text), encoding="utf-8")
+
+    shutil.copytree(REPO_ROOT / "docs/platform", dest / "platform", dirs_exist_ok=True)
+
+
+def build_roles_section() -> None:
+    dest = STAGING / "Роли коллекции"
+    dest.mkdir(parents=True, exist_ok=True)
+    for readme in sorted((REPO_ROOT / "roles").glob("*/README.md")):
+        role_name = readme.parent.name
+        text = readme.read_text(encoding="utf-8")
+        (dest / f"{role_name}.md").write_text(rewrite_role_readme_links(text), encoding="utf-8")
+
+
+def copy_static_assets() -> None:
+    shutil.copytree(
+        REPO_ROOT / "docs/stylesheets",
+        STAGING / "stylesheets",
+        dirs_exist_ok=True,
+    )
+
+
+def main() -> None:
+    if STAGING.exists():
+        shutil.rmtree(STAGING)
+    STAGING.mkdir(parents=True)
+
+    build_architecture_section()
+    build_roles_section()
+    copy_static_assets()
+
+
+if __name__ == "__main__":
+    main()

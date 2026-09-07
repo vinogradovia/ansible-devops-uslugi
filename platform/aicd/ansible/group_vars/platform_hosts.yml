@@ -29,6 +29,8 @@ platform_aicd_core_releases:
 platform_aicd_default_addons:
   - radar
   - infra-panel
+  # docs/adr/0024-platform-docs-site.md — статический сайт документации платформы.
+  - docs-site
   - vm
   - grafana-operator
 

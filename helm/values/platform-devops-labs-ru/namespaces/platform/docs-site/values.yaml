@@ -1,0 +1,97 @@
+# docs-site (docs/adr/0024-platform-docs-site.md) — статический сайт документации платформы
+# (MkDocs Material). Не собирается этим подом — init-container лишь СКАЧИВАЕТ уже готовый
+# архив, собранный CI-джобой .gitea/workflows/docs-site.yml и опубликованный в Nexus raw-hosted
+# репозиторий docs-site (не internal-releases — тому нужен перезаписываемый writePolicy: ALLOW,
+# ADR §"Ключевое архитектурное решение..."). Развёрнут через nxs-universal-chart
+# (helm/localrepo/universal-chart), тем же приёмом, что radar/infra-panel/semaphore — официального
+# чарта под связку "init-container + статическая раздача" нет.
+#
+# Первый деплой — chicken-and-egg (тот же класс, что gitea-actions-runner/actions_runner_token):
+# init-container уйдёт в CrashLoopBackOff, пока docs-site.yml не опубликует артефакт хотя бы один
+# раз (см. README, «Ручные шаги»).
+#
+# Вход защищён forwardAuth-Middleware Authelia (тот же authelia-forward-auth, что radar/
+# infra-panel), TLS — Secret docs-site-tls, тот же цикл tasks/issue-tls-cert.yml.
+#
+# Nexus не отдаёт анонимный доступ ни на один репозиторий (docs/adr/0018-internal-caching-proxy.md
+# §9 — anonymous access глобально выключен), поэтому init-container скачивает артефакт под тем же
+# сервисным пользователем svc-docs-site-publisher, что и CI-публикация (роль docs-site-publisher
+# включает read/browse — отдельный read-only аккаунт для одного внутреннего консьюмера избыточен,
+# в отличие от svc-ipa-exporter-reader, который читают внешние по отношению к CI хосты-агенты).
+# URL — внутрикластерный Service Nexus (namespace cache), не публичный домен — тот же приём, что
+# gitea-actions-runner ходит на gitea-http.platform.svc.cluster.local.
+[[ defineDatasource "vault" "vault:///secret/data/nexus" ]]
+
+generic:
+  extraVolumes:
+    - name: site-data
+      emptyDir: {}
+
+deployments:
+  docs-site:
+    initContainers:
+      - name: fetch-site
+        image: alpine
+        imageTag: "3.20"
+        # wget/tar — штатные апплеты busybox самого образа alpine, без apk add (не нужен внешний
+        # пакетный мираж на время старта пода).
+        command: ["sh", "-c"]
+        args:
+          - |
+            set -e
+            wget --user="${NEXUS_USER}" --password="${NEXUS_PASSWORD}" \
+              -O /tmp/docs-site.tar.gz \
+              http://nexus.cache.svc.cluster.local:8081/repository/docs-site/latest.tar.gz
+            tar xzf /tmp/docs-site.tar.gz -C /site
+        env:
+          - name: NEXUS_USER
+            value: svc-docs-site-publisher
+          - name: NEXUS_PASSWORD
+            value: '[[ (ds "vault").data.docs_site_publisher_password ]]'
+        resources:
+          requests:
+            cpu: 25m
+            memory: 32Mi
+          limits:
+            cpu: 250m
+            memory: 128Mi
+        volumeMounts:
+          - name: site-data
+            mountPath: /site
+    containers:
+      - name: nginx
+        image: nginx
+        imageTag: "1.27-alpine"
+        ports:
+          - name: http
+            containerPort: 80
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+        volumeMounts:
+          - name: site-data
+            mountPath: /usr/share/nginx/html
+
+services:
+  docs-site:
+    ports:
+      - name: http
+        port: 80
+
+ingressroutes:
+  docs-site:
+    entryPoints:
+      - websecure
+    routes:
+      "Host(`docs.aicd.devops-labs.ru`)":
+        middlewares:
+          - name: authelia-forward-auth
+        services:
+          docs-site-docs-site:
+            port: 80
+    tls:
+      secretName: docs-site-tls

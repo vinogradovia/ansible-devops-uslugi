@@ -47,6 +47,10 @@ configMaps:
               - name: Radar
                 url: https://radar.aicd.platform
                 target: _blank
+              # docs/adr/0024-platform-docs-site.md
+              - name: Docs
+                url: https://docs.aicd.platform
+                target: _blank
               - name: OpenBao
                 url: https://openbao.aicd.platform
                 target: _blank

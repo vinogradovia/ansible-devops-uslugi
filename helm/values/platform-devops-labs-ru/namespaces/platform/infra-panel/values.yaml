@@ -27,6 +27,10 @@ configMaps:
               - name: Radar
                 url: https://radar.aicd.devops-labs.ru
                 target: _blank
+              # docs/adr/0024-platform-docs-site.md
+              - name: Docs
+                url: https://docs.aicd.devops-labs.ru
+                target: _blank
               - name: OpenBao
                 url: https://openbao.aicd.devops-labs.ru
                 target: _blank

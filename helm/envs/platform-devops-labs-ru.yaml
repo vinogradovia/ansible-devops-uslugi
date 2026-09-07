@@ -45,6 +45,17 @@ releases:
       - name: authelia
     version: 2.8.1
 
+  # docs/adr/0012-cicd-platform-architecture.md §4, docs/adr/0022-new-component-requirements.md
+  # §12 — тот же приём и то же обоснование, что helm/envs/platform.yaml (первый стенд):
+  # применяется отдельным поздним `helmwave up --tags gitea-actions-runner`
+  # (platform_aicd_devops_labs_ru_gitea_actions_runner_enabled), не в общем combined-вызове.
+  - name: gitea-actions-runner
+    namespace: platform
+    chart: localrepo/universal-chart
+    depends_on:
+      - name: gitea
+    version: 2.8.1
+
   - name: flux2
     namespace: flux-system
     chart: fluxcd-community/flux2
@@ -60,6 +71,13 @@ releases:
   # docs/adr/0017-platform-cicd-default-addons.md §3 — второй стандартный аддон, тот же, что
   # helm/envs/platform.yaml (без расхождений между окружениями).
   - name: infra-panel
+    namespace: platform
+    chart: localrepo/universal-chart
+    version: 2.8.1
+
+  # docs/adr/0024-platform-docs-site.md — тот же приём, что helm/envs/platform.yaml (без
+  # расхождений между окружениями, кроме домена в values.yaml).
+  - name: docs-site
     namespace: platform
     chart: localrepo/universal-chart
     version: 2.8.1

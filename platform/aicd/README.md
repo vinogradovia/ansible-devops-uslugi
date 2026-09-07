@@ -354,3 +354,25 @@ Persistent VM `postgresql-infra-1` (`postgresql-infra-1.aicd.platform`, обыч
 ```
 <IP postgresql-infra-1> postgresql-infra-1.aicd.platform
 ```
+
+## docs-site (docs/adr/0024-platform-docs-site.md)
+
+Статический сайт документации платформы (MkDocs Material) — за Traefik/`docs.aicd.platform`, тот
+же `forwardAuth`-периметр Authelia, что Radar/infra-panel. Собирается CI-джобой
+`.gitea/workflows/docs-site.yml` (не этим плейбуком) и публикуется в собственный raw-hosted
+репозиторий Nexus `docs-site`; под лишь скачивает готовый артефакт при старте.
+
+**Ручной шаг, обязателен перед первым `helmwave up --tags docs-site`:** в Gitea (репозиторий
+коллекции) → Settings → Actions → Secrets вписать `NEXUS_DOCS_PUBLISHER_USER`
+(`svc-docs-site-publisher`) и `NEXUS_DOCS_PUBLISHER_PASSWORD` (значение —
+`docs_site_publisher_password` из `secret/nexus`, OpenBao) — REST-автоматизации создания Gitea
+Actions secrets в коллекции нет (ADR §2). Без этого шага CI-джоба не сможет опубликовать артефакт
+в Nexus, а первый деплой пода уйдёт в `CrashLoopBackOff` (init-container не найдёт
+`docs-site/latest.tar.gz`) — тот же класс chicken-and-egg, что `gitea-actions-runner`/
+`actions_runner_token`.
+
+Живой `helmwave up`/первый прогон `docs-site.yml`/верификация в этом заходе не выполнялись
+(ROADMAP №51). Операторам — добавить в свой `/etc/hosts`:
+```
+<IP control-plane> docs.aicd.platform
+```

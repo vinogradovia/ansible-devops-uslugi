@@ -420,3 +420,13 @@ ansible-playbook -i inventory.yml monitoring-server.yml \
 - `helm/` — сейчас пустой каталог-заготовка (исключён из ansible-lint); k3s-стек мониторинга Helm
   charts *не* использует (см. заметки про monitoring_server выше).
 - `uslugi/` — оставшаяся локальная директория с артефактами `.ansible`/`.vscode`, не является исходным кодом.
+- `.gitea/workflows/`, `.gitea/scripts/`, `mkdocs.yml`, `docs/stylesheets/` — CI платформы (Gitea
+  Actions), не Ansible-контент. `lint.yml` — `ansible-lint` всей коллекции на лёгком in-cluster
+  раннере (`docs/platform/gitea-actions-runner.md`). `docs-site.yml`
+  (`docs/adr/0024-platform-docs-site.md`) — собирает статический сайт документации платформы
+  (MkDocs Material) из `docs/` + `roles/*/README.md` (скрипт `build-docs-site.py` — staging-дерево,
+  переписывание кросс-ссылок, бейджи статуса ADR) и публикует в Nexus raw-hosted репозиторий
+  `docs-site`; сам компонент `docs-site` — чисто Helm+`site.yml` (`platform/*/ansible/site.yml`),
+  без отдельной Ansible-роли, тем же классом, что `radar`/`gitea-actions-runner`. `mkdocs.yml`
+  исключён из `ansible-lint` (`.ansible-lint`) — не парсится YAML-тег `!!python/name:...`, который
+  MkDocs Material сам рекомендует для mermaid.
