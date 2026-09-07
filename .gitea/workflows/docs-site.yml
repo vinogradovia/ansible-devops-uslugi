@@ -24,6 +24,13 @@ jobs:
   build-and-publish:
     runs-on: linux_amd64
     steps:
+      # Живым прогоном найдено: раннер работает в host-режиме без Docker (голый alpine-образ
+      # gitea/runner, helm/values/*/namespaces/platform/gitea-actions-runner/values.yaml) — на нём
+      # нет node, а actions/checkout@v4 — JS-экшен, которому node нужен ДО своего запуска
+      # ("Cannot find: node in PATH"). Ставится первым шагом, до checkout.
+      - name: Установить Node.js (нужен actions/checkout@v4 в host-режиме без Docker)
+        run: apk add --no-cache nodejs
+
       - uses: actions/checkout@v4
 
       # Раннер — голый alpine (helm/values/*/namespaces/platform/gitea-actions-runner/values.yaml),
