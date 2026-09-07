@@ -35,7 +35,7 @@ ROADMAP №51 прямо оставлял нерешёнными три вопр
 
 ```mermaid
 graph LR
-    REPO["Gitea repo<br/>docs/ + roles/*/README.md"] -->|"push в main"| CI["Gitea Actions<br/>(лёгкий k3s-раннер,<br/>тот же, что lint.yml)"]
+    REPO["Gitea repo<br/>docs/ + roles/*/README.md"] -->|"push (любая ветка)"| CI["Gitea Actions<br/>(лёгкий k3s-раннер,<br/>тот же, что lint.yml)"]
     CI -->|"mkdocs build"| ART["docs-site.tar.gz"]
     ART -->|"PUT"| NX["Nexus raw-hosted<br/>repo docs-site<br/>(writePolicy: ALLOW)"]
     NX -->|"init-container: wget"| POD["Deployment docs-site<br/>(ns: platform)"]
@@ -67,7 +67,10 @@ graph LR
 init-container'ом самого пода при каждом старте — оператор явно выбрал более тяжёлый, но
 традиционный вариант: `mkdocs build` выполняется **CI-джобой** `.gitea/workflows/docs-site.yml`
 (тот же лёгкий k3s-раннер, что `.gitea/workflows/lint.yml`, — ADR-0012 §4 прямо допускает
-«сборку документации» как задачу этого класса) при `push` в `main`, затрагивающем `docs/**`,
+«сборку документации» как задачу этого класса) при `push` в любую ветку (**не** `branches: [main]`
+— живым прогоном найдено: реальная разработка коллекции идёт в feature-ветках, `main` зеркала
+почти не обновляется напрямую, ограничение веткой означало бы, что джоба никогда не триггерится в
+текущем рабочем процессе; тот же принцип, что уже был в `lint.yml`), затрагивающем `docs/**`,
 `roles/*/README.md` или `mkdocs.yml`. Собранный сайт упаковывается в `docs-site.tar.gz` и
 публикуется в Nexus (`PUT .../repository/docs-site/latest.tar.gz`). Init-container самого пода
 (`helm/values/*/namespaces/platform/docs-site/values.yaml`) только скачивает уже готовый архив и

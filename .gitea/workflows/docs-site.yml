@@ -7,13 +7,18 @@ name: Docs site
 # старте лишь скачивает готовый архив (helm/values/*/namespaces/platform/docs-site/values.yaml).
 on:
   push:
-    branches: [main]
+    # Без ограничения branches — тот же принцип, что .gitea/workflows/lint.yml: реальная разработка
+    # в этом репозитории идёт в feature-ветках (main почти не обновляется напрямую), жёсткий
+    # branches: [main] означал бы, что джоба никогда не триггерится в текущем рабочем процессе.
     paths:
       - docs/**
       - roles/*/README.md
       - mkdocs.yml
       - .gitea/scripts/build-docs-site.py
       - .gitea/workflows/docs-site.yml
+  # Ручной перезапуск из Gitea UI (Actions → Docs site → Run workflow) — без пустых коммитов,
+  # например пока в docs-site/latest.tar.gz нужно опубликовать первый артефакт вручную.
+  workflow_dispatch:
 
 jobs:
   build-and-publish:
