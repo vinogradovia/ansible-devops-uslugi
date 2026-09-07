@@ -1,0 +1,20 @@
+---
+# handlers file for postgresql
+#
+# В отличие от roles/postgresql_replication (гейт postgresql_replication_allow_restart на
+# adopt-хосте — там роль может применяться к уже боевому, ранее не управлявшемуся ей инстансу),
+# эта роль всегда только ставит PostgreSQL с нуля — рестарт после конфигурации всегда безопасен
+# на первом прогоне. На повторных прогонах (обновление конфигурации через тот же вручную
+# запускаемый Semaphore Task Template, см. ADR-0023) рестарт — осознанное действие оператора, а
+# не побочный эффект автоматического drift-reconcile (см. ADR-0023, решение не подключать эту роль
+# к Module CRD).
+- name: Restart PostgreSQL
+  ansible.builtin.systemd:
+    name: "{{ postgresql_service_name }}"
+    state: restarted
+
+# pg_hba.conf применяется через reload (SIGHUP), не требует рестарта службы.
+- name: Reload PostgreSQL
+  ansible.builtin.systemd:
+    name: "{{ postgresql_service_name }}"
+    state: reloaded

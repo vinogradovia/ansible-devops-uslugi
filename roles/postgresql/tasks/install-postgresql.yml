@@ -1,0 +1,25 @@
+---
+# Fresh install из PGDG. Пакет postgresql-<version> уже содержит версию в имени.
+#
+# postgresql-common (postinst-скрипт пакета postgresql-<version>) сам создаёт кластер "main" и
+# стартует сервис.
+#
+# acl — без него Ansible не может корректно подготовить временные файлы при become_user: postgres
+# (peer-auth к unix-сокету), которым playbook'и-потребители этой роли заводят свои БД/пользователей
+# (см. README.md, «Границы ответственности») — тот же баг, найденный реальным прогоном molecule
+# для roles/postgresql_replication (см. её tasks/main.yml).
+- name: "Установить PostgreSQL {{ postgresql_version }}"
+  ansible.builtin.apt:
+    name:
+      - "postgresql-{{ postgresql_version }}"
+      - "postgresql-client-{{ postgresql_version }}"
+      - python3-psycopg2
+      - acl
+    state: present
+    update_cache: true
+
+- name: "Включить и запустить сервис {{ postgresql_service_name }}"
+  ansible.builtin.systemd:
+    name: "{{ postgresql_service_name }}"
+    enabled: true
+    state: started

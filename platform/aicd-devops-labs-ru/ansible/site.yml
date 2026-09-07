@@ -246,6 +246,14 @@
                 answer "{{ '{{' }} .Name {{ '}}' }} 60 IN A {{ hostvars['freeipa'].ansible_host }}"
                 fallthrough
               }
+              # docs/adr/0023-postgresql-standalone-role.md — standalone PostgreSQL, тот же принцип,
+              # что ipa выше: отдельная VM, свой статический IP, не ClusterIP Traefik (нет Ingress,
+              # трафик — сырой TCP на 5432, не HTTP).
+              template IN A aicd.devops-labs.ru {
+                match "^postgresql-infra-1\.aicd\.devops-labs\.ru\.$"
+                answer "{{ '{{' }} .Name {{ '}}' }} 60 IN A {{ hostvars['postgresql-infra-1'].ansible_host }}"
+                fallthrough
+              }
               # Найдено реальным прогоном (ADR-0013, forwardAuth Authelia молча пропускал все
               # запросы без проверки): шаблоны выше отвечают только на IN A — запрос AAAA для тех
               # же имён проваливался через fallthrough в forward-плагин, который отвечал
@@ -259,7 +267,7 @@
               # rcode NOERROR без answer — корректный пустой ответ ("имя есть, IPv6-записи нет"),
               # а не NXDOMAIN.
               template IN AAAA aicd.devops-labs.ru {
-                match "^(gitea|semaphore|radar|infra-panel|openbao|sso|ipa)\.aicd\.devops-labs\.ru\.$"
+                match "^(gitea|semaphore|radar|infra-panel|openbao|sso|ipa|postgresql-infra-1)\.aicd\.devops-labs\.ru\.$"
                 rcode NOERROR
                 fallthrough
               }
@@ -1063,6 +1071,53 @@
           ansible.builtin.set_fact:
             platform_aicd_devops_labs_ru_freeipa_dm_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_freeipa_read.json.data.data.dm_password }}"
             platform_aicd_devops_labs_ru_freeipa_admin_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_freeipa_read.json.data.data.admin_password }}"
+          no_log: true
+
+        # docs/adr/0023-postgresql-standalone-role.md — единственный секрет standalone Postgres в
+        # этом заходе: пароль служебного пользователя мониторинга (postgres_exporter, LOGIN +
+        # GRANT pg_monitor) — НЕ прикладной БД/пользователь litellm/grafana (те в этом заходе не
+        # заводятся вообще, см. ADR-0023 §3/«Открытые вопросы»). Тот же идемпотентный приём, что
+        # secret/freeipa выше.
+        - name: "OpenBao: проверить наличие secret/postgresql"
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/postgresql"
+            ca_path: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
+            method: GET
+            headers:
+              X-Vault-Token: "{{ platform_aicd_devops_labs_ru_openbao_root_token }}"
+            status_code: [200, 404]
+          register: platform_aicd_devops_labs_ru_openbao_secret_postgresql
+          no_log: true
+
+        - name: "OpenBao: сгенерировать и записать secret/postgresql (только при первом прогоне)"
+          when: platform_aicd_devops_labs_ru_openbao_secret_postgresql.status == 404
+          no_log: true
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/postgresql"
+            ca_path: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
+            method: POST
+            headers:
+              X-Vault-Token: "{{ platform_aicd_devops_labs_ru_openbao_root_token }}"
+            body_format: json
+            body:
+              data:
+                postgres_exporter_password: "{{ lookup('ansible.builtin.password', '/dev/null', length=24) }}"
+            status_code: [200, 204]
+
+        - name: "OpenBao: прочитать secret/postgresql (пароль нужен play postgresql_infra_hosts ниже)"
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/postgresql"
+            ca_path: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
+            method: GET
+            headers:
+              X-Vault-Token: "{{ platform_aicd_devops_labs_ru_openbao_root_token }}"
+            status_code: [200]
+          register: platform_aicd_devops_labs_ru_openbao_secret_postgresql_read
+          no_log: true
+
+        - name: Опубликовать пароль postgres_exporter как факт хоста (для play postgresql_infra_hosts, hostvars)
+          ansible.builtin.set_fact:
+            platform_aicd_devops_labs_ru_postgres_exporter_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_postgresql_read.json.data.data.postgres_exporter_password }}"
           no_log: true
 
         # ADR-0013 §3 — секреты Authelia: JWT/сессия/шифрование БД-хранилища, HMAC OIDC-провайдера,
@@ -1907,6 +1962,111 @@
             json: >-
               {{ lookup('ansible.builtin.file',
                         playbook_dir ~ '/../../../ADDONS/grafana_dashboards/' ~ item.file) }}
+
+    # docs/adr/0022-new-component-requirements.md §12 — раннер Gitea Actions, тот же приём и то
+    # же обоснование, что platform/aicd/ansible/site.yml (первый стенд, полный разбор в
+    # комментариях там).
+    - name: "Дождаться готовности пода Gitea (нужен для generate-runner-token)"
+      when: platform_aicd_devops_labs_ru_gitea_actions_runner_enabled | default(true)
+      delegate_to: localhost
+      become: false
+      run_once: true
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        api_version: v1
+        kind: Pod
+        namespace: platform
+        label_selectors:
+          - "app.kubernetes.io/instance=gitea"
+      register: platform_aicd_devops_labs_ru_gitea_pod
+      until: >-
+        platform_aicd_devops_labs_ru_gitea_pod.resources | length > 0 and
+        (platform_aicd_devops_labs_ru_gitea_pod.resources[0].status.containerStatuses | default([])
+          | selectattr('ready', 'equalto', true) | list | length > 0)
+      retries: 60
+      delay: 10
+
+    - name: "OpenBao: прочитать secret/gitea (проверить наличие actions_runner_token)"
+      when: platform_aicd_devops_labs_ru_gitea_actions_runner_enabled | default(true)
+      ansible.builtin.uri:
+        url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/gitea"
+        ca_path: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
+        method: GET
+        headers:
+          X-Vault-Token: "{{ platform_aicd_devops_labs_ru_openbao_root_token }}"
+        status_code: [200]
+      register: platform_aicd_devops_labs_ru_openbao_secret_gitea_for_runner
+      no_log: true
+
+    # Путь к app.ini — та же непроверенная реальным прогоном конвенция, что первый стенд, сверить
+    # при первом живом прогоне (kubectl exec ... -- printenv GITEA_APP_INI).
+    - name: "Gitea: сгенерировать registration-token для Actions-раннера (если ещё нет в secret/gitea)"
+      when:
+        - platform_aicd_devops_labs_ru_gitea_actions_runner_enabled | default(true)
+        - "'actions_runner_token' not in platform_aicd_devops_labs_ru_openbao_secret_gitea_for_runner.json.data.data"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+      kubernetes.core.k8s_exec:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        namespace: platform
+        pod: "{{ platform_aicd_devops_labs_ru_gitea_pod.resources[0].metadata.name }}"
+        command: gitea --config /data/gitea/conf/app.ini actions generate-runner-token
+      register: platform_aicd_devops_labs_ru_gitea_runner_token_generated
+      no_log: true
+
+    - name: "OpenBao: добавить actions_runner_token в существующий secret/gitea"
+      when:
+        - platform_aicd_devops_labs_ru_gitea_actions_runner_enabled | default(true)
+        - "'actions_runner_token' not in platform_aicd_devops_labs_ru_openbao_secret_gitea_for_runner.json.data.data"
+      no_log: true
+      ansible.builtin.uri:
+        url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/gitea"
+        ca_path: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
+        method: POST
+        headers:
+          X-Vault-Token: "{{ platform_aicd_devops_labs_ru_openbao_root_token }}"
+        body_format: json
+        body:
+          data: >-
+            {{
+              platform_aicd_devops_labs_ru_openbao_secret_gitea_for_runner.json.data.data
+              | combine({'actions_runner_token': platform_aicd_devops_labs_ru_gitea_runner_token_generated.stdout | trim})
+            }}
+        status_code: [200, 204]
+
+    - name: Helmwave up (Gitea Actions Runner, helm/envs/platform-devops-labs-ru.yaml)
+      when: platform_aicd_devops_labs_ru_gitea_actions_runner_enabled | default(true)
+      delegate_to: localhost
+      become: false
+      run_once: true
+      no_log: true
+      environment:
+        KUBECONFIG: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        K8S_CLUSTER: platform-devops-labs-ru
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+        VAULT_ADDR: "{{ platform_aicd_devops_labs_ru_openbao_addr }}"
+        VAULT_TOKEN: "{{ platform_aicd_devops_labs_ru_openbao_render_token_value }}"
+        VAULT_CACERT: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
+      ansible.builtin.command:
+        chdir: "{{ playbook_dir }}/../../../helm"
+        argv:
+          - helmwave
+          - up
+          - --build
+          - --yml
+          - --templater
+          - gomplate
+          - --file
+          - helmwave.platform-devops-labs-ru.yml
+          - --tags
+          - gitea-actions-runner
+      register: platform_aicd_devops_labs_ru_helmwave_up_gitea_actions_runner
+      changed_when: true
 
     # docs/adr/0018-internal-caching-proxy.md — bootstrap Nexus, тот же приём, что
     # platform/aicd/ansible/site.yml.
@@ -3916,3 +4076,66 @@
                 ports:
                   - protocol: TCP
                     port: 4000
+
+- name: "Standalone PostgreSQL (ADR-0023): postgresql-infra-1"
+  hosts: postgresql_infra_hosts
+  become: true
+  vars:
+    postgresql_infra_postgres_exporter_password: "{{ hostvars['aicd-labs'].platform_aicd_devops_labs_ru_postgres_exporter_password }}"
+
+  pre_tasks:
+    - name: Дождаться завершения cloud-init
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+      failed_when: false
+
+  roles:
+    - postgresql
+
+  # Заведение служебного пользователя мониторинга — ad hoc, на уровне playbook'а, не переменная
+  # роли (см. roles/postgresql/README.md, «Границы ответственности»). Прикладные БД/пользователи
+  # (litellm, grafana) в этом заходе не заводятся вовсе — см. ADR-0023 §3/«Открытые вопросы».
+  tasks:
+    - name: Создать служебного пользователя мониторинга postgres-exporter
+      become: true
+      become_user: postgres
+      no_log: true
+      community.postgresql.postgresql_user:
+        login_unix_socket: /var/run/postgresql
+        name: postgres-exporter
+        password: "{{ postgresql_infra_postgres_exporter_password }}"
+        role_attr_flags: LOGIN
+
+    - name: Выдать роль pg_monitor пользователю postgres-exporter
+      become: true
+      become_user: postgres
+      community.postgresql.postgresql_membership:
+        login_unix_socket: /var/run/postgresql
+        group: pg_monitor
+        target_roles: postgres-exporter
+        state: present
+
+    # host, не hostssl — monitoring_agent/templates/exporters/postgres-exporter/
+    # postgres_exporter.env.j2 жёстко использует sslmode=disable (переменной не параметризовано),
+    # соединение только с 127.0.0.1 (экспортёр локальный, тот же хост).
+    - name: "Разрешить postgres-exporter локально по TCP в pg_hba.conf (monitoring_agent, sslmode=disable)"
+      community.postgresql.postgresql_pg_hba:
+        dest: "{{ postgresql_config_dir }}/pg_hba.conf"
+        contype: host
+        databases: postgres
+        users: postgres-exporter
+        source: 127.0.0.1/32
+        method: scram-sha-256
+      notify: Reload PostgreSQL
+
+    - name: Force notified handlers (Reload PostgreSQL) to run now
+      ansible.builtin.meta: flush_handlers
+
+    - name: "Monitoring_agent: node_exporter + postgres_exporter (systemd)"
+      ansible.builtin.include_role:
+        name: monitoring_agent
+      vars:
+        monitoring_agent_orchestrator: systemd
+        monitoring_agent_node_exporter_enabled: true
+        monitoring_agent_postgres_exporter_enabled: true
+        monitoring_agent_postgres_exporter_password: "{{ postgresql_infra_postgres_exporter_password }}"

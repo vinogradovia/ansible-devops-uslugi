@@ -12,3 +12,8 @@ output "llm1_ip" {
   description = "IP-адрес GPU-ноды llm1 (ADR-0015 Фаза 1, var.llm1_ip_cidr)"
   value       = split("/", var.llm1_ip_cidr)[0]
 }
+
+output "postgresql_infra_ip" {
+  description = "IP-адрес VM postgresql-infra-1 (ADR-0023, var.postgresql_infra_ip_cidr)"
+  value       = split("/", var.postgresql_infra_ip_cidr)[0]
+}

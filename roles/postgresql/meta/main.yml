@@ -1,0 +1,10 @@
+---
+galaxy_info:
+  author: Ivan Vinogradov <vinogradovia@gmail.com>
+  description: install and configure a standalone (non-HA) PostgreSQL server — engine, TLS, baseline pg_hba
+  license: WTFPL
+  min_ansible_version: "2.2"
+  galaxy_tags:
+    - postgresql
+    - database
+dependencies: []

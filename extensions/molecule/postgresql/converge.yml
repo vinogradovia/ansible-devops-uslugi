@@ -1,0 +1,50 @@
+---
+- name: Converge
+  hosts: all
+  become: true
+  collections:
+    - devops.uslugi
+  tasks:
+    - name: Прогнать роль postgresql (переменные — см. group_vars/all.yml)
+      ansible.builtin.import_role:
+        name: postgresql
+
+    # Заведение БД/пользователя-потребителя — НЕ ответственность роли (см. README.md, «Границы
+    # ответственности») — композируется здесь, ad hoc, тем же способом, что и в реальном
+    # site.yml/demo/postgresql-ha-platform.
+    - name: Создать тестовую БД
+      become: true
+      become_user: postgres
+      community.postgresql.postgresql_db:
+        login_unix_socket: /var/run/postgresql
+        name: "{{ molecule_postgresql_test_db }}"
+
+    - name: Создать тестового пользователя
+      become: true
+      become_user: postgres
+      community.postgresql.postgresql_user:
+        login_unix_socket: /var/run/postgresql
+        db: "{{ molecule_postgresql_test_db }}"
+        name: "{{ molecule_postgresql_test_user }}"
+        password: "{{ molecule_postgresql_test_password }}"
+
+    # hostssl, не host — TLS обязателен для этой конкретной БД/пользователя (см. verify.yml,
+    # проверка, что sslmode=disable отклоняется). contype/databases/users — точечно под одного
+    # потребителя, не "all all", тот же принцип, что README.md, «Границы ответственности».
+    - name: Разрешить тестовому пользователю подключаться по сети (TLS обязателен)
+      community.postgresql.postgresql_pg_hba:
+        dest: "{{ molecule_postgresql_config_dir }}/pg_hba.conf"
+        contype: hostssl
+        databases: "{{ molecule_postgresql_test_db }}"
+        users: "{{ molecule_postgresql_test_user }}"
+        source: 127.0.0.1/32
+        method: scram-sha-256
+      notify: Reload PostgreSQL
+
+    - name: Force notified handlers (Reload PostgreSQL) to run now
+      ansible.builtin.meta: flush_handlers
+  handlers:
+    - name: Reload PostgreSQL
+      ansible.builtin.systemd:
+        name: "postgresql@17-main"
+        state: reloaded

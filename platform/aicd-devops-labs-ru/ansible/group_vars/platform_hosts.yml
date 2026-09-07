@@ -56,6 +56,19 @@ platform_aicd_devops_labs_ru_grafana_addons_dashboards:
   # свой node-exporter-full, он покрывает и внешние хосты того же job'а.
   - name: freeipa-exporter
     file: freeipa_exporter.json
+  # gitea (2026-09-06, docs/adr/0022-new-component-requirements.md §4) — эталон разбора,
+  # включая переименование входного датасорса файла, — platform/aicd/ansible/group_vars/
+  # platform_hosts.yml, первый стенд.
+  - name: gitea
+    file: gitea_13192.json
+  # docs/adr/0023-postgresql-standalone-role.md — standalone PostgreSQL (postgresql-infra-1).
+  - name: postgres-exporter
+    file: postgres_exporter_12485.json
+
+# docs/adr/0022-new-component-requirements.md §12, docs/adr/0012-cicd-platform-architecture.md
+# §4 — раннер Gitea Actions для host-задач (lint). Эталон разбора (почему отдельный флаг, а не
+# элемент default_addons) — platform/aicd/ansible/group_vars/platform_hosts.yml, первый стенд.
+platform_aicd_devops_labs_ru_gitea_actions_runner_enabled: true
 
 # docs/adr/0021-agent-platform-model-selection.md — локальный инференс на llm1 (namespace llm,
 # ADR-0015 §7/§10). Не Helm-релиз (как RuntimeClass/device-plugin/namespace-каркас выше по этому

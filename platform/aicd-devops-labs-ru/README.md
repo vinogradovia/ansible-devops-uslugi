@@ -28,7 +28,12 @@ libvirt, под доменом `aicd.devops-labs.ru` вместо `aicd.platform
   10.10.10.249 grafana.aicd.devops-labs.ru
   10.10.10.249 nexus.aicd.devops-labs.ru
   10.10.10.249 nexus-cache.aicd.devops-labs.ru
+  10.10.10.246 postgresql-infra-1.aicd.devops-labs.ru
   ```
+  `postgresql-infra-1` — свой IP, не ClusterIP Traefik (docs/adr/0023-postgresql-standalone-role.md,
+  standalone Postgres, сырой TCP на 5432, не HTTP/Ingress) — тот же принцип, что уже действует для
+  `freeipa` (там своя запись в этом разделе исторически не заводилась, для Postgres заводим явно —
+  нужна операторам для ручного `psql -h ...`).
 - **Var-префикс ansible:** `platform_aicd_devops_labs_ru_*` (по имени каталога, та же
   конвенция, что `platform_aicd_*` у первого стенда).
 - **Helmwave-окружение:** свой `K8S_CLUSTER=platform-devops-labs-ru`

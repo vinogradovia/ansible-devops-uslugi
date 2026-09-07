@@ -47,6 +47,31 @@ platform_aicd_enabled_addons: >-
 #
 # Включено 2026-09-03: ipa_exporter в этом окружении живой (monitoring_agent_ipa_exporter_enabled:
 # true в site.yml, ВМ подняты, артефакт freeipa-exporter v1.0.2 залит в Nexus internal-releases).
+#
+# gitea (2026-09-06, docs/adr/0022-new-component-requirements.md §4) — grafana.com/13192, входной
+# датасорс дашборда переименован DS_PROMETHEUS → DS_VICTORIAMETRICS уже в самом файле
+# (ADDONS/grafana_dashboards/gitea_13192.json), чтобы совпасть с единственным inputName, который
+# подставляет задача в site.yml (DS_VICTORIAMETRICS, общий для всех файлов этого списка —
+# per-item inputName механизм не поддерживает).
 platform_aicd_grafana_addons_dashboards:
   - name: freeipa-exporter
     file: freeipa_exporter.json
+  - name: gitea
+    file: gitea_13192.json
+  # docs/adr/0023-postgresql-standalone-role.md — standalone PostgreSQL (postgresql-infra-1).
+  - name: postgres-exporter
+    file: postgres_exporter_12485.json
+
+# docs/adr/0022-new-component-requirements.md §12, docs/adr/0012-cicd-platform-architecture.md §4
+# ("более лёгкие CI-задачи... могут использовать k3s-раннеры") — раннер Gitea Actions для
+# host-задач (lint), namespace platform, helm/values/platform/namespaces/platform/
+# gitea-actions-runner/values.yaml. НЕ часть platform_aicd_enabled_addons выше: релиз читает
+# actions_runner_token из secret/gitea, который физически не может существовать раньше первого
+# успешного старта самого Gitea (токен выдаёт сам сервер, а не заранее сгенерированный пароль,
+# как у остальных аддонов) — единый `helmwave up --tags` combined-вызовом со всеми core+addons
+# упал бы на самом первом прогоне (Gitea ещё не поднят к моменту рендера этого values.yaml).
+# Поэтому отдельный флаг + отдельный `helmwave up --tags gitea-actions-runner` ПОСЛЕ готовности
+# Gitea (platform/aicd/ansible/site.yml, play "Platform CI/CD infra"). true — эксплицитный
+# дефолт-вкл, тот же принцип "по умолчанию, но переопределяемо", что default_addons, отдельная
+# переменная вместо третьего списка — из-за другого механизма выката, не из-за другой семантики.
+platform_aicd_gitea_actions_runner_enabled: true

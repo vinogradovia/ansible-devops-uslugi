@@ -22,3 +22,10 @@ all:
         llm1:
           ansible_host: ${llm1_ip}
           ansible_user: ${llm1_ansible_user}
+    # docs/adr/0023-postgresql-standalone-role.md — standalone PostgreSQL для нужд платформы.
+    # Множественное число в имени группы — заведомо может содержать больше одного хоста в будущем
+    # (naming convention, ADR-0023 §6), в отличие от singleton-групп вроде freeipa_hosts.
+    postgresql_infra_hosts:
+      hosts:
+        postgresql-infra-1:
+          ansible_host: ${postgresql_infra_ip}

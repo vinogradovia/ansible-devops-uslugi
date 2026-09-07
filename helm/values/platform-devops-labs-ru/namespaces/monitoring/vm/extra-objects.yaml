@@ -57,3 +57,38 @@ extraObjects:
           labels:
             job: ipa_exporter
             instance: freeipa
+        # docs/adr/0023-postgresql-standalone-role.md — standalone PostgreSQL, тот же паттерн
+        # static target, что freeipa выше.
+        - targets:
+            - "10.10.10.246:9100"
+          labels:
+            job: node-exporter
+            instance: postgresql-infra-1
+        - targets:
+            - "10.10.10.246:9187"
+          labels:
+            # job: postgres-exporter (дефис, не postgres_exporter) — намеренно совпадает с тем,
+            # что ожидает дашборд ADDONS/grafana_dashboards/postgres_exporter_12485.json
+            # (label_values({job="postgres-exporter"}, instance)), тот же принцип, что node-exporter
+            # выше.
+            job: postgres-exporter
+            instance: postgresql-infra-1
+
+  # docs/adr/0022-new-component-requirements.md §4 — нативные метрики Gitea, эталон разбора —
+  # helm/values/platform/namespaces/monitoring/vm/extra-objects.yaml, первый стенд.
+  - apiVersion: operator.victoriametrics.com/v1beta1
+    kind: VMServiceScrape
+    metadata:
+      name: gitea
+      namespace: monitoring
+    spec:
+      namespaceSelector:
+        matchNames:
+          - platform
+      selector:
+        matchLabels:
+          app.kubernetes.io/instance: gitea
+      endpoints:
+        - port: http
+          path: /metrics
+          interval: 30s

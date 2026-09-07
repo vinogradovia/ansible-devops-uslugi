@@ -1,0 +1,106 @@
+---
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    # --- Сервис ---------------------------------------------------------------------------------
+    # service_facts не отражает enabled-состояние инстанцированных unit'ов (postgresql@17-main)
+    # предсказуемо (systemd-шаблон, enable фактически идёт через генератор
+    # postgresql.service/postgresql@.service) — тот же класс проблемы, что socket-юниты в
+    # roles/monitoring_agent (см. CLAUDE.md, «monitoring_agent»), обходится прямым systemctl.
+    - name: "systemctl: служба postgresql@17-main должна быть active"
+      ansible.builtin.command: systemctl is-active postgresql@17-main
+      changed_when: false
+
+    - name: "systemctl: служба postgresql@17-main должна быть enabled"
+      ansible.builtin.command: systemctl is-enabled postgresql@17-main
+      changed_when: false
+
+    # --- TLS: сертификат/ключ на месте, с правильными правами ----------------------------------
+    - name: Собрать stat TLS-файлов
+      ansible.builtin.stat:
+        path: "{{ molecule_postgresql_config_dir }}/{{ item }}"
+      register: molecule_postgresql_tls_stat
+      loop:
+        - server.crt
+        - server.key
+
+    - name: TLS-файлы должны существовать, ключ — mode 0600 owned postgres
+      ansible.builtin.assert:
+        that:
+          - molecule_postgresql_tls_stat.results[0].stat.exists
+          - molecule_postgresql_tls_stat.results[1].stat.exists
+          - molecule_postgresql_tls_stat.results[1].stat.pw_name == 'postgres'
+          - molecule_postgresql_tls_stat.results[1].stat.mode == '0600'
+        quiet: true
+
+    # --- Позитивный кейс: тестовый пользователь подключается к своей БД по TLS -----------------
+    - name: "psql: тестовый пользователь должен подключиться к своей БД (sslmode=require)"
+      ansible.builtin.command: >-
+        psql
+        "host=127.0.0.1 port=5432 dbname={{ molecule_postgresql_test_db }}
+        user={{ molecule_postgresql_test_user }} sslmode=require"
+        -c "select 1"
+      environment:
+        PGPASSWORD: "{{ molecule_postgresql_test_password }}"
+      changed_when: false
+
+    # --- Негативный кейс 1: TLS обязателен для этой записи pg_hba (hostssl, не host) -----------
+    - name: "psql: подключение без TLS должно быть отклонено (hostssl-запись, не host)"
+      ansible.builtin.command: >-
+        psql
+        "host=127.0.0.1 port=5432 dbname={{ molecule_postgresql_test_db }}
+        user={{ molecule_postgresql_test_user }} sslmode=disable"
+        -c "select 1"
+      environment:
+        PGPASSWORD: "{{ molecule_postgresql_test_password }}"
+      register: molecule_postgresql_no_tls_attempt
+      failed_when: false
+      changed_when: false
+
+    - name: "Подключение без TLS должно завершиться ошибкой"
+      ansible.builtin.assert:
+        that:
+          - molecule_postgresql_no_tls_attempt.rc != 0
+        quiet: true
+
+    # --- Негативный кейс 2: суперпользователь postgres недоступен удалённо ---------------------
+    # Роль (см. README.md, «Границы ответственности») никогда не назначает postgres сетевой
+    # пароль — Debian-стоковый pg_hba.conf формально пропускает подключение по TCP
+    # (host all all 127.0.0.1/32 scram-sha-256), но аутентификация всё равно проваливается, т.к.
+    # проверять пароль не с чем (у роли postgres пароль не задан вовсе, только peer/local).
+    - name: "psql: суперпользователь postgres не должен быть доступен по сети"
+      ansible.builtin.command: >-
+        psql "host=127.0.0.1 port=5432 dbname=postgres user=postgres sslmode=require"
+        -c "select 1"
+      environment:
+        PGPASSWORD: anything
+      register: molecule_postgresql_superuser_attempt
+      failed_when: false
+      changed_when: false
+
+    - name: "Подключение суперпользователя по сети должно завершиться ошибкой"
+      ansible.builtin.assert:
+        that:
+          - molecule_postgresql_superuser_attempt.rc != 0
+        quiet: true
+
+    # --- Негативный кейс 3: тестовый пользователь не должен иметь доступа к чужой БД -----------
+    - name: "psql: тестовый пользователь не должен подключиться к БД postgres (pg_hba точечный)"
+      ansible.builtin.command: >-
+        psql
+        "host=127.0.0.1 port=5432 dbname=postgres
+        user={{ molecule_postgresql_test_user }} sslmode=require"
+        -c "select 1"
+      environment:
+        PGPASSWORD: "{{ molecule_postgresql_test_password }}"
+      register: molecule_postgresql_cross_db_attempt
+      failed_when: false
+      changed_when: false
+
+    - name: "Подключение к чужой БД должно завершиться ошибкой"
+      ansible.builtin.assert:
+        that:
+          - molecule_postgresql_cross_db_attempt.rc != 0
+        quiet: true

@@ -1,0 +1,83 @@
+---
+# Debian-пакетирование PostgreSQL (postgresql-common) создаёт каталог conf.d/, но НЕ включает его
+# в postgresql.conf по умолчанию. Правим существующий postgresql.conf аддитивно (lineinfile, не
+# перезаписываем целиком) — тот же паттерн, что roles/postgresql_replication.
+- name: Ensure conf.d directory exists
+  ansible.builtin.file:
+    path: "{{ postgresql_config_dir }}/conf.d"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0750'
+
+- name: Ensure postgresql.conf includes conf.d/*.conf
+  ansible.builtin.lineinfile:
+    path: "{{ postgresql_config_dir }}/postgresql.conf"
+    line: "include_dir = 'conf.d'"
+    insertafter: EOF
+    state: present
+  notify: Restart PostgreSQL
+
+- name: TLS - generate self-signed certificate
+  when: postgresql_tls_enabled | bool
+  notify: Restart PostgreSQL
+  block:
+    - name: "TLS: приватный ключ"
+      community.crypto.openssl_privatekey:
+        path: "{{ postgresql_tls_key_path }}"
+        size: 4096
+        owner: postgres
+        group: postgres
+        mode: '0600'
+
+    - name: "TLS: CSR"
+      community.crypto.openssl_csr:
+        path: "{{ postgresql_tls_csr_path }}"
+        privatekey_path: "{{ postgresql_tls_key_path }}"
+        common_name: "{{ postgresql_tls_common_name }}"
+        owner: postgres
+        group: postgres
+        mode: '0644'
+
+    - name: "TLS: сертификат"
+      community.crypto.x509_certificate:
+        path: "{{ postgresql_tls_cert_path }}"
+        privatekey_path: "{{ postgresql_tls_key_path }}"
+        csr_path: "{{ postgresql_tls_csr_path }}"
+        provider: selfsigned
+        selfsigned_not_after: "+{{ postgresql_tls_days }}d"
+        owner: postgres
+        group: postgres
+        mode: '0644'
+
+- name: Render drop-in config (listen_addresses/port/TLS)
+  ansible.builtin.template:
+    src: conf.d/99-postgresql.conf.j2
+    dest: "{{ postgresql_config_dir }}/conf.d/99-postgresql.conf"
+    owner: postgres
+    group: postgres
+    mode: '0640'
+  notify: Restart PostgreSQL
+
+# Debian-пакет postgresql-common рендерит pg_hba.conf с двумя "host all all <loopback> scram-
+# sha-256" строками — они матчатся ЛЮБЫМ пользователем с паролем к ЛЮБОЙ базе с loopback-адреса,
+# в обход точечных per-database/per-user грантов, которые потребители этой роли добавляют сами
+# (см. README.md, «Границы ответственности»). Найдено реальным прогоном molecule: пользователь,
+# заведённый под одну конкретную БД с hostssl-грантом, всё равно мог подключиться по plain TCP
+# (sslmode=disable) к ЛЮБОЙ базе — именно через этот дефолтный catch-all, не через свой грант.
+# Убираем обе строки — после этой роли с сети доступны только явно перечисленные database/user/
+# CIDR-комбинации, ничего "по умолчанию". Суперпользователя postgres это не затрагивает — ему
+# роль никогда не назначает пароль, только local/peer (см. defaults/main.yml).
+- name: "Убрать дефолтный catch-all в pg_hba.conf (host all all <loopback>)"
+  community.postgresql.postgresql_pg_hba:
+    dest: "{{ postgresql_config_dir }}/pg_hba.conf"
+    contype: host
+    databases: all
+    users: all
+    source: "{{ item }}"
+    method: scram-sha-256
+    state: absent
+  loop:
+    - 127.0.0.1/32
+    - "::1/128"
+  notify: Reload PostgreSQL

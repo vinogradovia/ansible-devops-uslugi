@@ -1,0 +1,12 @@
+{{ ansible_managed | comment }}
+
+listen_addresses = '{{ postgresql_listen_addresses }}'
+port = {{ postgresql_port }}
+
+{% if postgresql_tls_enabled | bool %}
+ssl = on
+ssl_cert_file = '{{ postgresql_tls_cert_path }}'
+ssl_key_file = '{{ postgresql_tls_key_path }}'
+{% else %}
+ssl = off
+{% endif %}

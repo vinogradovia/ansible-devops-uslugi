@@ -199,3 +199,40 @@ variable "llm1_ansible_user" {
   type        = string
   default     = "ubuntu"
 }
+
+# docs/adr/0023-postgresql-standalone-role.md — отдельная VM для standalone PostgreSQL (нужды
+# платформы: litellm/grafana/и т.п., не HA-кластер). Клонируется из того же Ubuntu-шаблона, что
+# aicd_labs (var.proxmox_template_vmid) — НЕ Rocky9-шаблон freeipa, НЕ import существующей VM, как
+# llm1.
+variable "postgresql_infra_vm_name" {
+  description = "Отображаемое имя VM postgresql-infra-1 в Proxmox UI и hostname гостя — naming convention <component>-<purpose>-<n>, см. ADR-0023 §6"
+  type        = string
+  default     = "postgresql-infra-1"
+}
+
+variable "postgresql_infra_vcpu" {
+  description = "Число vCPU для VM postgresql-infra-1"
+  type        = number
+  default     = 2
+}
+
+variable "postgresql_infra_memory" {
+  description = "RAM, MiB для VM postgresql-infra-1"
+  type        = number
+  default     = 4096
+}
+
+variable "postgresql_infra_disk_gb" {
+  description = "Размер диска, GB для VM postgresql-infra-1"
+  type        = number
+  default     = 30
+}
+
+# .246 — следующий свободный адрес на той же плоской LAN после .247 (llm1)/.248 (freeipa)/.249
+# (aicd_labs) — см. grep по README/terraform на момент реализации; НЕ подтверждено живым прогоном
+# на реальной сети, проверить перед первым apply.
+variable "postgresql_infra_ip_cidr" {
+  description = "Статический IPv4-адрес VM postgresql-infra-1 с маской (та же плоская LAN, что остальные VM) — ПРОВЕРИТЬ свободность перед apply"
+  type        = string
+  default     = "10.10.10.246/24"
+}

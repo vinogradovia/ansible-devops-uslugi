@@ -1,0 +1,12 @@
+---
+# Переменные для converge/verify этого сценария. Лежат в group_vars/, а не в vars: playbook'ов —
+# тот же паттерн, что extensions/molecule/infra_dns/group_vars/all.yml (нужны и converge.yml, и
+# verify.yml).
+
+# Дефолт роли (roles/postgresql/defaults/main.yml) продублирован здесь явно — verify.yml не
+# подключает роль и не видит её defaults/, а путь к postgresql.conf/pg_hba.conf нужен для проверок.
+molecule_postgresql_config_dir: /etc/postgresql/17/main
+
+molecule_postgresql_test_db: moleculetest
+molecule_postgresql_test_user: moleculetest
+molecule_postgresql_test_password: MoleculeTestP@ssw0rd

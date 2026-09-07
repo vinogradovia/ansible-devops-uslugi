@@ -339,3 +339,18 @@ RAM `cicd` поднята второй раз (6144→10240 MiB, `platform/aicd/
 <IP control-plane> nexus.aicd.platform
 <IP control-plane> nexus-cache.aicd.platform
 ```
+
+## Standalone PostgreSQL (docs/adr/0023-postgresql-standalone-role.md)
+
+Persistent VM `postgresql-infra-1` (`postgresql-infra-1.aicd.platform`, обычный Debian-образ, тот
+же base, что `cicd`) — отдельно стоящий (не HA) сервер БД для нужд платформы (litellm/grafana/
+и т.п.), не клиентский HA-хостинг (для того — `roles/postgresql_replication`, ADR-0005). В этом
+заходе поднят только сам сервер: движок, самоподписанный TLS, мониторинг (`node_exporter` +
+`postgres_exporter`, дашборд `postgres-exporter` в Grafana). БД/пользователи-потребители
+(litellm, grafana) **не заводятся** — отдельная задача по явному запросу в будущем (см. ADR-0023,
+«Открытые вопросы»). Свой IP, не ClusterIP Traefik (сырой TCP на 5432, не HTTP/Ingress) — доступ
+только с платформенной сети через `pg_hba.conf` (Debian-дефолтный catch-all по loopback явно
+убран ролью, см. `roles/postgresql/README.md`). Операторам — добавить в свой `/etc/hosts`:
+```
+<IP postgresql-infra-1> postgresql-infra-1.aicd.platform
+```

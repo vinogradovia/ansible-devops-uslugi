@@ -1,0 +1,27 @@
+---
+# tasks file for postgresql
+#
+# Standalone (не HA) сервер — установка + движок + TLS. Роль сознательно не создаёт БД/
+# пользователей-потребителей (litellm, grafana и т.п.) — это, по уже принятой в коллекции
+# конвенции (см. roles/postgresql_replication, demo/postgresql-ha-platform), композируется на
+# уровне playbook'а через community.postgresql.postgresql_db/postgresql_user/postgresql_pg_hba,
+# не переменной этой роли. См. docs/adr/0023-postgresql-standalone-role.md.
+
+- name: Set up the PGDG apt repository
+  ansible.builtin.include_tasks:
+    file: install-repo.yml
+
+- name: Install PostgreSQL from PGDG
+  ansible.builtin.include_tasks:
+    file: install-postgresql.yml
+
+- name: Configure PostgreSQL (listen_addresses, port, TLS)
+  ansible.builtin.include_tasks:
+    file: configure.yml
+
+# Следующие шаги плейбука (например, ad hoc заведение служебного пользователя мониторинга через
+# community.postgresql.postgresql_user) полагаются на уже применённый listen_addresses/TLS —
+# рестарт needs to happen now, not at the end of the whole play (тот же приём, что
+# roles/postgresql_replication/tasks/configure-postgresql.yml).
+- name: Force notified handlers (Restart PostgreSQL) to run now, not at the end of the play
+  ansible.builtin.meta: flush_handlers

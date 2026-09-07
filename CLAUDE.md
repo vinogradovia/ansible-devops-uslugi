@@ -189,6 +189,17 @@ docker-путь, `monitoring_server` docker-путь — Docker ставится
   tasks/group-membership.yml`) — существование/атрибуты групп/пользователей остаются на модулях
   (там бага нет). `molecule test -s freeipa_directory` подтверждённо проходит целиком (create →
   prepare → converge → idempotence → verify → destroy).
+- `extensions/molecule/postgresql/` — сценарий для роли `postgresql`
+  (`docs/adr/0023-postgresql-standalone-role.md`), той же структуры, что `infra_dns` (одна ВМ,
+  `group_vars/all.yml`). `converge.yml` прогоняет роль, затем ad hoc `community.postgresql.*`-задачи
+  заводят тестовую БД/пользователя с точечным `hostssl`-грантом (роль сама БД/пользователей не
+  создаёт, см. `roles/postgresql/README.md`, «Границы ответственности»). `verify.yml` — реальные
+  `psql`-подключения: позитивный кейс (`sslmode=require`, свой пользователь → своя БД) и три
+  негативных (без TLS, суперпользователь `postgres` по сети, чужая БД). **Первый же прогон поймал
+  реальную дыру** — Debian-пакет `postgresql-common` рендерит `pg_hba.conf` с catch-all
+  `host all all 127.0.0.1/32 scram-sha-256`, матчащим ЛЮБОГО пользователя с паролем к ЛЮБОЙ БД по
+  loopback в обход точечных грантов — роль явно убирает эти строки (`roles/postgresql/tasks/
+  configure.yml`).
 
 Запускать нужно из корня коллекции (molecule ищет `galaxy.yml` строго в текущей директории —
 `Path.cwd()`, без обхода родителей — поэтому `cd` в сам каталог сценария не работает с новыми
@@ -364,6 +375,21 @@ ansible-playbook -i inventory.yml monitoring-server.yml \
   создании аккаунта (`update_password: on_create`) — иначе каждый прогон ansible откатывал бы
   уже смененный человеком пароль обратно на начальный из OpenBao. Molecule-покрытие —
   `extensions/molecule/freeipa_directory/` (см. раздел «Molecule-тесты» выше).
+- **postgresql** — устанавливает и настраивает **standalone** (не HA) PostgreSQL из PGDG:
+  движок + самоподписанный TLS + базовый `postgresql.conf` — не отдельная роль-режим
+  `postgresql_replication` (та рассчитана только на HA-кластер с `repmgr`, см.
+  `docs/adr/0023-postgresql-standalone-role.md` §1 для полного сравнения затрат/выгод обоих
+  вариантов). Роль **не создаёт** БД/пользователей-потребителей — это, по уже действующей в
+  коллекции конвенции (`demo/postgresql-ha-platform`), заводится ad hoc на уровне playbook'а через
+  `community.postgresql.postgresql_db`/`postgresql_user`/`postgresql_pg_hba`. Убирает
+  Debian-дефолтный catch-all `host all all 127.0.0.1/32` из `pg_hba.conf` (найдено живым прогоном
+  molecule — см. раздел «Molecule-тесты» выше) — после роли сетевой доступ есть только там, где он
+  явно выдан точечным грантом. Первое применение — `postgresql-infra-1`
+  (naming convention `<component>-<purpose>-<n>`, ADR-0023 §6), standalone БД для нужд платформы
+  (litellm/grafana/и т.п.) в обоих окружениях `platform/aicd`/`platform/aicd-devops-labs-ru` — код
+  готов и слинтован, живой прогон/`tofu apply`/Semaphore Project `postgresql-infra` (по требованию
+  пользователя — отдельный Semaphore Project на компонент, ручной Task Template без Module CRD/
+  авто-reconcile, см. ADR-0023 §7) намеренно отложены (ROADMAP №60).
 
 ### Добавление нового экспортера мониторинга
 

@@ -1,0 +1,43 @@
+---
+# defaults file for postgresql
+#
+# Standalone (не HA) PostgreSQL — для общих нужд платформы (litellm/grafana/и т.п.), не для
+# клиентского хостинга с отказоустойчивостью (для этого — roles/postgresql_replication, ADR-0005).
+# Решения и обоснование — см. docs/adr/0023-postgresql-standalone-role.md.
+
+# Только Debian/Ubuntu (apt), как и весь остальной scope коллекции (см. также
+# docs/adr/0002-docker-role.md §4).
+postgresql_apt_keyring_path: /etc/apt/keyrings/postgresql.asc
+
+postgresql_version: "17"
+
+# Кластер Debian-пакетирования PostgreSQL (postgresql-common) — по умолчанию "main", менять не
+# нужно, если на хосте не используется несколько параллельных кластеров одной версии.
+postgresql_cluster_name: main
+
+postgresql_config_dir: "/etc/postgresql/{{ postgresql_version }}/{{ postgresql_cluster_name }}"
+postgresql_datadir: "/var/lib/postgresql/{{ postgresql_version }}/{{ postgresql_cluster_name }}"
+postgresql_service_name: "postgresql@{{ postgresql_version }}-{{ postgresql_cluster_name }}"
+
+postgresql_port: 5432
+
+# Debian-дефолт ('localhost') не позволяет сетевые подключения вообще — расширяем, т.к. сервер
+# существует именно для того, чтобы его потребители (в других сетевых сегментах платформы)
+# подключались удалённо. Кто именно может подключиться — решает НЕ это (bind-адрес), а
+# pg_hba.conf: роль его не трогает, оставляя Debian-дефолт (только loopback, см. README) — доступ
+# для конкретной БД/пользователя добавляется точечно там, где заводится сам потребитель (ad hoc
+# community.postgresql.postgresql_pg_hba, тот же паттерн, что уже использует
+# postgresql_replication), не этой ролью.
+postgresql_listen_addresses: "*"
+
+# TLS — самоподписанный сертификат (community.crypto), тот же паттерн, что roles/fail2ban_ui и
+# self-signed TLS для vmsingle/grafana в monitoring_server (k3s-путь). В отличие от
+# postgresql_replication (ADR-0005 §5 сознательно полагается на доверенную приватную сеть без
+# шифрования канала), здесь трафик шифруется всегда — недорого, и корректно на случай, если сеть
+# платформы окажется менее доверенной, чем межДЦ-VPN из ADR-0005.
+postgresql_tls_enabled: true
+postgresql_tls_common_name: "{{ ansible_host | default(ansible_default_ipv4.address) }}"
+postgresql_tls_days: 3650
+postgresql_tls_cert_path: "{{ postgresql_config_dir }}/server.crt"
+postgresql_tls_key_path: "{{ postgresql_config_dir }}/server.key"
+postgresql_tls_csr_path: "{{ postgresql_config_dir }}/server.csr"
