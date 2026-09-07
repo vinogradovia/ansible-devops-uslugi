@@ -794,6 +794,14 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
     admin-панелей типа №50. Требует отдельного ADR перед реализацией — сейчас зафиксирована
     только идея.
 
+    **Черновик ADR заведён** — `docs/adr/0024-platform-docs-site.md` (2026-09-07, статус
+    «Черновик», не обсуждён с оператором). Предлагает: MkDocs Material (нативная поддержка
+    mermaid-диаграмм, которыми уже написан весь `docs/platform/`), сборка init-container'ом при
+    старте пода, два независимых раздела навигации — «Архитектура» (`docs/`) и «Роли коллекции»
+    (`roles/*/README.md`, добавлено отдельным разделом 2026-09-07); сам `ROADMAP.md` не
+    публикуется. Доступ — тот же `forwardAuth`-периметр Authelia, что Radar/infra-panel, без
+    ролевой дифференциации.
+
 52. ~~**Легковесный self-hosted git с CI/CD в стиле Gitea (кандидаты: Gitea, Forgejo).**~~ —
     **архитектура решена** (`docs/adr/0012-cicd-platform-architecture.md` §4): выбор — Gitea (не
     Forgejo). Разделение ответственности с №50: Gitea Actions — CI (lint, `molecule test`), а не
