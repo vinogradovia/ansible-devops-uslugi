@@ -67,7 +67,7 @@ jobs:
           apk add --no-cache curl
           curl -fsS --user "${NEXUS_DOCS_PUBLISHER_USER}:${NEXUS_DOCS_PUBLISHER_PASSWORD}" \
             --upload-file docs-site.tar.gz \
-            "http://nexus.cache.svc.cluster.local:8081/repository/docs-site/latest.tar.gz"
+            "http://nexus-nexus.cache.svc.cluster.local:8081/repository/docs-site/latest.tar.gz"
         env:
           NEXUS_DOCS_PUBLISHER_USER: ${{ secrets.NEXUS_DOCS_PUBLISHER_USER }}
           NEXUS_DOCS_PUBLISHER_PASSWORD: ${{ secrets.NEXUS_DOCS_PUBLISHER_PASSWORD }}

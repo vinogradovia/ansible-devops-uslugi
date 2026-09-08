@@ -41,7 +41,7 @@ deployments:
             set -e
             wget --user="${NEXUS_USER}" --password="${NEXUS_PASSWORD}" \
               -O /tmp/docs-site.tar.gz \
-              http://nexus.cache.svc.cluster.local:8081/repository/docs-site/latest.tar.gz
+              http://nexus-nexus.cache.svc.cluster.local:8081/repository/docs-site/latest.tar.gz
             tar xzf /tmp/docs-site.tar.gz -C /site
         env:
           - name: NEXUS_USER
