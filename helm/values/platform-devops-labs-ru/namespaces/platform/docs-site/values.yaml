@@ -34,14 +34,17 @@ deployments:
         image: alpine
         imageTag: "3.20"
         # wget/tar — штатные апплеты busybox самого образа alpine, без apk add (не нужен внешний
-        # пакетный мираж на время старта пода).
+        # пакетный мираж на время старта пода). Живым прогоном найдено: это busybox wget, не GNU
+        # wget — --user/--password им не поддерживаются вовсе ("unrecognized option"), креды нужно
+        # встраивать в URL (user:pass@host — RFC 3986 userinfo, wget честно её парсит). Дефолтный
+        # charset lookup('ansible.builtin.password') (site.yml, secret/nexus) не содержит "@"/"/",
+        # так что пароль безопасен для этой позиции без экранирования.
         command: ["sh", "-c"]
         args:
           - |
             set -e
-            wget --user="${NEXUS_USER}" --password="${NEXUS_PASSWORD}" \
-              -O /tmp/docs-site.tar.gz \
-              http://nexus-nexus.cache.svc.cluster.local:8081/repository/docs-site/latest.tar.gz
+            wget -O /tmp/docs-site.tar.gz \
+              "http://${NEXUS_USER}:${NEXUS_PASSWORD}@nexus-nexus.cache.svc.cluster.local:8081/repository/docs-site/latest.tar.gz"
             tar xzf /tmp/docs-site.tar.gz -C /site
         env:
           - name: NEXUS_USER
