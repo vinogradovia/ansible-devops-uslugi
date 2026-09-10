@@ -274,5 +274,10 @@ Actions secrets в коллекции нет (ADR §2). Без этого шаг
 `docs-site/latest.tar.gz`) — тот же класс chicken-and-egg, что `gitea-actions-runner`/
 `actions_runner_token`.
 
-Живой `helmwave up`/первый прогон `docs-site.yml`/верификация в этом заходе не выполнялись
-(ROADMAP №51). `/etc/hosts` — см. полный список выше (`docs.aicd.devops-labs.ru` добавлен).
+**Живьём развёрнуто и проверено** (2026-09-10, ROADMAP №51) — CI, публикация в Nexus, деплой,
+TLS, `forwardAuth`, корневая страница (`/`) отдаёт `200`; четыре бага, найденных и исправленных
+по пути (общих с `aicd`) — детали в ROADMAP №51. Отличие этого окружения: на его Gitea ранее не
+существовало ни организации `platform`, ни зеркала коллекции — организация+репозиторий заведены
+через REST (агентом, с разрешения оператора), сам `git push` и секреты Nexus в
+Settings → Actions → Secrets — оператором вручную. `/etc/hosts` — см. полный список выше
+(`docs.aicd.devops-labs.ru` добавлен).

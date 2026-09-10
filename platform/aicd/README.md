@@ -371,8 +371,12 @@ Actions secrets в коллекции нет (ADR §2). Без этого шаг
 `docs-site/latest.tar.gz`) — тот же класс chicken-and-egg, что `gitea-actions-runner`/
 `actions_runner_token`.
 
-Живой `helmwave up`/первый прогон `docs-site.yml`/верификация в этом заходе не выполнялись
-(ROADMAP №51). Операторам — добавить в свой `/etc/hosts`:
+**Живьём развёрнуто и проверено** (2026-09-10, ROADMAP №51) — CI, публикация в Nexus, деплой,
+TLS, `forwardAuth`, корневая страница (`/`) отдаёт `200`. По пути найдено и исправлено четыре
+бага (детали — ROADMAP №51): отсутствие `node`/`curl` на голом alpine-раннере, неверное DNS-имя
+Service Nexus (`nexus-nexus`, не `nexus`), busybox `wget` без поддержки `--user`/`--password`
+(креды — в URL), отсутствие корневого `index.md` в staging-дереве (`403` на `/`). Операторам —
+добавить в свой `/etc/hosts`:
 ```
 <IP control-plane> docs.aicd.platform
 ```

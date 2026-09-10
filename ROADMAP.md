@@ -788,12 +788,36 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
     Radar/infra-panel, без ролевой дифференциации. Чисто Helm+`site.yml`-компонент (без Ansible-роли,
     как `radar`/`gitea-actions-runner`), Terraform не требуется.
 
-    Код готов и локально проверен (`helm template`, локальный `mkdocs build`,
-    `ansible-lint`/`--syntax-check`) для обоих окружений — живой `helmwave up --tags docs-site`,
-    первый реальный прогон `docs-site.yml`, ручная настройка Gitea Actions secrets
-    (`NEXUS_DOCS_PUBLISHER_USER`/`_PASSWORD` — REST-автоматизации таких секретов в коллекции нет,
-    см. ADR §2) и живая верификация намеренно не выполнялись в этом заходе (тот же принцип, что
-    `postgresql-infra-1`, ADR-0023).
+    **Живьём развёрнуто и проверено на обоих окружениях** (2026-09-10): CI-джоба
+    `docs-site.yml` собирает и публикует артефакт, под скачивает его и отдаёт сайт за
+    `forwardAuth`-периметром — `platform/aicd` и `platform/aicd-devops-labs-ru` идентичны.
+    Живым прогоном найдено и исправлено четыре бага, ни один не был виден по коду/локальным
+    проверкам:
+    - Голый alpine-образ раннера (`gitea/runner`, host-режим без Docker) не содержит ни
+      `node` (нужен `actions/checkout@v4`), ни `curl` — оба ставятся явным `apk add` первым
+      шагом соответствующих step'ов workflow.
+    - `nxs-universal-chart` формирует имя `Service` как `<release>-<ключ>`
+      (`helpers.app.fullname`) — реальный сервис Nexus называется `nexus-nexus`, а не `nexus`
+      (использованная по аналогии с `gitea-http.platform.svc.cluster.local` схема не
+      сработала — у gitea-чарта сервис называется иначе).
+    - `wget` в alpine — это busybox wget, не GNU wget: `--user`/`--password` им не
+      поддерживаются вовсе, креды нужно встраивать в URL (`user:pass@host`, RFC 3986
+      userinfo) — проверено локально (`docker run alpine:3.20`, тот же busybox v1.36.1, что
+      в поде) паролем со спецсимволами `:`/`,` из дефолтного charset
+      `lookup('ansible.builtin.password')`.
+    - У staging-дерева не было ни одного `index.md` в корне (оба раздела навигации —
+      подкаталоги) — `mkdocs` не генерировал корневой `index.html`, nginx отвечал `403` на
+      `/` (autoindex выключен); содержимое конкретных страниц раздавалось корректно, но
+      попасть на сайт с самого домена было невозможно. `build-docs-site.py` теперь
+      генерирует landing-страницу со ссылками на `overview.md`/`components.md`.
+
+    Второе окружение (`aicd-devops-labs-ru`) потребовало отдельного bootstrap'а — на его
+    Gitea никогда не существовало ни организации `platform`, ни зеркала коллекции (в отличие
+    от `aicd`, где это уже было заведено раньше): организация+репозиторий созданы через REST
+    (агент, с явного разрешения оператора в чате — создание пустых административных объектов,
+    не передача содержимого), сам `git push` и `Settings → Actions → Secrets` — оператором
+    вручную (тот же принцип, что раньше на `aicd`: `git push` содержимого доверенного
+    репозитория инструментарий безопасности не даёт делать агенту в принципе).
 
 52. ~~**Легковесный self-hosted git с CI/CD в стиле Gitea (кандидаты: Gitea, Forgejo).**~~ —
     **архитектура решена** (`docs/adr/0012-cicd-platform-architecture.md` §4): выбор — Gitea (не
