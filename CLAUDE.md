@@ -4,7 +4,12 @@
 
 ## Обзор проекта
 
-`devops.uslugi` — Ansible collection (`namespace: devops`, `name: uslugi`) с ролями для DevOps-инфраструктуры:
+С `docs/adr/0014-platform-controller-architecture.md` `devops.uslugi` — не просто набор ролей, а
+ядро GitOps-платформы декларативного управления инфраструктурой: `Module` CRD + непрерывный
+reconcile-контроллер + Semaphore, пилотно развёрнутой и проверенной реальным прогоном на
+`platform/aicd` (Фазы 0–6). Подробности — `docs/overview.md`, раздел «Архитектура платформы».
+
+Технически коллекция устроена так: `devops.uslugi` — Ansible collection (`namespace: devops`, `name: uslugi`) с ролями для DevOps-инфраструктуры:
 мониторинг (стек VictoriaMetrics/Grafana), DNS, nginx и Traefik reverse proxy. Требует ansible-core
 `>=2.20,<2.21` (pyproject, согласовано с `ansible >= 2.19` из meta/runtime.yml) и Python `>=3.12`.
 Зависимости управляются через Poetry (`package-mode = false` — pyproject используется только для

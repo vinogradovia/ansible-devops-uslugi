@@ -1,8 +1,9 @@
-# Ansible Collection - devops.uslugi
+# devops.uslugi — платформа управления инфраструктурой (Ansible-коллекция — исполнительное ядро)
 
 ## Документация
 
-- [Цели и задачи проекта](docs/overview.md) — что это за коллекция, зачем нужна, из чего состоит.
+- [Цели и задачи проекта](docs/overview.md) — платформа декларативного GitOps-управления
+  инфраструктурой (ADR-0014) и её исполнительное ядро — Ansible collection `devops.uslugi`.
 - [Реестр компонентов](docs/components.md) — список ролей со ссылками на README/ADR/runbook/molecule каждой.
 
 ## Требования
