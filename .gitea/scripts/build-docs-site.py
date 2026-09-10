@@ -102,6 +102,25 @@ def copy_static_assets() -> None:
     )
 
 
+# Ни один исходник в docs/ не соответствует корню сайта — без этого у STAGING нет index.md,
+# mkdocs не генерирует корневой index.html, а nginx отдаёt 403 на "/" (autoindex выключен,
+# найдено живым прогоном при проверке ingress). components.md уже служит оглавлением для ролей
+# (ссылки на каждый roles/*/README.md), поэтому landing-страница ссылается на него, а не
+# перечисляет роли заново.
+INDEX_CONTENT = """# devops.uslugi — документация платформы
+
+- **[Архитектура](Архитектура/overview.md)** — обзор платформы и архитектурные решения (ADR).
+- **[Роли коллекции](Архитектура/components.md)** — реестр всех ролей со ссылками на README
+  каждой.
+
+Полное дерево разделов — в меню слева.
+"""
+
+
+def build_index_page() -> None:
+    (STAGING / "index.md").write_text(INDEX_CONTENT, encoding="utf-8")
+
+
 def main() -> None:
     if STAGING.exists():
         shutil.rmtree(STAGING)
@@ -110,6 +129,7 @@ def main() -> None:
     build_architecture_section()
     build_roles_section()
     copy_static_assets()
+    build_index_page()
 
 
 if __name__ == "__main__":
