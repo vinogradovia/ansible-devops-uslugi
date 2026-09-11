@@ -1041,25 +1041,44 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
     (№1) — общее решение для LiteLLM/`llama-server`/`tei` разом, не точечный фикс.
 
 60. **Standalone PostgreSQL (`postgresql-infra-1`, `docs/adr/0023-postgresql-standalone-role.md`)
-    — код готов в обоих окружениях, живой прогон не выполнен (осознанная остановка).** Новая роль
-    `roles/postgresql` (molecule-сценарий зелёный целиком, включая найденную живым прогоном дыру —
-    Debian-дефолтный catch-all `host all all 127.0.0.1/32` в `pg_hba.conf`, убран из роли), Terraform
-    (`postgresql-infra-target.tf` в обоих `platform/*/terraform/`, `tofu validate` пройден,
-    `tofu apply` не выполнялся), `site.yml`-wiring (секрет `secret/postgresql`, DNS,
-    `monitoring_agent`, Grafana dashboard) в обоих окружениях, `ansible-lint`+`--syntax-check`
-    зелёные. **Явно вне скоупа этого захода** (по запросу пользователя): БД/пользователи `litellm`/
-    `grafana` не заводятся вовсе, даже "заготовкой впрок".
+    — код готов в обоих окружениях; на `aicd-devops-labs-ru` VM живая и Semaphore Project
+    забутстрапен (2026-09-11), на `aicd` — ещё нет.** Новая роль `roles/postgresql`
+    (molecule-сценарий зелёный целиком, включая найденную живым прогоном дыру — Debian-дефолтный
+    catch-all `host all all 127.0.0.1/32` в `pg_hba.conf`, убран из роли), Terraform
+    (`postgresql-infra-target.tf` в обоих `platform/*/terraform/`), `site.yml`-wiring (секрет
+    `secret/postgresql`, DNS, `monitoring_agent`, Grafana dashboard) в обоих окружениях,
+    `ansible-lint`+`--syntax-check` зелёные. **Явно вне скоупа этого захода** (по запросу
+    пользователя): БД/пользователи `litellm`/`grafana` не заводятся вовсе, даже "заготовкой впрок".
+
+    **`aicd-devops-labs-ru` — сделано (2026-09-11):**
+    - `tofu apply` выполнен (побочный эффект захода по `platform-controller`, п.7.8 ниже) — VM
+      `postgresql-infra-1` (VMID 113, `10.10.10.246`) живая.
+    - **Semaphore Project `postgresql-infra`** (id=2, отдельный от `platform`, по принципу "1
+      проект = 1 компонент") реально создан через REST: ключи (`gitea-admin` для клона
+      `platform/gitops`, отдельный `ssh`-ключ `postgresql-infra-ssh` для доступа к хосту),
+      repository, `Inventory` (`type: file`, БЕЗ `become_key_id` — passwordless sudo, тот же урок,
+      что уже пойман для `infra_panel` в п.7.8), `Environment` (`GIT_CONFIG_*` для клона
+      `devops-uslugi`, `postgresql_infra_postgres_exporter_password` — extra-var из уже
+      существующего `secret/postgresql` OpenBao), Task Template `postgresql-infra-1 (ADR-0023)`
+      (id=3, `--limit postgresql-infra-1`, playbook `playbooks/postgresql-infra.yml`).
+      Wrapper-playbook + `inventory/postgresql-infra.ini` закоммичены в `platform/gitops` через
+      Gitea Content API (не `git push` — этот способ, в отличие от зеркалирования самой коллекции,
+      не заблокирован инструментарием, см. п.7.8).
+    - **Реальный баг найден и исправлен**: `qemu-guest-agent` не был установлен на этой VM вообще
+      (в отличие от остальных VM окружения) — Terraform-провайдер (`agent.enabled = true`)
+      бесконечно висел на `refresh`/`apply` (`Plugin did not respond`, несколько попыток до 550с).
+      Исправлено `apt install qemu-guest-agent` напрямую по SSH (роль `postgresql` тогда ещё не
+      применялась). См. подробности — README `platform/aicd-devops-labs-ru`.
+    - **Task Template НЕ запускался** — сама роль `postgresql` на хост ещё не применена, это
+      следующий шаг («живая проверка», см. ниже).
 
     **Следующие шаги (по явному запросу в будущем):**
-    - Живой `tofu apply` + живая проверка (`psql`, метрики, дашборд, DNS) в обоих окружениях —
-      IP `10.10.10.246`/`10.66.14.13` выбраны по анализу файлов, не подтверждены живой сетью на
-      момент написания кода (кроме `10.10.10.246`, подтверждён пользователем).
-    - **Semaphore Project `postgresql-infra`** (отдельный от `platform`, по принципу "1 проект = 1
-      компонент", ручной/по требованию Task Template без Module CRD/авто-reconcile) — нужно завести
-      в каждом окружении отдельно; wrapper-плейбук/инвентарная запись для `platform/gitops` агент
-      подготовит как контент, но `git push` в этот репозиторий агенту недоступен (та же блокировка
-      безопасности, что уже описана для зеркала `devops-uslugi` пилота `infra_panel`) — пуш делает
-      пользователь.
+    - Живой `tofu apply` + Semaphore Project `postgresql-infra` для `platform/aicd` (второй,
+      независимый Semaphore-инстанс) — IP `10.66.14.13` выбран по анализу файлов, не подтверждён
+      живой сетью.
+    - **Живая проверка `aicd-devops-labs-ru`**: запустить Task Template `postgresql-infra-1
+      (ADR-0023)` (Semaphore Project id=2, id шаблона 3), проверить `psql`, `postgres_exporter`
+      метрики, дашборд Grafana, DNS.
     - **Перенос Terraform-apply в Semaphore** — заблокировано на появлении S3-совместимого
       хранилища на платформе (нужен remote state; сейчас `terraform.tfstate` лежит локально,
       Semaphore обычно клонирует репозиторий заново на каждый прогон).

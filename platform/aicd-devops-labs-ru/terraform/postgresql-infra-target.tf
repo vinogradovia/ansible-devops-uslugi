@@ -52,7 +52,15 @@ resource "proxmox_virtual_environment_vm" "postgresql_infra" {
 
     user_account {
       username = var.ansible_user
-      keys     = [trimspace(file(var.ssh_public_key_path))]
+      # Выделенный ключ для Semaphore (docs/adr/0023-postgresql-standalone-role.md §7,
+      # tests/.ssh-pub-keys/id_ed25519_semaphore_postgresql_infra_devops_labs_ru.pub, приватная
+      # часть — Semaphore Key, не в git) — тот же приём, что infra-panel-target.tf. Добавлен уже
+      # на живую VM вручную (append в authorized_keys, без пересоздания) — этот блок фиксирует
+      # желаемое состояние на будущее (пересоздание/повторный tofu apply).
+      keys = [
+        trimspace(file(var.ssh_public_key_path)),
+        trimspace(file("${path.module}/../../../tests/.ssh-pub-keys/id_ed25519_semaphore_postgresql_infra_devops_labs_ru.pub")),
+      ]
     }
   }
 

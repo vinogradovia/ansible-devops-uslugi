@@ -256,6 +256,31 @@ join `llm1` в кластер (та же `/etc/hosts`-запись на control-
 `ansible-lint --profile production` + `--syntax-check`. Операторам — добавить в свой `/etc/hosts`
 (см. полный список выше, добавлены `nexus`/`nexus-cache`).
 
+## Standalone PostgreSQL (docs/adr/0023-postgresql-standalone-role.md)
+
+Persistent VM `postgresql-infra-1` (`10.10.10.246`, обычный Ubuntu-образ, тот же шаблон, что
+`aicd-labs`) — отдельно стоящий (не HA) сервер БД для нужд платформы (litellm/grafana/и т.п.), не
+клиентский HA-хостинг (для того — `roles/postgresql_replication`, ADR-0005). **VM реально поднята**
+(`tofu apply`, 2026-09-11, побочный эффект захода по `platform-controller`, см. секцию выше) и
+**Semaphore Project `postgresql-infra` реально забутстрапен** (ADR-0023 §7: отдельный от
+`platform` проект, id=2, Task Template `postgresql-infra-1 (ADR-0023)` id=3 с
+`--limit postgresql-infra-1`, репозиторий `platform/gitops`, wrapper-playbook
+`playbooks/postgresql-infra.yml` + `inventory/postgresql-infra.ini`, пароль `postgres_exporter` —
+из уже существующего `secret/postgresql` OpenBao, передан как extra-var через Semaphore
+Environment). **Сама роль `postgresql` на хост ещё не применялась** — Task Template заведён, но
+не запущен (осознанно, отдельный шаг «живая проверка», ROADMAP.md п.60).
+
+Найдена и исправлена одна реальная проблема при подготовке: **`qemu-guest-agent` не был
+установлен на этой VM вообще** (в отличие от остальных VM окружения) — Terraform-провайдер
+(`agent.enabled = true`) бесконечно висел на `refresh`/`apply` в ожидании ответа агента, которого
+не существовало (`timeout`/`Plugin did not respond` на нескольких попытках подряд, до 550с).
+Исправлено установкой `apt install qemu-guest-agent` через SSH напрямую на VM (не через Ansible —
+роль `postgresql` ещё не применялась). Второй, отдельный SSH-ключ для Semaphore
+(`tests/.ssh-pub-keys/id_ed25519_semaphore_postgresql_infra_devops_labs_ru.pub`, приватная часть
+— Semaphore Key id=6, не в git) добавлен в `authorized_keys` вручную (VM уже жила, ключ из
+`postgresql-infra-target.tf` при первом создании не подхватывается заново) и зафиксирован в
+Terraform для воспроизводимости — `tofu apply` (in-place update, без пересоздания VM) подтверждён.
+
 ## docs-site (docs/adr/0024-platform-docs-site.md)
 
 Статический сайт документации платформы (MkDocs Material) — за Traefik/`docs.aicd.devops-labs.ru`,
