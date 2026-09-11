@@ -66,6 +66,12 @@ platform_aicd_devops_labs_ru_grafana_addons_dashboards:
   # docs/adr/0023-postgresql-standalone-role.md — standalone PostgreSQL (postgresql-infra-1).
   - name: postgres-exporter
     file: postgres_exporter_12485.json
+  # docs/adr/0017-platform-cicd-default-addons.md §4, docs/adr/0015-ai-agent-platform-architecture.md
+  # §10 — GPU-метрики llm1 (dcgm-exporter DaemonSet, ВНУТРИ k3s, VMPodScrape, не VMScrapeConfig
+  # host-хостов выше — но та же GrafanaDashboard-задача site.yml без разницы применяет CR для
+  # обоих случаев). Только здесь — GPU-нода есть только на этом окружении (ROADMAP.md №62).
+  - name: dcgm-exporter
+    file: dcgm_exporter_12239.json
 
 # docs/adr/0022-new-component-requirements.md §12, docs/adr/0012-cicd-platform-architecture.md
 # §4 — раннер Gitea Actions для host-задач (lint). Эталон разбора (почему отдельный флаг, а не

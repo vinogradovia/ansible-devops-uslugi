@@ -235,10 +235,12 @@ hostname гостя) вместо `aicd-labs`, под которым она бы
 (`kind: Node`/`k8s_taint` ссылаются только на `llm1`), только через ansible-инвентарь
 (`hostvars['aicd-labs']`) — переименование гостя ansible-логику не затрагивает.
 
-**Не проверено реальным прогоном** (в отличие от остального README, по состоянию на 2026-08-28) —
-push образа dcgm-exporter и `ansible-playbook site.yml` на этом стенде требуют сетевого доступа
-(порты 443/30820), недоступного из окружения, где велась разработка; см. ADR-0017 §4. Код
-провалидирован `ansible-lint --profile production` + `--syntax-check`.
+**Живьём развёрнуто и проверено** (2026-09-11, ROADMAP.md п.62 — статус выше был устаревшим,
+относился к моменту написания кода, а не к текущему состоянию стенда): под `dcgm-exporter-g6j4w`
+`Running` на `llm1` (аптайм с 2026-08-29), `VMPodScrape dcgm-exporter` — таргет `health: up` в
+vmagent (`10.42.1.32:9400`). Прямой запрос `DCGM_FI_DEV_GPU_UTIL` к `vmsingle` возвращает реальную
+серию с корректными метками (`modelName: NVIDIA GeForce RTX 5060 Ti`, `UUID`, `Hostname`). Дашборда
+Grafana для этих метрик не было — добавлен (см. ROADMAP.md п.62).
 
 ## Кеширующий прокси (docs/adr/0018-internal-caching-proxy.md)
 

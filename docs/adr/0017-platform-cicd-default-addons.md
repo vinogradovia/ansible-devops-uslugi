@@ -191,15 +191,15 @@ Gitea/Semaphore), `client_secret` — новое поле `grafana_client_secret
 (`helm/values/platform-devops-labs-ru/namespaces/monitoring/vm/extra-objects.yaml`) —
 единственное расхождение values между окружениями.
 
-**Не проверено реальным прогоном** (на момент написания) — в отличие от §2/§3: `ansible-playbook
-site.yml` на `platform/aicd` упирается в блокировку `release-assets.githubusercontent.com` с этой
-конкретной сети (`xanmanning.k3s` безусловно перепроверяет checksum k3s на каждом прогоне — тот же
-класс проблемы, что уже документирован для vagrantcloud/hashicorp archivist/nvcr.io в истории этого
-репозитория), а push образа dcgm-exporter и прогон на `platform/aicd-devops-labs-ru` требуют
-сетевого доступа к портам 443/30820 этого стенда, недоступного из окружения, где эта работа велась.
-Код провалидирован `ansible-lint --profile production` + `--syntax-check` на обоих `site.yml`; живой
-прогон и итоговая верификация (Grafana открывается, OIDC-логин работает, реальные метрики видны,
-`local-path` не тронут, dcgm-exporter только на `llm1`) — предстоит выполнить оператору.
+**`platform/aicd-devops-labs-ru` — живьём развёрнуто и проверено** (2026-09-11, ROADMAP.md п.62):
+`dcgm-exporter` DaemonSet `Running` на `llm1`, `VMPodScrape` — таргет `health: up` в vmagent,
+реальные GPU-метрики (`DCGM_FI_DEV_GPU_UTIL` и др., с метками `modelName`/`UUID`) видны в
+VictoriaMetrics. `platform/aicd` — статус без изменений: `ansible-playbook site.yml` там упирается
+в блокировку `release-assets.githubusercontent.com` с этой конкретной сети (`xanmanning.k3s`
+безусловно перепроверяет checksum k3s на каждом прогоне — тот же класс проблемы, что уже
+документирован для vagrantcloud/hashicorp archivist/nvcr.io в истории этого репозитория); там GPU-
+ноды и вовсе нет (только на `aicd-devops-labs-ru`, ADR-0015 §10), так что этот раздел там и не
+применим. Код провалидирован `ansible-lint --profile production` + `--syntax-check`.
 
 ### 5. Дашборды экспортёров `monitoring_agent` — `GrafanaDashboard` из `ADDONS/` (2026-09-03)
 
