@@ -1083,8 +1083,12 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
     - Живой `tofu apply` + Semaphore Project `postgresql-infra` для `platform/aicd` (второй,
       независимый Semaphore-инстанс) — IP `10.66.14.13` выбран по анализу файлов, не подтверждён
       живой сетью.
-    - Grafana dashboard для `postgres-exporter` — реально ли скрейпится vmagent'ом и виден ли в
-      дашборде, не проверено (проверены только сами эндпоинты `/metrics` напрямую с хоста).
+    - ~~Grafana dashboard для `postgres-exporter`~~ — **проверено (2026-09-11)**: оба таргета
+      (`node-exporter`/`postgres-exporter`, `instance=postgresql-infra-1`) `health: up` в vmagent
+      (`GET /api/v1/targets`), `GrafanaDashboard` CR `postgres-exporter` —
+      `DashboardSynchronized: True`, запрос `pg_up{instance="postgresql-infra-1"}` к vmsingle
+      возвращает `1` — та же метка, что ожидает дашборд. Вся цепочка `postgres_exporter → vmagent
+      → VictoriaMetrics → Grafana` подтверждена реальными данными, не только присутствием ресурсов.
     - **Перенос Terraform-apply в Semaphore** — заблокировано на появлении S3-совместимого
       хранилища на платформе (нужен remote state; сейчас `terraform.tfstate` лежит локально,
       Semaphore обычно клонирует репозиторий заново на каждый прогон).

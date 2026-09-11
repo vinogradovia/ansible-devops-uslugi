@@ -277,6 +277,13 @@ catch-all (только точечный грант `postgres-exporter`/`127.0.0
 Повторный прогон (Task id=51) — `changed=0`, идемпотентность подтверждена. БД/пользователи
 `litellm`/`grafana` по-прежнему не заводятся (вне скоупа, ADR-0023).
 
+**Grafana-дашборд тоже проверен реальными данными.** `VMScrapeConfig monitoring-agent-hosts`
+(`helm/values/platform-devops-labs-ru/namespaces/monitoring/vm/extra-objects.yaml`) уже содержал
+статические таргеты для `postgresql-infra-1` — оба (`node-exporter`/`postgres-exporter`) `health:
+up` в vmagent. `GrafanaDashboard` CR `postgres-exporter` — `DashboardSynchronized: True`. Прямой
+запрос `pg_up{instance="postgresql-infra-1"}` к `vmsingle` вернул `1` — та же связка меток
+(`job=postgres-exporter`, `instance=postgresql-infra-1`), что использует дашборд.
+
 Найдена и исправлена одна реальная проблема при подготовке: **`qemu-guest-agent` не был
 установлен на этой VM вообще** (в отличие от остальных VM окружения) — Terraform-провайдер
 (`agent.enabled = true`) бесконечно висел на `refresh`/`apply` в ожидании ответа агента, которого
