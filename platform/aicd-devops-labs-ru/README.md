@@ -267,8 +267,15 @@ Persistent VM `postgresql-infra-1` (`10.10.10.246`, обычный Ubuntu-обр
 `--limit postgresql-infra-1`, репозиторий `platform/gitops`, wrapper-playbook
 `playbooks/postgresql-infra.yml` + `inventory/postgresql-infra.ini`, пароль `postgres_exporter` —
 из уже существующего `secret/postgresql` OpenBao, передан как extra-var через Semaphore
-Environment). **Сама роль `postgresql` на хост ещё не применялась** — Task Template заведён, но
-не запущен (осознанно, отдельный шаг «живая проверка», ROADMAP.md п.60).
+Environment).
+
+**Живьём развёрнуто и проверено** (2026-09-11, ROADMAP.md п.60): Task Template запущен через
+Semaphore API (Task id=50) — `status: success`, `ok=55 changed=33 failed=0`. PostgreSQL 17
+реально работает (`active`, `listen_addresses=*`, TLS `on`), `pg_hba.conf` без Debian-дефолтного
+catch-all (только точечный грант `postgres-exporter`/`127.0.0.1`), `node_exporter`/
+`postgres_exporter` (systemd, имена юнитов через `_`, не `-`) оба `active` с реальными метриками.
+Повторный прогон (Task id=51) — `changed=0`, идемпотентность подтверждена. БД/пользователи
+`litellm`/`grafana` по-прежнему не заводятся (вне скоупа, ADR-0023).
 
 Найдена и исправлена одна реальная проблема при подготовке: **`qemu-guest-agent` не был
 установлен на этой VM вообще** (в отличие от остальных VM окружения) — Terraform-провайдер

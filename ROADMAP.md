@@ -1069,16 +1069,22 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
       бесконечно висел на `refresh`/`apply` (`Plugin did not respond`, несколько попыток до 550с).
       Исправлено `apt install qemu-guest-agent` напрямую по SSH (роль `postgresql` тогда ещё не
       применялась). См. подробности — README `platform/aicd-devops-labs-ru`.
-    - **Task Template НЕ запускался** — сама роль `postgresql` на хост ещё не применена, это
-      следующий шаг («живая проверка», см. ниже).
+    - **Task Template запущен и проверен живьём** (2026-09-11, Task id=50 → `success`,
+      `ok=55 changed=33 failed=0`): PostgreSQL 17 реально установлен и активен
+      (`systemctl is-active postgresql@17-main` → `active`), слушает сеть (`listen_addresses=*`),
+      TLS включён (`SHOW ssl` → `on`), `pg_hba.conf` не содержит Debian-дефолтного catch-all
+      (только точечная запись для `postgres-exporter`/`127.0.0.1`, `replication`-строки —
+      отдельная, не затронутая фиксом категория). `node_exporter`/`postgres_exporter`
+      (systemd-юниты, имена через `_`, не `-`) оба `active`, отдают реальные метрики
+      (`node_uname_info`, `pg_static`) на `127.0.0.1:9100`/`:9187`. **Повторный прогон Task
+      Template (Task id=51) — `changed=0`**, полная идемпотентность подтверждена.
 
     **Следующие шаги (по явному запросу в будущем):**
     - Живой `tofu apply` + Semaphore Project `postgresql-infra` для `platform/aicd` (второй,
       независимый Semaphore-инстанс) — IP `10.66.14.13` выбран по анализу файлов, не подтверждён
       живой сетью.
-    - **Живая проверка `aicd-devops-labs-ru`**: запустить Task Template `postgresql-infra-1
-      (ADR-0023)` (Semaphore Project id=2, id шаблона 3), проверить `psql`, `postgres_exporter`
-      метрики, дашборд Grafana, DNS.
+    - Grafana dashboard для `postgres-exporter` — реально ли скрейпится vmagent'ом и виден ли в
+      дашборде, не проверено (проверены только сами эндпоинты `/metrics` напрямую с хоста).
     - **Перенос Terraform-apply в Semaphore** — заблокировано на появлении S3-совместимого
       хранилища на платформе (нужен remote state; сейчас `terraform.tfstate` лежит локально,
       Semaphore обычно клонирует репозиторий заново на каждый прогон).
