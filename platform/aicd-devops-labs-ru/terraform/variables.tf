@@ -236,3 +236,41 @@ variable "postgresql_infra_ip_cidr" {
   type        = string
   default     = "10.10.10.246/24"
 }
+
+# docs/adr/0014-platform-controller-architecture.md — реальный целевой хост для первого пилотного
+# Module ("infra-panel-pilot", тот же выбор роли, что platform/aicd). Отдельный ресурс (не в общем
+# vm.tf-цикле) — тот же принцип изоляции состояния, что freeipa-target.tf/llm1-target.tf/
+# postgresql-infra-target.tf. Клонируется из того же Ubuntu-шаблона, что aicd_labs/postgresql_infra
+# (var.proxmox_template_vmid, VMID 9000) — роль infra_panel/reverse_proxy_traefik требует apt.
+variable "infra_panel_target_vm_name" {
+  description = "Отображаемое имя pilot target VM для Module infra-panel-pilot"
+  type        = string
+  default     = "aicd-devops-labs-ru-infra-panel-target"
+}
+
+variable "infra_panel_target_vcpu" {
+  description = "Число vCPU pilot target VM — минимальный профиль (docker + два лёгких контейнера)"
+  type        = number
+  default     = 1
+}
+
+variable "infra_panel_target_memory" {
+  description = "RAM, MiB для pilot target VM"
+  type        = number
+  default     = 1024
+}
+
+variable "infra_panel_target_disk_gb" {
+  description = "Размер диска, GB для pilot target VM"
+  type        = number
+  default     = 15
+}
+
+# .245 — следующий свободный адрес после .246 (postgresql-infra-1)/.247 (llm1)/.248 (freeipa)/.249
+# (aicd_labs) — ПРОВЕРИТЬ свободность перед apply, та же оговорка, что у остальных статических IP
+# этого файла.
+variable "infra_panel_target_ip_cidr" {
+  description = "Статический IPv4-адрес pilot target VM с маской (та же плоская LAN, что остальные VM) — ПРОВЕРИТЬ свободность перед apply"
+  type        = string
+  default     = "10.10.10.245/24"
+}

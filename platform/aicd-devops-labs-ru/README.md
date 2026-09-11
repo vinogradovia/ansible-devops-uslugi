@@ -41,11 +41,9 @@ libvirt, под доменом `aicd.devops-labs.ru` вместо `aicd.platform
   (`helm/envs/platform-devops-labs-ru.yaml`, `helm/values/platform-devops-labs-ru/...`) —
   полностью отдельное дерево values, не пересекается с `helm/values/platform/...` первого
   стенда, хотя набор релизов (openbao/gitea/semaphore/flux2/radar) идентичен.
-- **Без `flux/`** (GitOps-обвязка `GitRepository`/`Kustomization`, привязанная к CRD
-  platform-controller'а и репозиторию `platform/gitops` в Gitea первого стенда) и **без
-  `infra-panel-target.tf`** (отдельная VM-пилот для Module platform-controller'а) — это специфика
-  dev-стенда platform-controller, не часть общего платформенного стека. При необходимости
-  добавляется позже по образцу `platform/aicd/flux/README.md`.
+- **platform-controller (ADR-0014)** — как и на первом стенде (`flux/`, CRD `Module`,
+  `infra-panel-target.tf`, bootstrap Gitea/Semaphore) — теперь тоже развёрнуто и проверено
+  реальным прогоном, см. секцию «platform-controller (ADR-0014)» ниже.
 
 ## Подготовка Proxmox (перед первым запуском)
 
@@ -281,3 +279,62 @@ TLS, `forwardAuth`, корневая страница (`/`) отдаёт `200`; 
 через REST (агентом, с разрешения оператора), сам `git push` и секреты Nexus в
 Settings → Actions → Secrets — оператором вручную. `/etc/hosts` — см. полный список выше
 (`docs.aicd.devops-labs.ru` добавлен).
+
+## platform-controller (docs/adr/0014-platform-controller-architecture.md)
+
+Весь цикл Фаз 0–6, ранее пройденный только на `platform/aicd` (см. его README и
+`platform-controller/README.md`), повторён и на этом окружении — **сделано и проверено реальным
+прогоном** (2026-09-11, ROADMAP №7 пункт 8). Общая архитектура и код контроллера — без
+изменений, различия только в bootstrap-специфике этого Proxmox-стенда.
+
+**Pilot target VM.** `terraform/infra-panel-target.tf` — тот же принцип изоляции состояния, что
+`freeipa-target.tf`/`postgresql-infra-target.tf` (отдельный ресурс, не в общем `vm.tf`-цикле):
+клон Ubuntu-шаблона (`var.proxmox_template_vmid`), статический IP `10.10.10.245`, выделенный
+SSH-ключ (`tests/.ssh-pub-keys/id_ed25519_semaphore_infra_panel_target_devops_labs_ru.pub`,
+приватная часть — Semaphore Key, не в git).
+
+**`flux/`.** В отличие от первого стенда, сам релиз `flux2` и синк Secret `gitops-git-auth` уже
+были в `site.yml`/`helm/envs/platform-devops-labs-ru.yaml` до этого захода (механически
+перенесены при копировании кода первого стенда) — донастроен только сам GitOps-source
+(`gitrepository.yaml`/`kustomization.yaml`, `kubectl apply` вручную, как на первом стенде).
+
+**Bootstrap Gitea/Semaphore.** Организация `platform` и зеркало `platform/devops-uslugi` в Gitea
+уже существовали (заведены при bootstrap'е docs-site, см. выше) — создан только репозиторий
+`platform/gitops` (`playbooks/{infra_panel,noop}.yml`, `requirements.yml`,
+`inventory/{infra_panel,noop}.ini`) через REST API. Semaphore — Project `platform`, ключи
+(`login_password` для клона `gitops`, `ssh` для доступа к pilot-VM), два `Inventory` (`type:
+file`), `Environment` с `GIT_CONFIG_*` (авторизация внутреннего клона `devops-uslugi`), два Task
+Template (`infra_panel`, `noop`) — всё через REST API. Два `Module` CR (`noop-pilot`,
+`infra-panel-pilot`) закоммичены в `platform/gitops` и подхвачены Flux **без единого `kubectl
+apply`** — та же проверка Фазы 2, что на первом стенде.
+
+**Контроллер — без TLS-хаков первого стенда.** На первом стенде (`platform/aicd`) у Semaphore
+нет ни DNS, ни валидного TLS — контроллер обращается по IP с `Host`-заголовком и
+`InsecureSkipTLSVerify: true`. На этом стенде `semaphore.aicd.devops-labs.ru` резолвится (через
+`/etc/hosts` control-хоста) и имеет TLS-сертификат от внутреннего PKI CA — но `docker run` не
+разделяет `/etc/hosts` хоста с контейнером, поэтому вместо хака: `--add-host
+semaphore.aicd.devops-labs.ru:<IP>` (резолвинг) + `SSL_CERT_FILE=/certs/aicd-platform-ca.pem`,
+смонтированный внутрь контейнера (Go на Linux сам читает эту переменную для системного пула
+сертификатов, `crypto/x509`) — TLS проверяется по-настоящему, `InsecureSkipTLSVerify` не
+использован вообще.
+
+**Проверено реальным прогоном:** `infra-panel-pilot` — `status: success`
+(`kubectl get module` → `READY: True`), реальные контейнеры `traefik`/`infra-panel` `Up ...
+(healthy)` на pilot-VM (`docker ps`), 5 drift-циклов подряд без единого дублирующего job'а на
+generation, последний — `changed=0` (полная идемпотентность). `noop-pilot` — десятки успешных
+циклов за тот же прогон. Три реальные находки этого захода, все исправлены:
+
+1. **`tofu apply` для клона VM, убитый по таймауту 2 минуты (foreground), оставил сироту.**
+   Proxmox уже начал/завершил клонирование к моменту SIGTERM, а `tofu` не успел записать
+   ресурс в state — следующий `apply` создал ВТОРОЙ клон с тем же именем, не зная о первом.
+   Пользователь заметил дубликаты (VMID 106/112) в Proxmox UI раньше, чем это всплыло в выводе
+   инструментов. Впредь — `run_in_background` с самого первого прогона для любых VM-клонов
+   (см. память `feedback_terraform_apply_timeout_orphans.md`).
+2. **Semaphore `Inventory.become_key_id`, указанный на SSH-ключ (тип `ssh`).** Semaphore
+   ожидает для become либо пусто, либо ключ типа `login_password` (пароль sudo) — у целевого
+   хоста passwordless sudo, поле become_key вообще не нужно. Ошибочное значение ронял job ещё
+   до `ansible-playbook`: `"access key type not supported for ansible become user"`.
+3. **`requirements.yml` в `platform/gitops` ссылался на `version: main`.** Реальная (и
+   единственная) ветка зеркала `platform/devops-uslugi` — `feat/new-cloud-platform-development`
+   (та, что была реально запушена пользователем) — `ansible-galaxy` падал на
+   `git checkout main: pathspec 'main' did not match any file(s) known to git`.

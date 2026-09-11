@@ -1,0 +1,16 @@
+# Источник GitOps-синхронизации (ADR-0014 §4) — репозиторий platform/gitops в Gitea этого же
+# стенда, тот же, что подключён к Semaphore как Git-интеграция Task Template (Фаза 0). Тот же
+# namespace/service name, что platform/aicd/flux/gitrepository.yaml — не меняется между
+# окружениями (оба через одинаковый gitea-chart в namespace platform).
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: gitops
+  namespace: flux-system
+spec:
+  interval: 1m
+  url: http://gitea-http.platform.svc.cluster.local:3000/platform/gitops.git
+  ref:
+    branch: main
+  secretRef:
+    name: gitops-git-auth

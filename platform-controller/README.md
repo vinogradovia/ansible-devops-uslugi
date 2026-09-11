@@ -8,6 +8,16 @@
 `main.go` + `internal/{controller,semaphore}/` — сам контроллер (Фаза 3). `config/crd/` +
 `config/samples/` — схема `Module` CRD (Фаза 1), см. ниже.
 
+**Проверено на двух независимых окружениях.** Весь цикл Фаз 0–6 ниже описан на примере
+`platform/aicd` (первый стенд, libvirt) — тот же код контроллера (без единого изменения)
+повторно пройден и на `platform/aicd-devops-labs-ru` (Proxmox, ROADMAP.md пункт 7.8, живой
+прогон 2026-09-11, детали — секция «platform-controller» в README этого окружения): подтверждает,
+что контроллер не завязан на специфику конкретного кластера/Semaphore-инстанса. Второй прогон
+дополнительно доказал `Options.InsecureSkipTLSVerify`/`HostHeader` в `internal/semaphore/client.go`
+— не обязательные, а именно временный костыль для стенда без DNS/валидного TLS: там, где они
+есть (`semaphore.aicd.devops-labs.ru`, внутренний PKI CA), контроллер работает и без них
+(`SSL_CERT_FILE` + реальное имя хоста).
+
 ## Схема
 
 `config/crd/module-crd.yaml` — `CustomResourceDefinition` `modules.platform.devops.uslugi/v1alpha1`:

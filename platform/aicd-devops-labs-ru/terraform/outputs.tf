@@ -17,3 +17,8 @@ output "postgresql_infra_ip" {
   description = "IP-адрес VM postgresql-infra-1 (ADR-0023, var.postgresql_infra_ip_cidr)"
   value       = split("/", var.postgresql_infra_ip_cidr)[0]
 }
+
+output "infra_panel_target_ip" {
+  description = "IP-адрес pilot target VM для Module infra-panel-pilot (ADR-0014, var.infra_panel_target_ip_cidr)"
+  value       = split("/", var.infra_panel_target_ip_cidr)[0]
+}

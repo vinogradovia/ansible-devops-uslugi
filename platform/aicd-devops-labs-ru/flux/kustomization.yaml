@@ -1,0 +1,18 @@
+# Применяет содержимое clusters/platform/ из GitRepository "gitops" (Module CR-манифесты) в
+# кластер (ADR-0014 §4). Не путать с обычным kustomize kustomization.yaml внутри самого
+# репозитория platform/gitops (clusters/platform/kustomization.yaml) — это разные объекты:
+# тот собирает список ресурсов для kustomize build, этот — Flux CRD, который его вызывает по
+# расписанию.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: platform-modules
+  namespace: flux-system
+spec:
+  interval: 1m
+  path: ./clusters/platform
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: gitops
+  targetNamespace: platform

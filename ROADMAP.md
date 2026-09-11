@@ -1218,3 +1218,33 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
       `platform-controller/README.md`. Остальной охват («Фаза 6» в широком смысле — прогнать
       это на всех остальных подходящих ролях коллекции) не детализирован заранее, остаётся
       открытым.
+   8. **Второе окружение (`platform/aicd-devops-labs-ru`)** — весь цикл Фаз 0–6 повторён на
+      втором, независимом стенде (Proxmox вместо libvirt), **сделано и проверено реальным
+      прогоном** (2026-09-11): pilot target VM (`terraform/infra-panel-target.tf`, отдельный
+      ресурс, тот же принцип изоляции состояния, что `freeipa-target.tf`/`postgresql-infra-target.tf`),
+      `flux/` (Flux/`gitops-git-auth` уже были развёрнуты site.yml до этого захода — донастроен
+      только сам GitOps-source), CRD, bootstrap Gitea (org `platform`, репозиторий
+      `platform/gitops`; зеркало `platform/devops-uslugi` уже было запушено пользователем в
+      более раннем заходе) и Semaphore (Project, ключи, inventory, environment, два Task
+      Template) через REST API, два Module CR (`noop-pilot`/`infra-panel-pilot`) закоммичены в
+      `platform/gitops` и подхвачены Flux без единого `kubectl apply`. Контроллер запущен
+      локально тем же приёмом, что на первом стенде, но **без `InsecureSkipTLSVerify`/Host-
+      header хака** — реальное имя `semaphore.aicd.devops-labs.ru` (`--add-host` в
+      `docker run`, раз DNS/etc.hosts хоста не разделяется с контейнером) и `SSL_CERT_FILE`,
+      указывающий на внутренний PKI CA (Go на Linux сам подхватывает эту переменную для
+      системного пула сертификатов) — TLS проверяется по-настоящему. Реконсайл подтверждён:
+      `infra-panel-pilot` — `status: success`, реальные `traefik`/`infra-panel` контейнеры
+      `healthy` на pilot-VM, 5 drift-циклов подряд без дублей job'ов, последний —
+      `changed=0` (полная идемпотентность); `noop-pilot` — десятки успешных циклов. Три
+      находки, специфичные для этого захода (все исправлены):
+      - `tofu apply` для клона VM в foreground с дефолтным 2-минутным таймаутом был убит
+        посреди клонирования — Proxmox успел создать VM, а terraform state — нет, что привело
+        к дублирующимся VM на следующем прогоне (найдено пользователем в Proxmox UI, не
+        инструментами). Впредь — только `run_in_background` для VM-клонов с самого начала.
+      - Semaphore `Inventory.become_key_id`, ошибочно указанный на SSH-ключ (тип `ssh`) вместо
+        пусто/`login_password`, ронял ЛЮБОЙ job ещё до `ansible-playbook`
+        (`"access key type not supported for ansible become user"`) — у целевого хоста
+        passwordless sudo, поле вообще не нужно.
+      - `requirements.yml` в `platform/gitops` указывал `version: main`, а реальная (и
+        единственная) ветка зеркала `platform/devops-uslugi` — `feat/new-cloud-platform-development`
+        (та, что реально была запушена) — `ansible-galaxy` падал на `git checkout main`.
