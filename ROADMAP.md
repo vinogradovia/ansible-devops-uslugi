@@ -1089,6 +1089,22 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
       `DashboardSynchronized: True`, запрос `pg_up{instance="postgresql-infra-1"}` к vmsingle
       возвращает `1` — та же метка, что ожидает дашборд. Вся цепочка `postgres_exporter → vmagent
       → VictoriaMetrics → Grafana` подтверждена реальными данными, не только присутствием ресурсов.
+    - **Найден и исправлен реальный баг дашборда (2026-09-11, пойман оператором в браузере):**
+      сам дашборд открывался с ошибкой «Datasource not found, input variable». Причина —
+      `ADDONS/grafana_dashboards/postgres_exporter_12485.json` (стандартный community-дашборд с
+      grafana.com) использует имя input-переменной `DS_PROMETHEUS`, а `spec.datasources` у
+      `GrafanaDashboard` CR в обоих `site.yml` маппил только `DS_VICTORIAMETRICS` (единственное
+      имя, под которое ранее вручную переименовывали `__inputs` в файлах вроде
+      `gitea_13192.json`) — grafana-operator не подставлял реальный datasource в панели с
+      `DS_PROMETHEUS`. Исправлено добавлением второй записи `datasources` (маппинг ОБОИХ
+      общепринятых имён на один и тот же `VictoriaMetrics`) в
+      `platform/aicd-devops-labs-ru/ansible/site.yml` и `platform/aicd/ansible/site.yml` (~строка
+      2004/1949) — универсальный фикс на будущее для любого нового community-дашборда с этим же
+      паттерном, не только точечная правка одного JSON-файла. Применено живьём точечным патчем
+      `GrafanaDashboard` CR (без полного `site.yml`) — панели подтверждённо ссылаются на
+      `'datasource': 'VictoriaMetrics'`, не на плейсхолдер. `blackbox_13659_rev1.json` — тот же
+      паттерн `DS_PROMETHEUS`, сейчас нигде не подключён, но будет подвержен тому же багу при
+      подключении (уже закрыто тем же универсальным фиксом).
     - **Перенос Terraform-apply в Semaphore** — заблокировано на появлении S3-совместимого
       хранилища на платформе (нужен remote state; сейчас `terraform.tfstate` лежит локально,
       Semaphore обычно клонирует репозиторий заново на каждый прогон).

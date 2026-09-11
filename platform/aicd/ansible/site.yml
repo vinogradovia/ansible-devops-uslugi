@@ -1946,8 +1946,17 @@
               matchLabels:
                 dashboards: grafana
             folderRef: addons
+            # DS_VICTORIAMETRICS — имя input-переменной у дашбордов, вручную переименованных под
+            # эту платформу (см. group_vars/platform_hosts.yml, находка про gitea_13192.json).
+            # DS_PROMETHEUS — имя, которое большинство community-дашбордов с grafana.com (включая
+            # postgres_exporter_12485.json) используют по умолчанию и НЕ переименовывают при
+            # обновлении — без этой второй записи grafana-operator не подставляет реальный
+            # datasource в панели, дашборд открывается с "Datasource not found" (найдено живым
+            # прогоном на aicd-devops-labs-ru, ADR-0023). Оба маппятся на один и тот же datasource.
             datasources:
               - inputName: DS_VICTORIAMETRICS
+                datasourceName: VictoriaMetrics
+              - inputName: DS_PROMETHEUS
                 datasourceName: VictoriaMetrics
             json: >-
               {{ lookup('ansible.builtin.file',
