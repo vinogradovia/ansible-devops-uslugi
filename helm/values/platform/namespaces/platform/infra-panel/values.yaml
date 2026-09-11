@@ -73,6 +73,16 @@ configMaps:
 
 deployments:
   infra-panel:
+    # config.yml монтируется ниже через configMap + subPath — kubelet НЕ перемонтирует
+    # subPath-файл живому поду при изменении ConfigMap (в отличие от обычного volume mount на
+    # директорию), поэтому без принудительного рестарта уже работающий под продолжает работать
+    # со старым конфигом сколько угодно после `helmwave up`, который сам покажет "changed" и
+    # ничего не заподозрит (найдено живым прогоном — под пропустил новую ссылку "Docs" из
+    # docs/adr/0024-platform-docs-site.md, пришлось пересоздавать вручную). Тот же фикс, что уже
+    # применён к authelia/litellm — checksum-аннотация форсирует rolling restart при любом
+    # изменении содержимого configMaps.config.data.
+    podAnnotations:
+      checksum/config: '{{ include "helpers.workload.checksum" $.Values.configMaps.config.data }}'
     containers:
       - name: homer
         image: b4bz/homer
