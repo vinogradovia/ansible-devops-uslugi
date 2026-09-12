@@ -88,14 +88,24 @@ graph LR
   что на платформу мигрирует конкретный проект с уже работающей другой конфигурацией — итог:
   `Qwen3.6-35B-A3B-UD-Q4_K_M` (GGUF) на `llama-server`, эмбеддинги `BAAI/bge-m3` на **TEI**
   (отдельный движок, не тот же процесс).
-- **LiteLLM без БД** (`ns: data` ещё не развёрнут) — конфиг-режим: маршрутизация по
-  `model_list`, проверка `master_key`, без virtual keys/UI/spend tracking.
+- **LiteLLM подключён к БД (2026-09-12)** — не к `ns: data`/CNPG (та часть архитектуры
+  по-прежнему не развёрнута), а к отдельному `postgresql-infra-1`
+  (`docs/adr/0023-postgresql-standalone-role.md`, ROADMAP.md №60): `general_settings.database_url`
+  → Prisma создал 75 таблиц `LiteLLM_*`, virtual keys/spend tracking реально работают
+  (`POST /key/generate` проверен живьём, `GET /health/readiness` → `db: connected`). Play
+  "Standalone PostgreSQL" в `site.yml` идёт ПЕРЕД play LiteLLM-гейтвея — БД/пользователь должны
+  существовать раньше, чем Helm поднимет Deployment (Prisma-миграция при первом старте пода).
+  `resources.limits.memory` поднят `1Gi`→`2Gi` — Prisma-миграция при старте держит отдельный
+  node-процесс query-engine поверх python-процесса, старый лимит уходил в `OOMKilled`.
 - **MCP — встроенная в LiteLLM proxy поддержка**, не отдельный продукт (IBM
   mcp-context-forge и аналоги тянут за собой Postgres+Redis, забегая вперёд `ns: data`) —
   `mcp_servers: {}` пока пусто, ни одного реального инструмента-бэкенда ещё нет.
 - **`litellm-master-key` — обычный k8s `Secret`, не `vault://`** — render-токен gomplate
   ограничен policy строго тремя путями (`secret/gitea`/`secret/semaphore`/`secret/authelia`),
-  `secret/litellm` не входит; заведён отдельной ansible-задачей ДО Helm-релиза.
+  `secret/litellm` не входит; заведён отдельной ansible-задачей ДО Helm-релиза. С 2026-09-12
+  этот же секрет несёт второе поле, `database_url` (DSN к `postgresql-infra-1`,
+  `sslmode=require`) — `secret/litellm` в OpenBao расширен аддитивно (`db_password` добавлен
+  сохранив уже существующий `master_key`, KV v2 `POST` иначе заменил бы данные версии целиком).
 
 ## DD
 
@@ -113,13 +123,15 @@ graph TD
             LLPOD["Deployment litellm<br/>image ghcr.io/berriai/litellm:v1.99.1"]
             CM2["ConfigMap config.yaml"]
         end
-        SEC["Secret litellm-master-key"]
+        SEC["Secret litellm-master-key<br/>(master_key + database_url)"]
     end
+    PG[("postgresql-infra-1<br/>10.10.10.246, БД litellm<br/>ADR-0023")]
 
     LLPOD -->|"http://llama-server.llm.svc.cluster.local:8080/v1"| LLAMAPOD
     LLPOD -->|"http://tei.llm.svc.cluster.local:80/v1"| TEIPOD
     LLPOD --> CM2
     LLPOD --> SEC
+    LLPOD -->|"postgresql://, sslmode=require<br/>SNAT на IP ноды aicd-labs (flannel)"| PG
 ```
 
 RuntimeClass'ы и каркас namespace (`llm`/`gateway`/`agents`/`data`/`obs`/`egress`), Pod Security
