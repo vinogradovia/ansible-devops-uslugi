@@ -166,6 +166,32 @@ graph LR
   **Открыто**: применяется ли маппинг к уже существующим пользователям при повторном логине, или
   только при первом создании записи — не проверено.
 
+- **Аудит против ADR-0022 (2026-09-13)** нашёл два реальных пробела, оба закрыты живым прогоном:
+  - **Требование №1 (внутренний репозиторий)** — образ `ghcr.io/berriai/litellm` тянулся
+    напрямую из интернета: `registries.yaml` зеркалил только `docker.io`. Т.к. Docker Registry
+    V2 API всегда отдаётся с корня `/v2/` (Traefik не может маршрутизировать по пути запроса на
+    разные upstream-registries), отдельный поддомен/порт не заводился — вместо этого
+    `docker-hub-proxy` (Nexus) обёрнут в **docker-группу** (`docker-group`, тот же порт 8083)
+    вместе с новым `ghcr-proxy` (`indexType: REGISTRY`, не `HUB`): Nexus сам резолвит запрошенный
+    образ по членам группы, containerd видит один и тот же URL для обоих registry. Живо
+    подтверждено: `GET /v2/berriai/litellm/manifests/v1.99.1` через `nexus-cache` → `200`,
+    регрессия на `docker.io/library/postgres` через тот же mirror — тоже `200`.
+  - **Требование №4 (метрики)** — `/metrics` не был включён вообще. Добавлено
+    `litellm_settings.callbacks: ["prometheus"]` + `VMServiceScrape` (namespace `monitoring`) +
+    официальный дашборд BerriAI (`github.com/BerriAI/litellm/.../grafana_dashboard/dashboard_v2`,
+    `${DS_PROMETHEUS}`). **Второй баг найден той же живой проверкой**: LiteLLM требует
+    `Authorization` для ЛЮБОГО эндпоинта, включая `/metrics` (401 без токена) — `VMServiceScrape`
+    без `bearerTokenSecret` скрейпил бы вечный `down`. `kubectl explain` подтвердил: секрет обязан
+    лежать в том же namespace, что сам `VMServiceScrape` (`monitoring`), не в namespace таргета
+    (`gateway`) — заведён отдельный `Secret litellm-metrics-token` (копия `master_key`) именно
+    там. Живо подтверждено: target `health: up` в vmagent, `python_info{job="litellm-litellm"}`
+    реально долетает до VictoriaMetrics, `GrafanaDashboard` — `DashboardSynchronized: True`.
+  - **Два пункта аудита сознательно отложены** (ROADMAP.md №64, не техническая реализация по
+    умолчанию, а решение оператора): NetworkPolicy для `ns: gateway` (требование №10 — не входит
+    в список известных исключений ADR-0022 §10, решение не принято) и оценка кандидата-Operator
+    [`litellm-operator`](https://operatorhub.io/operator/litellm-operator) (требование №15 —
+    найден, не официальный от вендора, ~11 звёзд, зрелость не подтверждена).
+
 ## DD
 
 ```mermaid

@@ -40,6 +40,14 @@ configMaps:
         general_settings:
           master_key: os.environ/LITELLM_MASTER_KEY
           database_url: os.environ/DATABASE_URL
+        # docs/adr/0022-new-component-requirements.md §4 — нативный /metrics (docs.litellm.ai/
+        # docs/proxy/prometheus), тот же порт 4000, что сам API. Без callbacks: ["prometheus"]
+        # эндпоинт не регистрируется вовсе (не 404 — маршрута просто нет). prometheus_metrics_config
+        # не задаём — дефолтный набор метрик (litellm_proxy_total_requests_metric,
+        # litellm_request_total_latency_metric, litellm_spend_metric и т.п.) уже покрывает
+        # дашборд ниже, тонкую настройку меток добавлять незачем без конкретной задачи под неё.
+        litellm_settings:
+          callbacks: ["prometheus"]
         # ADR-0015 §6/§7 — MCP-гейтвей: не отдельный продукт (IBM mcp-context-forge и т.п.
         # тянут за собой Postgres+Redis, забегая вперёд ns: data), а встроенная в LiteLLM
         # proxy поддержка MCP (тот же процесс, тот же config.yaml, БД не требуется для

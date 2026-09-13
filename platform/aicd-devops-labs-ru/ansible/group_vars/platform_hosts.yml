@@ -72,6 +72,13 @@ platform_aicd_devops_labs_ru_grafana_addons_dashboards:
   # обоих случаев). Только здесь — GPU-нода есть только на этом окружении (ROADMAP.md №62).
   - name: dcgm-exporter
     file: dcgm_exporter_12239.json
+  # docs/adr/0022-new-component-requirements.md §4 — аудит litellm (2026-09-13). Дашборд не с
+  # grafana.com (нет числового ID), официальный экспорт вендора — github.com/BerriAI/litellm,
+  # cookbook/litellm_proxy_server/grafana_dashboard/dashboard_v2/grafana_dashboard.json,
+  # использует ${DS_PROMETHEUS} — тот же inputName, что уже маппится на VictoriaMetrics ниже по
+  # site.yml, без переименования (в отличие от gitea_13192.json).
+  - name: litellm
+    file: litellm.json
 
 # docs/adr/0022-new-component-requirements.md §12, docs/adr/0012-cicd-platform-architecture.md
 # §4 — раннер Gitea Actions для host-задач (lint). Эталон разбора (почему отдельный флаг, а не

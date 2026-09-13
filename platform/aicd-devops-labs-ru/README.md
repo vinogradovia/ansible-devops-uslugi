@@ -348,6 +348,18 @@ certificate in certificate chain`. Исправлено тем же приёмо
 **Открыто**: обновляется ли роль уже существующих пользователей при повторном логине, или только
 при создании записи — не проверено.
 
+**Аудит LiteLLM против ADR-0022 (2026-09-13) нашёл и закрыл ещё два пробела.** Образ
+`ghcr.io/berriai/litellm` тянулся напрямую из интернета (зеркалировался только `docker.io`) —
+Nexus `docker-hub-proxy` обёрнут в docker-группу с новым `ghcr-proxy` на том же порту 8083 (одна
+точка входа `nexus-cache.aicd.devops-labs.ru`, Nexus сам резолвит upstream); живо подтверждено
+`GET /v2/berriai/litellm/manifests/...` → `200`, `docker.io`-регрессии нет. `/metrics` не был
+включён — добавлен `litellm_settings.callbacks: ["prometheus"]` + `VMServiceScrape` +
+официальный дашборд BerriAI; найден и исправлен ещё один баг — `/metrics` требует
+`Authorization`, как и любой другой эндпоинт LiteLLM (`Secret litellm-metrics-token` в
+`namespace: monitoring`, не `gateway` — `bearerTokenSecret` обязан лежать в namespace самого
+`VMServiceScrape`). Два пункта аудита сознательно отложены (ROADMAP.md №64) — NetworkPolicy для
+`ns: gateway` и оценка кандидата-Operator `litellm-operator`.
+
 **Grafana-дашборд тоже проверен реальными данными.** `VMScrapeConfig monitoring-agent-hosts`
 (`helm/values/platform-devops-labs-ru/namespaces/monitoring/vm/extra-objects.yaml`) уже содержал
 статические таргеты для `postgresql-infra-1` — оба (`node-exporter`/`postgres-exporter`) `health:

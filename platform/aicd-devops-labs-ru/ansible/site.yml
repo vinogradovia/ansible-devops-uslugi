@@ -2389,6 +2389,144 @@
             autoBlock: true
         status_code: [201]
 
+    # docs/adr/0022-new-component-requirements.md §1 — образ ghcr.io/berriai/litellm тянулся
+    # напрямую из интернета в обход требования (registries.yaml зеркалит только docker.io). Docker
+    # Registry V2 API всегда отдаётся с корня /v2/ — Traefik не может маршрутизировать по пути
+    # запроса на разные upstream-registries (запрос к /v2/berriai/litellm/manifests/... выглядит
+    # идентично для docker.io и ghcr.io), поэтому отдельная точка входа для ghcr.io НЕ заводится
+    # отдельным поддоменом/портом (это потребовало бы нового TLS/DNS/coredns-custom) — вместо
+    # этого ghcr-proxy без своего httpPort становится вторым членом docker-group ниже, которая
+    # занимает УЖЕ существующий и резолвящийся порт 8083 вместо docker-hub-proxy. indexType:
+    # REGISTRY (не HUB, как у docker-hub-proxy выше) — ghcr.io не Docker Hub, у него нет
+    # отдельного search-индекса, Nexus берёт индекс из самого remoteUrl (подтверждено схемой
+    # /service/rest/swagger.json, DockerProxyAttributes.indexType enum: HUB/REGISTRY/CUSTOM).
+    - name: "Nexus: создать ghcr-proxy (если ещё нет)"
+      when: "'ghcr-proxy' not in (platform_aicd_devops_labs_ru_nexus_repos.json | map(attribute='name') | list)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
+      no_log: true
+      ansible.builtin.uri:
+        url: "https://nexus.aicd.devops-labs.ru/service/rest/v1/repositories/docker/proxy"
+        ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        method: POST
+        url_username: admin
+        url_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        force_basic_auth: true
+        body_format: json
+        body:
+          name: ghcr-proxy
+          online: true
+          storage:
+            blobStoreName: default
+            strictContentTypeValidation: true
+          # Без httpPort — этот репозиторий не адресуется напрямую снаружи, только как член
+          # docker-group ниже (тот же приём, что group-репозитории в целом, GroupDeployAttributes
+          # требует только memberNames, у самих членов порт не обязателен).
+          docker:
+            v1Enabled: false
+            forceBasicAuth: false
+          dockerProxy:
+            indexType: REGISTRY
+          proxy:
+            remoteUrl: https://ghcr.io
+            contentMaxAge: 1440
+            metadataMaxAge: 1440
+          negativeCache:
+            enabled: true
+            timeToLive: 1440
+          httpClient:
+            blocked: false
+            autoBlock: true
+        status_code: [201]
+
+    # docker-hub-proxy выше создаётся сразу с httpPort 8083 (bootstrap с нуля) — здесь этот порт
+    # забирает docker-group, поэтому у уже существующего docker-hub-proxy httpPort нужно снять
+    # (PUT идемпотентен, тело то же самое, что POST выше, минус httpPort). Blob-хранилище и кеш
+    # уже скачанных слоёв docker.io при этом не теряются — httpPort только про сетевой коннектор,
+    # не про данные.
+    - name: "Nexus: снять httpPort у docker-hub-proxy (порт забирает docker-group)"
+      when: "'docker-group' not in (platform_aicd_devops_labs_ru_nexus_repos.json | map(attribute='name') | list)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
+      no_log: true
+      ansible.builtin.uri:
+        url: "https://nexus.aicd.devops-labs.ru/service/rest/v1/repositories/docker/proxy/docker-hub-proxy"
+        ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        method: PUT
+        url_username: admin
+        url_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        force_basic_auth: true
+        body_format: json
+        body:
+          name: docker-hub-proxy
+          online: true
+          storage:
+            blobStoreName: default
+            strictContentTypeValidation: true
+          docker:
+            v1Enabled: false
+            forceBasicAuth: false
+          dockerProxy:
+            indexType: HUB
+          proxy:
+            remoteUrl: https://registry-1.docker.io
+            contentMaxAge: 1440
+            metadataMaxAge: 1440
+          negativeCache:
+            enabled: true
+            timeToLive: 1440
+          httpClient:
+            blocked: false
+            autoBlock: true
+        status_code: [204]
+
+    # Групповой докер-репозиторий на порту 8083 — том же, что раньше занимал docker-hub-proxy
+    # единолично, поэтому existing registries.yaml.j2 mirror для docker.io (endpoint
+    # nexus-cache.aicd.devops-labs.ru, TLS/DNS/coredns-custom уже заведены) продолжает работать
+    # БЕЗ ИЗМЕНЕНИЙ — Nexus сам резолвит запрошенный образ, пробуя члены группы по порядку
+    # (docker-hub-proxy первым — сохраняет приоритет для всего, что уже там кешируется; ghcr-proxy
+    # вторым — фоллбэк для того, чего на Docker Hub нет, например berriai/litellm).
+    - name: "Nexus: создать docker-group (docker-hub-proxy + ghcr-proxy на общем порту 8083)"
+      when: "'docker-group' not in (platform_aicd_devops_labs_ru_nexus_repos.json | map(attribute='name') | list)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }},nexus.aicd.devops-labs.ru"
+      no_log: true
+      ansible.builtin.uri:
+        url: "https://nexus.aicd.devops-labs.ru/service/rest/v1/repositories/docker/group"
+        ca_path: "{{ playbook_dir }}/.kube-tmp/aicd-platform-ca.pem"
+        method: POST
+        url_username: admin
+        url_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_nexus_read.json.data.data.admin_password }}"
+        force_basic_auth: true
+        body_format: json
+        body:
+          name: docker-group
+          online: true
+          storage:
+            blobStoreName: default
+            strictContentTypeValidation: true
+          docker:
+            v1Enabled: false
+            forceBasicAuth: false
+            httpPort: 8083
+          group:
+            memberNames:
+              - docker-hub-proxy
+              - ghcr-proxy
+        status_code: [201]
+
     - name: "Nexus: создать k3s-releases-proxy (если ещё нет)"
       when: "'k3s-releases-proxy' not in (platform_aicd_devops_labs_ru_nexus_repos.json | map(attribute='name') | list)"
       delegate_to: localhost
@@ -4439,6 +4577,34 @@
             master_key: "{{ platform_aicd_devops_labs_ru_openbao_secret_litellm_read.json.data.data.master_key }}"
             database_url: "postgresql://litellm:{{ platform_aicd_devops_labs_ru_openbao_secret_litellm_read.json.data.data.db_password }}@postgresql-infra-1.aicd.devops-labs.ru:5432/litellm?sslmode=require"
             client_secret: "{{ platform_aicd_devops_labs_ru_authelia_litellm_client_secret }}"
+
+    # docs/adr/0022-new-component-requirements.md §4 — найдено живой проверкой (2026-09-13): /metrics
+    # LiteLLM отдаёт 401 без Authorization (master_key требуется для ЛЮБОГО эндпоинта, не только
+    # админских) — VMServiceScrape "litellm" (helm/values/.../monitoring/vm/extra-objects.yaml)
+    # без bearerTokenSecret скрейпил бы вечный 401 (target health: down). kubectl explain
+    # vmservicescrape.spec.endpoints.bearerTokenSecret — секрет обязан лежать в ТОМ ЖЕ namespace,
+    # что сам VMServiceScrape (monitoring), не в namespace таргета (gateway) — поэтому отдельный
+    # Secret здесь, копия того же master_key под другим именем, не переиспользование
+    # litellm-master-key напрямую (тот в другом namespace, operator туда не смотрит).
+    - name: "Secret litellm-metrics-token в namespace monitoring (bearer token для VMServiceScrape)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      no_log: true
+      kubernetes.core.k8s:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        state: present
+        kind: Secret
+        name: litellm-metrics-token
+        namespace: monitoring
+        definition:
+          apiVersion: v1
+          metadata:
+            labels:
+              app.kubernetes.io/managed-by: ansible
+          type: Opaque
+          stringData:
+            token: "{{ platform_aicd_devops_labs_ru_openbao_secret_litellm_read.json.data.data.master_key }}"
 
     - name: Helmwave up (LiteLLM gateway, helm/envs/platform-devops-labs-ru.yaml)
       delegate_to: localhost

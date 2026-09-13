@@ -4,8 +4,16 @@
   без правок кода — просто /etc/rancher/k3s/registries.yaml. nexus-cache — та же IngressRoute
   Traefik, что и остальные хосты платформы, обычный 443 (PathPrefix(/v2) внутри маршрутизирует на
   докер-коннектор Nexus, порт 8083 — деталь реализации, снаружи не видна).
+
+  docs/adr/0022-new-component-requirements.md §1 — ghcr.io (litellm) добавлен тем же endpoint'ом,
+  что docker.io: на порту 8083 у Nexus теперь docker-group (docker-hub-proxy + ghcr-proxy, см.
+  site.yml), а не одиночный docker-hub-proxy — сам Nexus резолвит, из какого upstream отдавать
+  конкретный образ, containerd видит один и тот же URL для обоих registry.
 #}
 mirrors:
   "docker.io":
+    endpoint:
+      - "https://nexus-cache.aicd.devops-labs.ru"
+  "ghcr.io":
     endpoint:
       - "https://nexus-cache.aicd.devops-labs.ru"

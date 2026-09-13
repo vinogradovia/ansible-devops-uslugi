@@ -92,3 +92,33 @@ extraObjects:
         - port: http
           path: /metrics
           interval: 30s
+
+  # docs/adr/0022-new-component-requirements.md §4 — аудит litellm нашёл этот пробел (2026-09-13):
+  # /metrics был включён (litellm_settings.callbacks: ["prometheus"] выше в этом же коммите), но
+  # ничего его не скрейпило и дашборда не было — тот же класс проблемы, что уже описан этим
+  # требованием (экспортёр без дашборда). Тот же порт (http, 4000), что и сам API — LiteLLM
+  # отдаёт /metrics с того же процесса, отдельного экспортёра не требуется. bearerTokenSecret —
+  # найдено живой проверкой: LiteLLM требует Authorization для ЛЮБОГО эндпоинта, включая /metrics
+  # (401 без токена, не открытый по умолчанию, как у большинства экспортёров). Секрет
+  # litellm-metrics-token — в namespace monitoring (site.yml, play "ADR-0015 §6/§7 —
+  # LiteLLM-гейтвей"): kubectl explain подтверждает, что bearerTokenSecret обязан лежать в том же
+  # namespace, что сам VMServiceScrape, а не в namespace таргета.
+  - apiVersion: operator.victoriametrics.com/v1beta1
+    kind: VMServiceScrape
+    metadata:
+      name: litellm
+      namespace: monitoring
+    spec:
+      namespaceSelector:
+        matchNames:
+          - gateway
+      selector:
+        matchLabels:
+          app.kubernetes.io/instance: litellm
+      endpoints:
+        - port: http
+          path: /metrics
+          interval: 30s
+          bearerTokenSecret:
+            name: litellm-metrics-token
+            key: token

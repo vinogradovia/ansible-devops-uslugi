@@ -1345,6 +1345,38 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
     расположения тестов в репозитории/CI-интеграции. ADR-0022 §14 требует только НОВЫХ
     компонентов, ретроактивное покрытие существующих — отдельная будущая задача.
 
+64. **Аудит litellm против ADR-0022 (2026-09-13) — два пункта явно отложены, не устранены.**
+    ghcr-mirror (требование №1) и метрики (требование №4) исправлены и живо проверены в этом же
+    заходе (`docker-group` в Nexus — `docker-hub-proxy`+`ghcr-proxy` на общем порту 8083, без
+    новых поддоменов/TLS/DNS, `GET /v2/berriai/litellm/manifests/...` через mirror → `200`,
+    регрессии на `docker.io` нет; `litellm_settings.callbacks: ["prometheus"]` +
+    `VMServiceScrape` + дашборд `ADDONS/grafana_dashboards/litellm.json`, target `health: up`,
+    `python_info{job="litellm-litellm"}` подтверждён в VictoriaMetrics). **Второй реальный баг
+    найден по пути** — `/metrics` требует `Authorization`, как любой другой эндпоинт LiteLLM
+    (401 без токена); `VMServiceScrape.bearerTokenSecret` обязан лежать в namespace самого
+    `VMServiceScrape` (`monitoring`), не в namespace таргета (`gateway`) — заведён отдельный
+    `Secret litellm-metrics-token` (копия `master_key`) в `monitoring`. Повторный `site.yml` —
+    новые Nexus-задачи корректно `skipping` (идемпотентно). Остальные два пункта требуют решения
+    оператора, не технической реализации по умолчанию:
+
+    - **NetworkPolicy для `ns: gateway` (требование №10) — решение не принято.** `ns: agents` имеет
+      `default-deny` (ADR-0015 §7), `platform`/`monitoring`/`cache` — признанное известное
+      исключение ADR-0022 §10, но `ns: gateway` (где живёт litellm) не входит ни в список
+      исключений, ни имеет собственного решения — это незамеченный пробел, не осознанный выбор.
+      Кандидат по умолчанию — узкое allow-правило (litellm нужен исходящий доступ к `ns: llm`
+      (llama-server/TEI), `ns: platform` (Authelia OIDC), внешнему PostgreSQL `10.10.10.246:5432`,
+      Nexus/ghcr через мириант выше; входящий — только от Traefik) вместо полного `default-deny`.
+    - **Кандидат-Operator для litellm — найден, не оценён.**
+      [`litellm-operator`](https://operatorhub.io/operator/litellm-operator)
+      ([PalenaAI](https://github.com/PalenaAI/litellm-operator)/
+      [bbdsoftware](https://github.com/bbdsoftware/litellm-operator) форки) — Apache-2.0, OLM
+      bundle для OperatorHub/OpenShift + Helm-чарт, ~9 CRD (instances/models/teams/users/keys/
+      credentials/guardrails/budgets), bidirectional sync с LiteLLM REST API. Не официальный от
+      вендора (BerriAI не публикует), ~11 звёзд на GitHub на момент находки — по планке требования
+      №12 (переиспользуется для №15) это пограничный случай, не однозначно «зрелый». Требует
+      отдельной оценки (maturity/maintenance cadence) прежде, чем менять текущий generic-чарт
+      (`helm/localrepo/universal-chart`) — миграция не начата и не запрошена.
+
 ---
 
 ## Предлагаемая последовательность работ
