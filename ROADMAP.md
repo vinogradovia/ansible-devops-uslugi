@@ -1060,16 +1060,137 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
     `ns: gateway`, включая egress к Postgres (№10, скорее всего allow только из `ns: agents`/
     `ns: llm` + `postgresql-infra-1:5432`, default-deny остальное — по аналогии с уже принятым
     решением для `ns: agents`); зеркалирование `ghcr.io` через Nexus (№1) — общее решение для
-    LiteLLM/`llama-server`/`tei` разом, не точечный фикс. **Выставить UI LiteLLM наружу** (`/ui`,
-    штатная админка, физически появившаяся вместе с БД, №60, но сейчас доступная только через
-    `kubectl port-forward` — см. №2/№3 выше) — Ingress/IngressRoute через `reverse_proxy_traefik`
-    (тот же паттерн, что `grafana`/`infra-panel`), с TLS из внутреннего PKI CA (№5) и ссылкой в
-    `infra-panel` (№3). При выставлении наружу это уже не «не применимо» по требованию №2 —
-    веб-UI с человеческим логином потребует либо `forwardAuth` на Authelia (переходный паттерн
-    ADR-0022 §2, пока групповой RBAC не готов), либо нативную auth-модель самого LiteLLM (у
-    Proxy UI есть собственный логин через `master_key`/SSO-конфигурацию — сверить, что она
-    достаточна, прежде чем полагаться только на неё) — решение зафиксировать явно, а не выставить
-    порт без авторизации.
+    LiteLLM/`llama-server`/`tei` разом, не точечный фикс.
+
+    **~~Выставить UI LiteLLM наружу~~ — сделано и живо проверено (2026-09-13).** Два независимых
+    слоя, оба реализованы (по запросу пользователя — не откладывать OIDC-логин на потом):
+    1. **Сетевой периметр**: `IngressRoute litellm.aicd.devops-labs.ru` (встроенный в k3s Traefik)
+       + общий Middleware `authelia-forward-auth` + `access_control.rules` в Authelia — тот же
+       паттерн, что `radar`/`infra-panel`/`docs`, но **без `platform-viewers`** (только
+       `platform-admins`+`platform-engineers`) — UI создаёт/удаляет virtual keys и меняет
+       бюджеты, операционное действие, не просмотр.
+    2. **Собственный логин `/ui`**: LiteLLM заведён ЕЩЁ ОДНИМ OIDC-клиентом Authelia (generic
+       OIDC, `GENERIC_CLIENT_ID`/`_SECRET`/`_AUTHORIZATION_ENDPOINT`/`_TOKEN_ENDPOINT`/
+       `_USERINFO_ENDPOINT`, `PROXY_BASE_URL` — env контейнера), тем же классом решения, что
+       Gitea/Semaphore/Grafana. `secret/authelia` расширен полем `litellm_client_secret`
+       (+`_hash`) тем же аддитивным приёмом, что и предыдущие поля. Fallback на `master_key`
+       остался на `/fallback/login`. `GENERIC_USER_ROLE_ATTRIBUTE` НЕ настроен — маппинг ролей
+       Authelia→LiteLLM вне скоупа этого захода, сетевой периметр (п.1) уже ограничивает вход.
+
+    **Два реальных бага найдены и исправлены живым прогоном:**
+    - Встроенный в k3s Traefik НЕ поддерживает cross-namespace ссылку на Middleware без
+      явного флага контроллера (`--providers.kubernetescrd.allowCrossNamespace`, не включён) —
+      `IngressRoute` в `ns: gateway`, ссылающийся на `Middleware authelia-forward-auth` из
+      `ns: platform` (там же, где `radar`/`infra-panel`, которые эту проблему не ловили именно
+      потому что живут в том же namespace, что сам Middleware), получал в логах Traefik
+      `"middleware platform/authelia-forward-auth is not in the IngressRoute namespace
+      gateway"` и роут молча становился невалидным — клиент видел голый 404 вместо ожидаемого
+      редиректа на `sso.aicd.devops-labs.ru`. Решение — не глобальный флаг на весь Traefik
+      (шире нужного), а вторая копия того же Middleware в `ns: gateway`.
+    - Забытое правило `access_control.rules` для домена `litellm.aicd.devops-labs.ru` в
+      Authelia — без него `default_policy: deny` не пропустила бы даже показ формы логина.
+      Добавлено вместе с сетевым периметром выше.
+
+    После обоих фиксов: неаутентифицированный запрос к `https://litellm.aicd.devops-labs.ru/ui`
+    даёт `302 → https://sso.aicd.devops-labs.ru/...` с реальной страницей логина Authelia; логи
+    Authelia показывают реальное решение `forward-auth` по этому домену
+    (`"Access to https://litellm.aicd.devops-labs.ru/ui ... is not authorized to user
+    <anonymous>, responding with status code 302..."`); логи Authelia не показывают ошибок
+    валидации нового OIDC-клиента (`restart_count: 0`); `infra-panel` — `GET /assets/config.yml`
+    содержит пункт LiteLLM; повторный прогон `site.yml` — `changed` только на безусловных
+    `helmwave up`-задачах (сам паттерн этого проекта), ни одной новой дрейфующей задачи.
+
+    **Третий баг найден пользователем в браузере после первого «сделано» (2026-09-13) и
+    исправлен тем же днём**: реальный клик на кнопку логина Authelia падал с `{"error":
+    {"message":"Internal server error"...}}`. Причина — под LiteLLM не доверял внутреннему PKI
+    CA (OpenBao, ADR-0016), из которого выпущен `authelia-tls` — `httpx` (клиент, которым
+    `fastapi_sso` внутри LiteLLM обменивает код на токен) падал на `POST
+    https://sso.aicd.devops-labs.ru/api/oidc/token` с `[SSL: CERTIFICATE_VERIFY_FAILED]
+    certificate verify failed: self-signed certificate in certificate chain` (видно в логах пода
+    litellm — то же самое, что раньше уже решалось для Gitea/Grafana, только в этот раз забытое
+    для LiteLLM при первой раскатке). Исправлено тем же готовым приёмом: `Secret
+    aicd-platform-ca` заведён в `ns: gateway` (site.yml, копия задачи «...в namespace
+    monitoring» для Grafana) + смонтирован в под на `/etc/ssl/certs/aicd-platform-ca.pem` +
+    `SSL_CERT_FILE` в env контейнера (Python `httpx`, как и Go `crypto/x509`, уважает этот
+    стандартный OpenSSL env var). Живо проверено: TLS-запрос к `sso.aicd.devops-labs.ru` из пода
+    litellm тем же `ssl.create_default_context()`, что использует `httpx`, теперь возвращает
+    `200` вместо ошибки проверки сертификата; `/health/readiness`/`/key/generate` по-прежнему
+    работают (регрессии от фикса нет); повторный `site.yml` не даёт новых дрейфующих задач.
+
+    **Четвёртый баг найден сразу за третьим (тот же живой клик-тест, 2026-09-13):** после фикса
+    TLS логин упал по-новому — `oauthlib.oauth2...InvalidClientError: (invalid_client) ... The
+    request was determined to be using 'token_endpoint_auth_method' method 'client_secret_basic',
+    however the OAuth 2.0 client registration does not allow this method`. Причина — обратная
+    уже известному случаю Semaphore (там подошёл `client_secret_post`): LiteLLM
+    (`fastapi_sso`/`oauthlib`) безусловно шлёт `client_secret` через HTTP Basic Auth на обмене
+    кода на токен, а клиент `litellm` в Authelia был зарегистрирован на `client_secret_post`.
+    Исправлено — `token_endpoint_auth_method: 'client_secret_basic'` вместо `_post`. Логи
+    Authelia после рестарта чистые (`restart_count: 0`, ошибок конфигурации нет).
+
+    **Подтверждено пользователем (2026-09-13): логин через браузер реально проходит до конца.**
+    Живая проверка (`SELECT user_id, user_role FROM "LiteLLM_UserTable"` на `postgresql-infra-1`)
+    показала реальную запись `ivinogradov` — доказательство полного успешного OIDC-цикла (не
+    только 302-редиректа, как раньше). Роль на тот момент — `internal_user_viewer` (самая
+    урезанная из четырёх глобальных ролей LiteLLM: `proxy_admin`/`proxy_admin_viewer`/
+    `internal_user`/`internal_user_viewer`) — ожидаемо, `GENERIC_USER_ROLE_ATTRIBUTE` сознательно
+    не настраивался (см. выше).
+
+    **По запросу пользователя настроен маппинг ролей: `platform-admins` → `proxy_admin`,
+    `platform-engineers` → `internal_user`.** Не через `GENERIC_USER_ROLE_ATTRIBUTE` (ждёт
+    СКАЛЯРНОЕ значение claim'а, а `groups` в Authelia — список) — реальный механизм для
+    списочного claim'а найден через `openapi.json` живого инстанса (не угадан из документации,
+    которая противоречиво описывала разные версии API): `role_mappings` внутри `SSOConfig`,
+    настраивается `PATCH /update/sso_settings`, хранится в БД (`LiteLLM_SSOConfig`), сосуществует
+    с уже заданными через env `GENERIC_*`-полями (разная `provenance` на каждое поле).
+
+    **Ещё четыре реальных бага найдены и исправлены по пути:**
+    1. Клиент `litellm` в Authelia не запрашивал scope `groups` — без него Authelia не кладёт
+       claim `groups` в userinfo для этого клиента, маппингу не на чем строиться. Добавлен
+       `groups` в `scopes` клиента + `GENERIC_SCOPE: "openid profile email groups"` в env пода.
+    2. `PATCH /update/sso_settings` возвращал `500 Set STORE_MODEL_IN_DB='True' in your env to
+       enable this feature` — отдельный от `database_url` флаг-переключатель admin-API на запись
+       динамической конфигурации в БД. Добавлен `STORE_MODEL_IN_DB: "True"`.
+    3. `kubernetes.core.k8s_exec` (в отличие от документации других модулей коллекции) требует
+       `command` СТРОКОЙ, не списком — сам делает `shlex.split()`. Список молча превращался в
+       мусорную строку вида `"['python3', ...]"`, exec падал на уровне OCI-рантайма, а библиотека
+       `kubernetes` пыталась распарсить текст этой ошибки как целочисленный код возврата и падала
+       с `invalid literal for int()` — вводящее в заблуждение сообщение, реальная причина глубже.
+    4. `(... | from_json).values.role_mappings` в `when:` — Jinja резолвил `.values` в bound-метод
+       `dict.values()` (коллизия имени ключа JSON-ответа `"values"` со встроенным методом), а не
+       в значение ключа — `"object of type 'method' has no attribute 'role_mappings'"`. Исправлено
+       на явный доступ по ключу `['values']['role_mappings']`.
+
+    Живо подтверждено: `GET /get/sso_settings` показывает реально сохранённый `role_mappings`
+    (`{"proxy_admin": ["platform-admins"], "internal_user": ["platform-engineers"]}`,
+    `default_role: "internal_user_viewer"`); повторный `site.yml` — задача PATCH корректно
+    пропускается (`when:` видит уже заданный `role_mappings`), никакого дрейфа.
+
+    **Пятый баг — кнопка SSO на странице логина пропала сразу после первого `PATCH`, найден
+    пользователем в браузере, исправлен и живо подтверждён (2026-09-13).** Причина: после ПЕРВОГО
+    `PATCH /update/sso_settings` LiteLLM переключает источник правды для ВСЕГО `SSOConfig` на БД
+    целиком, а не мёржит по полям с env — поля, не попавшие в тот конкретный PATCH
+    (`generic_client_id`/`_secret`/эндпоинты/`proxy_base_url`, записывался только
+    `role_mappings`), перестали резолвиться из `GENERIC_*` переменных окружения и стали `null` в
+    `GET /get/sso_settings` (`provenance` сменилось с `"env"` на `"unset"`), хотя сами
+    переменные окружения никуда не делись — из-за этого LiteLLM переставал показывать кнопку
+    входа через SSO на странице логина. Исправлено — PATCH теперь несёт ВЕСЬ желаемый `SSOConfig`
+    разом (все `generic_*`-поля + `proxy_base_url` + `role_mappings`), не только изменённое поле;
+    `when:`-условие расширено проверкой `generic_client_id is none` в дополнение к
+    `role_mappings is none`. **Живо подтверждено пользователем через реальный браузер: кнопка SSO
+    видна и работает.**
+
+    **Открыто:** обновляется ли роль (`user_role`) уже существующей записи в `LiteLLM_UserTable`
+    при повторном логине, или маппинг применяется только при первом создании записи — не
+    проверено; если роль `ivinogradov` останется `internal_user_viewer` после очередного логина,
+    единственный выход — обновить `user_role` в БД вручную (разовое действие).
+
+    **№3 (ссылка в infra-panel) закрыт (2026-09-13)** — прямой redirect URL для инициации
+    OIDC-флоу найден живым прогоном (не документацией, официально не описан):
+    `GET /sso/key/generate` → `303 See Other` → `https://sso.aicd.devops-labs.ru/api/oidc/
+    authorization?...` → форма логина Authelia — тот же однокликовый паттерн, что у Gitea/
+    Semaphore/Grafana. Ссылка в `infra-panel` переключена с `/ui` на `/sso/key/generate`. См.
+    также обновлённое требование `docs/adr/0022-new-component-requirements.md` §3 — теперь
+    обязательное для компонентов с нативным OIDC, LiteLLM больше не исключение.
 
 60. **Standalone PostgreSQL (`postgresql-infra-1`, `docs/adr/0023-postgresql-standalone-role.md`)
     — код готов в обоих окружениях; на `aicd-devops-labs-ru` VM живая и Semaphore Project
@@ -1187,6 +1308,42 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
     через тот же `GrafanaDashboard`-механизм (`ADDONS/grafana_dashboards/`,
     `platform_aicd_devops_labs_ru_grafana_addons_dashboards`, только для этого окружения — GPU-нода
     есть только здесь), применён живьём и проверен.
+
+63. **Инфраструктурные тесты платформы (общие + по каждому компоненту) — идея, реализация не
+    начата.** Требование зафиксировано в `docs/adr/0022-new-component-requirements.md` §14 —
+    новые компоненты обязаны приносить с собой такой тест.
+
+    **Проблема — не гипотетическая, видна по этому же ROADMAP.** Каждая «живая проверка» после
+    изменения (десятки примеров выше — LiteLLM `/health/readiness`, `pg_hba.conf` без catch-all,
+    OIDC-discovery Authelia, метрики DCGM, Grafana-дашборды и т.д.) делалась одноразовым
+    Python-скриптом в scratchpad (`kubernetes` python client + pod exec, `psql`, `curl` через
+    служебный под) — добросовестная, но НЕ сохраняемая проверка: написана один раз, использована
+    один раз, при следующей регрессии («не сломал ли вчерашний коммит логин Gitea?») пишется
+    заново с нуля, а не запускается одной командой.
+
+    **Решение — [testinfra](https://testinfra.readthedocs.io/en/latest/) (или эквивалентный
+    pytest-based инструмент) поверх уже реального стенда**, НЕ вместо molecule (тот проверяет
+    РОЛЬ в изоляции на одноразовой VM до раскатки — «работает ли код роли»), а ДОПОЛНИТЕЛЬНО —
+    проверка уже развёрнутого, живого компонента на реальном окружении
+    (`platform/aicd`/`platform/aicd-devops-labs-ru`) — «работает ли то, что реально стоит прямо
+    сейчас», можно гонять как smoke/regression-проверку в любой момент, не только при первой
+    раскатке. testinfra прицельно поддерживает нужные здесь backend'ы (SSH, `docker exec`,
+    вероятно применим и к `kubectl exec` через кастомный connection/host-класс) — тот же класс
+    проверок, что уже делается вручную (систем-юниты, порты, файлы, HTTP-запросы), просто
+    оформленный как повторно запускаемый pytest-набор, а не одноразовый скрипт.
+
+    **Два уровня:**
+    1. Общеплатформенные (per-environment) — базовые инварианты: TLS-сертификаты не просрочены,
+       OpenBao unsealed, kube-apiserver доступен, core-релизы (Gitea/Semaphore/Authelia/OpenBao)
+       отвечают по HTTPS.
+    2. Per-component — зеркало того, что уже вручную проверялось при раскатке каждого компонента
+       в этом ROADMAP (пример: LiteLLM — `/health/readiness` → `db: connected`, TLS-сертификат
+       валиден, Middleware/IngressRoute существуют, OIDC discovery отвечает; `postgresql-infra-1`
+       — `pg_hba.conf` без catch-all, TLS `on`, exporter отдаёт метрики).
+
+    **Явно не начато** — ни ретрофит для уже реализованных компонентов, ни выбор конкретного
+    расположения тестов в репозитории/CI-интеграции. ADR-0022 §14 требует только НОВЫХ
+    компонентов, ретроактивное покрытие существующих — отдельная будущая задача.
 
 ---
 

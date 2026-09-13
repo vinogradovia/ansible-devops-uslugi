@@ -50,6 +50,15 @@ configMaps:
               - name: Nexus
                 url: https://nexus.aicd.devops-labs.ru/
                 target: _blank
+              # ROADMAP.md №59 — LiteLLM тоже заведён OIDC-клиентом Authelia. /sso/key/generate —
+              # найденный живым прогоном прямой redirect URL (303 → .../api/oidc/authorization →
+              # логин Authelia), тот же однокликовый паттерн, что Gitea/Semaphore/Grafana выше —
+              # не /ui (та требовала бы отдельного клика по кнопке SSO на странице логина
+              # LiteLLM, см. ADR-0022 §3). Доступ к самой сети (forwardAuth) — только
+              # platform-admins/platform-engineers, без platform-viewers.
+              - name: LiteLLM
+                url: https://litellm.aicd.devops-labs.ru/sso/key/generate
+                target: _blank
 
 deployments:
   infra-panel:

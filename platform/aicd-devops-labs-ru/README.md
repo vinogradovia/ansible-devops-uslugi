@@ -30,6 +30,7 @@ libvirt, под доменом `aicd.devops-labs.ru` вместо `aicd.platform
   10.10.10.249 nexus-cache.aicd.devops-labs.ru
   10.10.10.249 docs.aicd.devops-labs.ru
   10.10.10.246 postgresql-infra-1.aicd.devops-labs.ru
+  10.10.10.249 litellm.aicd.devops-labs.ru
   ```
   `postgresql-infra-1` — свой IP, не ClusterIP Traefik (docs/adr/0023-postgresql-standalone-role.md,
   standalone Postgres, сырой TCP на 5432, не HTTP/Ingress) — тот же принцип, что уже действует для
@@ -276,8 +277,76 @@ Semaphore API (Task id=50) — `status: success`, `ok=55 changed=33 failed=0`. P
 реально работает (`active`, `listen_addresses=*`, TLS `on`), `pg_hba.conf` без Debian-дефолтного
 catch-all (только точечный грант `postgres-exporter`/`127.0.0.1`), `node_exporter`/
 `postgres_exporter` (systemd, имена юнитов через `_`, не `-`) оба `active` с реальными метриками.
-Повторный прогон (Task id=51) — `changed=0`, идемпотентность подтверждена. БД/пользователи
-`litellm`/`grafana` по-прежнему не заводятся (вне скоупа, ADR-0023).
+Повторный прогон (Task id=51) — `changed=0`, идемпотентность подтверждена.
+
+**LiteLLM переключён на эту БД и живо проверен (2026-09-12).** `site.yml`: play "Standalone
+PostgreSQL" переставлен ПЕРЕД play "LiteLLM-гейтвей" (иначе Helm поднимал Deployment раньше
+готовности БД/пользователя) — создаёт пользователя `litellm` + БД `litellm` (owner `litellm`) +
+`pg_hba.conf` hostssl-грант с IP ноды `aicd-labs` (не pod-сети `10.42.0.0/16` — LiteLLM-под
+планируется только на неё, `llm1` затейнчена, а egress пода наружу кластера SNAT'ится flannel в
+адрес ноды). `secret/litellm` в OpenBao расширен полем `db_password` аддитивно (KV v2 POST
+заменяет данные версии целиком — существующий `master_key` явно сохранён, не потерян).
+`general_settings.database_url: os.environ/DATABASE_URL` в `config.yaml`, DSN
+(`sslmode=require`) — вторым ключом того же k8s Secret `litellm-master-key`. Prisma создал 75
+таблиц схемы `LiteLLM_*`; `GET /health/readiness` → `{"status": "healthy", "db": "connected"}`;
+`POST /key/generate` создал реальный virtual key в БД. **Найден и исправлен баг**: первый прогон
+с `database_url` — под уходил в `OOMKilled` (exit 137) на старом лимите
+`resources.limits.memory: 1Gi` (Prisma-миграция поднимает отдельный node-процесс query-engine
+поверх python-процесса litellm) — поднято до `2Gi`
+(`helm/values/platform-devops-labs-ru/namespaces/gateway/litellm/values.yaml`), повторный прогон
+— под `Running`/`ready`, `restart_count: 0`. Повторный `site.yml` — `changed=0` на всех новых
+задачах (кроме `helmwave up`, который репортит `changed` безусловно). Grafana остаётся на
+sqlite — миграция по-прежнему вне скоупа (не запрошена).
+
+**Admin UI (`/ui`) выставлен наружу и живо проверен (2026-09-13, ROADMAP.md №59).** Два
+независимых слоя: (1) сетевой периметр — `IngressRoute litellm.aicd.devops-labs.ru` + Middleware
+`authelia-forward-auth` + `access_control` в Authelia, доступ только `platform-admins`+
+`platform-engineers` (без `platform-viewers` — UI создаёт/удаляет virtual keys, не read-only);
+(2) собственный логин `/ui` — LiteLLM заведён ещё одним OIDC-клиентом Authelia (generic OIDC),
+тем же классом решения, что Gitea/Semaphore/Grafana; `secret/authelia` расширен полем
+`litellm_client_secret`(+`_hash`). **Два реальных бага найдены и исправлены:** встроенный в k3s
+Traefik не поддерживает cross-namespace ссылку на Middleware без явного флага контроллера
+(`--providers.kubernetescrd.allowCrossNamespace`) — понадобилась вторая копия Middleware в
+`ns: gateway` (не глобальный флаг на весь Traefik); забытое правило `access_control` для домена
+(без него `default_policy: deny` заблокировала бы даже показ логина). После фиксов:
+неаутентифицированный запрос → `302 → sso.aicd.devops-labs.ru` с реальной формой логина, логи
+Authelia показывают решение `forward-auth` по домену без ошибок конфигурации.
+
+**Третий баг найден пользователем в браузере (клик на логин Authelia падал с `Internal server
+error`) и исправлен тем же днём:** под LiteLLM не доверял внутреннему PKI CA (тот же класс
+проблемы, что уже решён для Gitea/Grafana, но забыт при первой раскатке LiteLLM) —
+`httpx`/`fastapi_sso` падал на обмене кода на токен с `CERTIFICATE_VERIFY_FAILED: self-signed
+certificate in certificate chain`. Исправлено тем же приёмом: `Secret aicd-platform-ca` в
+`ns: gateway` + `SSL_CERT_FILE` в env контейнера. Живо проверено: TLS-запрос к
+`sso.aicd.devops-labs.ru` из пода litellm тем же `ssl.create_default_context()`, что использует
+`httpx`, теперь `200`; `/health/readiness`/`/key/generate` по-прежнему работают.
+
+**Четвёртый баг тем же клик-тестом**: после фикса TLS — `invalid_client`, LiteLLM
+(`fastapi_sso`/`oauthlib`) шлёт `client_secret` через HTTP Basic Auth безусловно, а клиент был
+зарегистрирован на `client_secret_post` (обратный случай уже известного Semaphore-инцидента) —
+исправлено на `token_endpoint_auth_method: 'client_secret_basic'`. Логи Authelia после рестарта
+чистые.
+
+**Подтверждено пользователем: логин через браузер проходит до конца** (запись `ivinogradov` в
+`LiteLLM_UserTable`, не только редирект).
+
+**Маппинг ролей настроен**: `platform-admins`→`proxy_admin`, `platform-engineers`→`internal_user`
+через `role_mappings` (`SSOConfig`, `PATCH /update/sso_settings`, БД-backed — механизм найден
+через `openapi.json` живого инстанса, не `GENERIC_USER_ROLE_ATTRIBUTE`, тот ждёт скаляр, а
+`groups` — список). По пути найдены и исправлены ещё четыре бага: не хватало scope `groups` у
+клиента; `STORE_MODEL_IN_DB=True` — отдельный флаг для записи конфигурации в БД через admin-API;
+`kubernetes.core.k8s_exec` требует `command` строкой, не списком; Jinja `.values.role_mappings`
+коллизировал с `dict.values()`. Живо подтверждено (`GET /get/sso_settings`, идемпотентность
+повторным `site.yml`).
+
+**Пятый баг — кнопка SSO пропала с логин-страницы сразу после первого PATCH**, найден
+пользователем в браузере: PATCH только с `role_mappings` переключает источник правды для ВСЕГО
+`SSOConfig` на БД целиком — поля, не попавшие в тот PATCH (`generic_client_id` и т.д.), стали
+`null`, несмотря на нетронутые env-переменные. Исправлено — PATCH несёт весь `SSOConfig` разом.
+**Живо подтверждено пользователем через реальный браузер: кнопка SSO видна и работает.**
+
+**Открыто**: обновляется ли роль уже существующих пользователей при повторном логине, или только
+при создании записи — не проверено.
 
 **Grafana-дашборд тоже проверен реальными данными.** `VMScrapeConfig monitoring-agent-hosts`
 (`helm/values/platform-devops-labs-ru/namespaces/monitoring/vm/extra-objects.yaml`) уже содержал

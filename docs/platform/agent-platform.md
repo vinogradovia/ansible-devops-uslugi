@@ -106,6 +106,65 @@ graph LR
   этот же секрет несёт второе поле, `database_url` (DSN к `postgresql-infra-1`,
   `sslmode=require`) — `secret/litellm` в OpenBao расширен аддитивно (`db_password` добавлен
   сохранив уже существующий `master_key`, KV v2 `POST` иначе заменил бы данные версии целиком).
+- **Admin UI (`/ui`) выставлен наружу (2026-09-13, ROADMAP.md №59) — два независимых слоя,
+  не один.** (1) Сетевой периметр: `IngressRoute litellm.aicd.devops-labs.ru` (Traefik) + общий
+  Middleware `authelia-forward-auth` + `access_control.rules[].subject` в Authelia, тот же
+  паттерн, что `radar`/`infra-panel`/`docs` (docs/adr/0019-platform-rbac-model.md §8) — но,
+  в отличие от них, **без `platform-viewers`** (только `platform-admins`+`platform-engineers`),
+  т.к. UI создаёт/удаляет virtual keys и меняет бюджеты, не read-only. (2) Собственный логин
+  `/ui` — LiteLLM заведён ЕЩЁ ОДНИМ OIDC-клиентом Authelia (generic OIDC,
+  `GENERIC_CLIENT_ID`/`_SECRET`/`_AUTHORIZATION_ENDPOINT`/`_TOKEN_ENDPOINT`/`_USERINFO_ENDPOINT`,
+  `PROXY_BASE_URL` — env контейнера, не `config.yaml`), тем же классом решения, что Gitea/
+  Semaphore/Grafana. `GENERIC_USER_ROLE_ATTRIBUTE` не настроен — маппинг Authelia-групп во
+  внутреннюю роль LiteLLM (`proxy_admin`/`internal_user`/...) вне скоупа, сетевой периметр (1)
+  уже ограничивает вход. Fallback на `master_key`-логин остаётся на `/fallback/login`.
+  **Найдены и исправлены два реальных бага живым прогоном:** встроенный в k3s Traefik не
+  поддерживает cross-namespace ссылку на Middleware без явного флага контроллера
+  (`--providers.kubernetescrd.allowCrossNamespace`, не включён) — попытка сослаться на
+  `authelia-forward-auth` из `ns: platform` отсюда (`ns: gateway`) ловила `middleware
+  platform/authelia-forward-auth is not in the IngressRoute namespace gateway` и роут молча
+  становился невалидным (голый 404 вместо редиректа на sso); решено вторым Middleware с тем же
+  именем в `ns: gateway`, не глобальным флагом на весь Traefik. Второй баг — забытое правило
+  `access_control` для домена (без него `default_policy: deny` блокировала бы даже показ
+  логина) — добавлено вместе с сетевым периметром. После обоих фиксов подтверждено живьём:
+  `302 → sso.aicd.devops-labs.ru` для неаутентифицированного запроса, логи Authelia показывают
+  реальное решение `forward-auth` по этому домену. **Третий баг найден пользователем в браузере
+  тем же днём**: клик на логин Authelia падал с `Internal server error` — под LiteLLM не доверял
+  внутреннему PKI CA (тот же класс проблемы, что уже решён для Gitea/Grafana, но забыт при
+  первой раскатке LiteLLM), `httpx` внутри `fastapi_sso` падал на обмене кода на токен с
+  `CERTIFICATE_VERIFY_FAILED: self-signed certificate in certificate chain`. Исправлено тем же
+  приёмом: `Secret aicd-platform-ca` в `ns: gateway` + `SSL_CERT_FILE` в env контейнера (Python
+  `httpx` уважает этот стандартный OpenSSL env var так же, как Go `crypto/x509`). Живо
+  проверено: TLS-запрос к `sso.aicd.devops-labs.ru` из пода litellm тем же
+  `ssl.create_default_context()`, что использует `httpx`, теперь `200`. **Четвёртый баг тем же
+  клик-тестом**: после фикса TLS — `invalid_client`, LiteLLM (`fastapi_sso`/`oauthlib`) шлёт
+  `client_secret` через HTTP Basic Auth безусловно, а клиент был зарегистрирован на
+  `client_secret_post` (обратный случай уже известного Semaphore-инцидента) — исправлено на
+  `token_endpoint_auth_method: 'client_secret_basic'`. **Подтверждено пользователем: логин через
+  браузер реально проходит до конца** (запись `ivinogradov` в `LiteLLM_UserTable` — не только
+  редирект, полный OIDC-цикл).
+
+  **Маппинг ролей `platform-admins`→`proxy_admin`/`platform-engineers`→`internal_user`
+  настроен по запросу пользователя** — не `GENERIC_USER_ROLE_ATTRIBUTE` (ждёт скаляр, `groups` —
+  список), а `role_mappings` внутри `SSOConfig` (`PATCH /update/sso_settings`, БД-backed,
+  найдено через `openapi.json` живого инстанса). Ещё четыре бага по пути: (1) клиенту `litellm`
+  не хватало scope `groups`; (2) `STORE_MODEL_IN_DB=True` — отдельный флаг для admin-API записи
+  конфигурации в БД, без него `PATCH` падал `500`; (3) `kubernetes.core.k8s_exec` требует
+  `command` строкой, не списком (список молча превращался в мусор, эта путаница давала
+  сбивающее с толку `invalid literal for int()` вместо реальной OCI-ошибки); (4) Jinja
+  `.values.role_mappings` резолвился в `dict.values()` bound-метод (коллизия имени ключа JSON) —
+  исправлено на `['values']['role_mappings']`. Живо подтверждено: `GET /get/sso_settings`
+  показывает сохранённый маппинг, повторный `site.yml` корректно пропускает PATCH (идемпотентно).
+
+  **Пятый баг — кнопка SSO пропала с логин-страницы сразу после первого PATCH**, найден
+  пользователем в браузере: PATCH только с `role_mappings` переключает у LiteLLM источник правды
+  для ВСЕГО `SSOConfig` на БД целиком, а не мёржит по полям с env — поля, не попавшие в тот
+  конкретный PATCH (`generic_client_id`/`_secret`/эндпоинты/`proxy_base_url`), перестали
+  резолвиться из `GENERIC_*` env-переменных и стали `null`. Исправлено — PATCH несёт ВЕСЬ
+  желаемый `SSOConfig` разом. **Живо подтверждено пользователем через реальный браузер: кнопка
+  SSO видна и работает.**
+  **Открыто**: применяется ли маппинг к уже существующим пользователям при повторном логине, или
+  только при первом создании записи — не проверено.
 
 ## DD
 
@@ -122,16 +181,27 @@ graph TD
         subgraph ns_gw["namespace: gateway"]
             LLPOD["Deployment litellm<br/>image ghcr.io/berriai/litellm:v1.99.1"]
             CM2["ConfigMap config.yaml"]
+            MW_GW["Middleware authelia-forward-auth<br/>(своя копия — cross-namespace не поддержан)"]
+            IR["IngressRoute litellm.aicd.devops-labs.ru"]
         end
-        SEC["Secret litellm-master-key<br/>(master_key + database_url)"]
+        subgraph ns_platform["namespace: platform"]
+            AUTH["Authelia<br/>OIDC-клиент litellm + access_control"]
+        end
+        SEC["Secret litellm-master-key<br/>(master_key + database_url + client_secret)"]
     end
     PG[("postgresql-infra-1<br/>10.10.10.246, БД litellm<br/>ADR-0023")]
+    BROWSER(["Оператор (браузер)"])
 
     LLPOD -->|"http://llama-server.llm.svc.cluster.local:8080/v1"| LLAMAPOD
     LLPOD -->|"http://tei.llm.svc.cluster.local:80/v1"| TEIPOD
     LLPOD --> CM2
     LLPOD --> SEC
     LLPOD -->|"postgresql://, sslmode=require<br/>SNAT на IP ноды aicd-labs (flannel)"| PG
+    BROWSER -->|"1. HTTPS /ui"| IR
+    IR -->|"2. forwardAuth"| MW_GW
+    MW_GW -->|"3. /api/authz/forward-auth"| AUTH
+    IR -->|"4. proxy (если пропущен)"| LLPOD
+    LLPOD -->|"5. свой логин: generic OIDC"| AUTH
 ```
 
 RuntimeClass'ы и каркас namespace (`llm`/`gateway`/`agents`/`data`/`obs`/`egress`), Pod Security

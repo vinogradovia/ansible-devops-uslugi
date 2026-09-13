@@ -233,7 +233,7 @@
             # от `template`, который такого ограничения не имеет).
             aicd-devops-labs-ru.override: |
               template IN A aicd.devops-labs.ru {
-                match "^(gitea|semaphore|radar|infra-panel|docs|openbao|sso)\.aicd\.devops-labs\.ru\.$"
+                match "^(gitea|semaphore|radar|infra-panel|docs|openbao|sso|litellm)\.aicd\.devops-labs\.ru\.$"
                 answer "{{ '{{' }} .Name {{ '}}' }} 60 IN A {{ platform_aicd_devops_labs_ru_traefik_cluster_ip }}"
                 fallthrough
               }
@@ -271,7 +271,7 @@
               # rcode NOERROR без answer — корректный пустой ответ ("имя есть, IPv6-записи нет"),
               # а не NXDOMAIN.
               template IN AAAA aicd.devops-labs.ru {
-                match "^(gitea|semaphore|radar|infra-panel|docs|openbao|sso|ipa|postgresql-infra-1)\.aicd\.devops-labs\.ru\.$"
+                match "^(gitea|semaphore|radar|infra-panel|docs|openbao|sso|ipa|postgresql-infra-1|litellm)\.aicd\.devops-labs\.ru\.$"
                 rcode NOERROR
                 fallthrough
               }
@@ -1039,8 +1039,15 @@
           register: platform_aicd_devops_labs_ru_openbao_secret_litellm
           no_log: true
 
-        - name: "OpenBao: сгенерировать и записать secret/litellm (только при первом прогоне)"
-          when: platform_aicd_devops_labs_ru_openbao_secret_litellm.status == 404
+        # ADR-0023 — db_password добавлен позже master_key (secret/litellm уже существовал в
+        # проде с одним полем). KV v2 POST .../secret/data/<path> целиком заменяет данные версии
+        # (не мёржит), поэтому при добавлении db_password нужно явно сохранить уже существующий
+        # master_key, а не просто сгенерировать оба поля заново. `when` срабатывает и на первом
+        # прогоне (секрета нет вовсе), и на довключении db_password в уже существующий секрет.
+        - name: "OpenBao: сгенерировать и записать secret/litellm (master_key при первом прогоне, db_password — аддитивно)"
+          when: >-
+            platform_aicd_devops_labs_ru_openbao_secret_litellm.status == 404 or
+            'db_password' not in platform_aicd_devops_labs_ru_openbao_secret_litellm.json.data.data
           no_log: true
           ansible.builtin.uri:
             url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/litellm"
@@ -1051,7 +1058,14 @@
             body_format: json
             body:
               data:
-                master_key: "sk-{{ lookup('ansible.builtin.password', '/dev/null', length=40, chars=['ascii_lowercase', 'digits']) }}"
+                master_key: >-
+                  {{ platform_aicd_devops_labs_ru_openbao_secret_litellm.json.data.data.master_key
+                     if platform_aicd_devops_labs_ru_openbao_secret_litellm.status == 200
+                     else 'sk-' ~ lookup('ansible.builtin.password', '/dev/null', length=40, chars=['ascii_lowercase', 'digits']) }}
+                # ADR-0023 — пароль пользователя БД litellm на postgresql-infra-1, подставляется
+                # сырым текстом в DATABASE_URL (play "Standalone PostgreSQL" ниже) — без ':'/'@'/'/'
+                # дефолтного charset password-lookup, чтобы не сломать разбор DSN.
+                db_password: "{{ lookup('ansible.builtin.password', '/dev/null', length=32, chars=['ascii_letters', 'digits']) }}"
             status_code: [200, 204]
 
         - name: "OpenBao: прочитать secret/litellm (значение нужно ниже по playbook)"
@@ -1063,6 +1077,11 @@
               X-Vault-Token: "{{ platform_aicd_devops_labs_ru_openbao_root_token }}"
             status_code: [200]
           register: platform_aicd_devops_labs_ru_openbao_secret_litellm_read
+          no_log: true
+
+        - name: Опубликовать пароль БД litellm как факт хоста (для play "Standalone PostgreSQL", hostvars)
+          ansible.builtin.set_fact:
+            platform_aicd_devops_labs_ru_litellm_db_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_litellm_read.json.data.data.db_password }}"
           no_log: true
 
         # ADR-0013 §1 — пароли Directory Manager/admin для persistent freeipa (единый каталог
@@ -1206,6 +1225,7 @@
                 gitea_client_secret: "{{ lookup('ansible.builtin.password', '/dev/null', length=48) }}"
                 semaphore_client_secret: "{{ lookup('ansible.builtin.password', '/dev/null', length=48) }}"
                 grafana_client_secret: "{{ lookup('ansible.builtin.password', '/dev/null', length=48) }}"
+                litellm_client_secret: "{{ lookup('ansible.builtin.password', '/dev/null', length=48) }}"
             status_code: [200, 204]
 
         # Ретрофит для уже забутстрапленного secret/authelia — тот же приём, что
@@ -1230,6 +1250,27 @@
                 }}
             status_code: [200, 204]
 
+        # Ретрофит для LiteLLM UI OIDC-клиента (ROADMAP.md №59) — тот же приём, что Grafana выше.
+        - name: "OpenBao: добавить litellm_client_secret в существующий secret/authelia"
+          when: >-
+            platform_aicd_devops_labs_ru_openbao_secret_authelia.status == 200
+            and 'litellm_client_secret' not in platform_aicd_devops_labs_ru_openbao_secret_authelia.json.data.data
+          no_log: true
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/authelia"
+            ca_path: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
+            method: POST
+            headers:
+              X-Vault-Token: "{{ platform_aicd_devops_labs_ru_openbao_root_token }}"
+            body_format: json
+            body:
+              data: >-
+                {{
+                  platform_aicd_devops_labs_ru_openbao_secret_authelia.json.data.data
+                  | combine({'litellm_client_secret': lookup('ansible.builtin.password', '/dev/null', length=48)})
+                }}
+            status_code: [200, 204]
+
         - name: "OpenBao: прочитать secret/authelia (значения нужны ниже по playbook)"
           ansible.builtin.uri:
             url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/authelia"
@@ -1241,9 +1282,10 @@
           register: platform_aicd_devops_labs_ru_openbao_secret_authelia_read
           no_log: true
 
-        - name: Опубликовать секреты Authelia как факты хоста (для play freeipa_hosts, hostvars)
+        - name: Опубликовать секреты Authelia как факты хоста (для play freeipa_hosts/LiteLLM-гейтвея, hostvars)
           ansible.builtin.set_fact:
             platform_aicd_devops_labs_ru_authelia_ldap_bind_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_authelia_read.json.data.data.ldap_bind_password }}"
+            platform_aicd_devops_labs_ru_authelia_litellm_client_secret: "{{ platform_aicd_devops_labs_ru_openbao_secret_authelia_read.json.data.data.litellm_client_secret }}"
           no_log: true
 
         # Authelia требует client_secret OIDC-клиента в конфиге в ВИДЕ ХЭША (pbkdf2-sha512), не
@@ -1345,6 +1387,48 @@
                 }}
             status_code: [200, 204]
 
+        # Ретрофит для LiteLLM UI OIDC-клиента (ROADMAP.md №59) — тот же приём, что Grafana выше.
+        - name: "Authelia: посчитать pbkdf2-хэш client_secret для LiteLLM (только пока его нет)"
+          when: "'litellm_client_secret_hash' not in platform_aicd_devops_labs_ru_openbao_secret_authelia_read.json.data.data"
+          no_log: true
+          ansible.builtin.command:
+            argv:
+              - docker
+              - run
+              - --rm
+              - "authelia/authelia:4.39.20"
+              - authelia
+              - crypto
+              - hash
+              - generate
+              - pbkdf2
+              - --variant
+              - sha512
+              - --password
+              - "{{ platform_aicd_devops_labs_ru_openbao_secret_authelia_read.json.data.data.litellm_client_secret }}"
+          register: platform_aicd_devops_labs_ru_authelia_litellm_client_secret_hash_raw
+          changed_when: false
+
+        - name: "Authelia: сохранить посчитанный хэш LiteLLM в secret/authelia (только пока его нет)"
+          when: "'litellm_client_secret_hash' not in platform_aicd_devops_labs_ru_openbao_secret_authelia_read.json.data.data"
+          no_log: true
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/authelia"
+            ca_path: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
+            method: POST
+            headers:
+              X-Vault-Token: "{{ platform_aicd_devops_labs_ru_openbao_root_token }}"
+            body_format: json
+            body:
+              data: >-
+                {{
+                  platform_aicd_devops_labs_ru_openbao_secret_authelia_read.json.data.data
+                  | combine({
+                      'litellm_client_secret_hash': platform_aicd_devops_labs_ru_authelia_litellm_client_secret_hash_raw.stdout | regex_search('(?<=Digest: ).+'),
+                  })
+                }}
+            status_code: [200, 204]
+
         # ADR-0019 §3/§8 п.1 — пароль первого реального человека в каталоге (platform-admins).
         # Тот же check-404-then-generate паттерн, что secret/authelia выше — пароль генерируется
         # один раз; повторный прогон не должен подставлять новое значение (роль freeipa_directory
@@ -1399,7 +1483,7 @@
         # openbao.aicd.devops-labs.ru/openbao-ingress-tls — docs/adr/0017-platform-cicd-default-addons.md
         # §3, внешний Ingress-сертификат OpenBao (отдельный от внутреннего bootstrap-сертификата
         # openbao-server-tls самого listener'а).
-        - name: "OpenBao: выпустить/перевыпустить TLS-сертификаты (gitea, semaphore, radar, infra-panel, docs-site, openbao, authelia, grafana, nexus)"
+        - name: "OpenBao: выпустить/перевыпустить TLS-сертификаты (gitea, semaphore, radar, infra-panel, docs-site, openbao, authelia, grafana, nexus, litellm)"
           no_log: true
           ansible.builtin.include_tasks: tasks/issue-tls-cert.yml
           loop:
@@ -1410,11 +1494,13 @@
             - {host: docs.aicd.devops-labs.ru, secret: docs-site-tls}
             - {host: openbao.aicd.devops-labs.ru, secret: openbao-ingress-tls}
             - {host: sso.aicd.devops-labs.ru, secret: authelia-tls}
-            # namespace: monitoring/cache — тот же фикс, что platform/aicd/ansible/site.yml
+            # namespace: monitoring/cache/gateway — тот же фикс, что platform/aicd/ansible/site.yml
             # (Secret обязан жить там же, где IngressRoute/Ingress, который его использует).
             - {host: grafana.aicd.devops-labs.ru, secret: grafana-tls, namespace: monitoring}
             - {host: nexus.aicd.devops-labs.ru, secret: nexus-tls, namespace: cache}
             - {host: nexus-cache.aicd.devops-labs.ru, secret: nexus-cache-tls, namespace: cache}
+            # ROADMAP.md №59 — LiteLLM UI наружу.
+            - {host: litellm.aicd.devops-labs.ru, secret: litellm-tls, namespace: gateway}
           loop_control:
             label: "{{ item.host }}"
 
@@ -4140,127 +4226,12 @@
       retries: 120
       delay: 15
 
-# ADR-0015 §6/§7 — LiteLLM-гейтвей (namespace gateway) перед локальным инференсом ADR-0021.
-# Отдельная play (не продолжение "ADR-0021 — локальный инференс") — гейтвей не часть модели, а
-# следующий архитектурный слой (ADR-0015 §6). Helm-релиз через Helmwave (helm/envs/
-# platform-devops-labs-ru.yaml), а не задачи kubernetes.core.k8s напрямую, как llama-server/TEI —
-# у LiteLLM, в отличие от кастомного llama-server, нет специфичной bootstrap-логики (initContainer
-# для весов и т.п.), обычный контейнер+конфиг вписывается в уже используемый в коллекции
-# generic-чарт universal-chart тем же способом, что nexus/semaphore/authelia/infra-panel. Отдельный
-# `helmwave up --tags litellm` (не вместе с безусловным вызовом для Gitea/Semaphore/... в начале
-# файла) — тот прогоняется раньше во времени, чем существуют namespace llm и его сервисы.
-- name: "ADR-0015 §6/§7 — LiteLLM-гейтвей"
-  hosts: platform_hosts
-  become: true
-  environment:
-    KUBECONFIG: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
-    K8S_CLUSTER: platform-devops-labs-ru
-    NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
-    no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
-  tasks:
-    # secret/litellm вне доступа render-token (см. комментарий у "OpenBao: проверить наличие
-    # secret/litellm" выше) — передаётся обычным k8s Secret, тем же приёмом, что
-    # grafana-admin-credentials-custom, а не gomplate vault:// в values.yaml. Должен существовать
-    # ДО Helmwave up ниже — под litellm ссылается на него переменной окружения при первом же
-    # старте.
-    - name: "Secret litellm-master-key (master_key из secret/litellm в OpenBao)"
-      delegate_to: localhost
-      become: false
-      run_once: true
-      no_log: true
-      kubernetes.core.k8s:
-        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
-        state: present
-        kind: Secret
-        name: litellm-master-key
-        namespace: gateway
-        definition:
-          apiVersion: v1
-          metadata:
-            labels:
-              app.kubernetes.io/managed-by: ansible
-          type: Opaque
-          stringData:
-            master_key: "{{ platform_aicd_devops_labs_ru_openbao_secret_litellm_read.json.data.data.master_key }}"
-
-    - name: Helmwave up (LiteLLM gateway, helm/envs/platform-devops-labs-ru.yaml)
-      delegate_to: localhost
-      become: false
-      run_once: true
-      ansible.builtin.command:
-        chdir: "{{ playbook_dir }}/../../../helm"
-        argv:
-          - helmwave
-          - up
-          - --build
-          - --yml
-          - --templater
-          - gomplate
-          - --file
-          - helmwave.platform-devops-labs-ru.yml
-          - --tags
-          - litellm
-      register: platform_aicd_devops_labs_ru_helmwave_up_litellm
-      changed_when: true
-
-    - name: "Gateway: дождаться готовности litellm"
-      delegate_to: localhost
-      become: false
-      run_once: true
-      kubernetes.core.k8s_info:
-        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
-        api_version: apps/v1
-        kind: Deployment
-        namespace: gateway
-        name: litellm-litellm
-      register: platform_aicd_devops_labs_ru_litellm_deploy
-      until: >-
-        platform_aicd_devops_labs_ru_litellm_deploy.resources | length > 0 and
-        (platform_aicd_devops_labs_ru_litellm_deploy.resources[0].status.readyReplicas | default(0)) >= 1
-      retries: 30
-      delay: 10
-
-    # ADR-0015 §7 — теперь, когда litellm/namespace gateway реально существуют, добавляем
-    # соответствующее разрешающее правило в default-deny NetworkPolicy ns: agents (до этого была
-    # только allow-egress-kube-dns — остальные три адреса физически не существовали, см. play
-    # "ADR-0015 (Фаза 1)" выше). mcp-gateway.gateway/egress-proxy.egress по-прежнему не существуют
-    # — их правила появятся вместе с их собственными namespace/сервисами в следующей фазе.
-    - name: "Namespace agents: allow egress к litellm.gateway"
-      delegate_to: localhost
-      become: false
-      run_once: true
-      kubernetes.core.k8s:
-        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
-        state: present
-        definition:
-          apiVersion: networking.k8s.io/v1
-          kind: NetworkPolicy
-          metadata:
-            name: allow-egress-litellm
-            namespace: agents
-            labels:
-              app.kubernetes.io/managed-by: ansible
-          spec:
-            podSelector: {}
-            policyTypes:
-              - Egress
-            egress:
-              - to:
-                  - namespaceSelector:
-                      matchLabels:
-                        kubernetes.io/metadata.name: gateway
-                    podSelector:
-                      matchLabels:
-                        app.kubernetes.io/instance: litellm
-                ports:
-                  - protocol: TCP
-                    port: 4000
-
 - name: "Standalone PostgreSQL (ADR-0023): postgresql-infra-1"
   hosts: postgresql_infra_hosts
   become: true
   vars:
     postgresql_infra_postgres_exporter_password: "{{ hostvars['aicd-labs'].platform_aicd_devops_labs_ru_postgres_exporter_password }}"
+    postgresql_infra_litellm_db_password: "{{ hostvars['aicd-labs'].platform_aicd_devops_labs_ru_litellm_db_password }}"
 
   pre_tasks:
     - name: Дождаться завершения cloud-init
@@ -4272,8 +4243,9 @@
     - postgresql
 
   # Заведение служебного пользователя мониторинга — ad hoc, на уровне playbook'а, не переменная
-  # роли (см. roles/postgresql/README.md, «Границы ответственности»). Прикладные БД/пользователи
-  # (litellm, grafana) в этом заходе не заводятся вовсе — см. ADR-0023 §3/«Открытые вопросы».
+  # роли (см. roles/postgresql/README.md, «Границы ответственности»). Прикладная БД litellm
+  # заводится тем же приёмом ниже — Grafana/sqlite по-прежнему вне скоупа (ADR-0023
+  # «Открытые вопросы», не запрошено).
   tasks:
     - name: Создать служебного пользователя мониторинга postgres-exporter
       become: true
@@ -4318,3 +4290,318 @@
         monitoring_agent_node_exporter_enabled: true
         monitoring_agent_postgres_exporter_enabled: true
         monitoring_agent_postgres_exporter_password: "{{ postgresql_infra_postgres_exporter_password }}"
+
+    # ADR-0015 §7 — первая прикладная БД поверх этого сервера: LiteLLM переключается с
+    # config-only режима на БД-backed (virtual keys/spend tracking), см. play "ADR-0015 §6/§7 —
+    # LiteLLM-гейтвей" ниже, которая читает эту же БД через DATABASE_URL. owner: litellm
+    # достаточно для CREATE в схеме public (PG17 — public по умолчанию принадлежит владельцу БД,
+    # см. roles/postgresql/README.md) — отдельный GRANT не нужен.
+    - name: "LiteLLM: создать пользователя БД litellm"
+      become: true
+      become_user: postgres
+      no_log: true
+      community.postgresql.postgresql_user:
+        login_unix_socket: /var/run/postgresql
+        name: litellm
+        password: "{{ postgresql_infra_litellm_db_password }}"
+        role_attr_flags: LOGIN
+
+    - name: "LiteLLM: создать БД litellm (owner litellm)"
+      become: true
+      become_user: postgres
+      community.postgresql.postgresql_db:
+        login_unix_socket: /var/run/postgresql
+        name: litellm
+        owner: litellm
+
+    # hostssl (не host, как у postgres-exporter выше) — под LiteLLM подключается по сети, не
+    # loopback. source — IP ноды aicd-labs, а не pod-сеть 10.42.0.0/16: LiteLLM-под планируется
+    # только на aicd-labs (llm1 затейнчена dedicated=agents:NoSchedule), а исходящий трафик пода
+    # наружу кластера SNAT'ится flannel (FLANNEL_IPMASQ=true) в адрес самой ноды.
+    - name: "LiteLLM: разрешить подключение с ноды aicd-labs в pg_hba.conf (sslmode=require)"
+      community.postgresql.postgresql_pg_hba:
+        dest: "{{ postgresql_config_dir }}/pg_hba.conf"
+        contype: hostssl
+        databases: litellm
+        users: litellm
+        source: "{{ hostvars['aicd-labs'].ansible_host }}/32"
+        method: scram-sha-256
+      notify: Reload PostgreSQL
+
+    - name: Force notified handlers (Reload PostgreSQL) to run now
+      ansible.builtin.meta: flush_handlers
+
+# ADR-0015 §6/§7 — LiteLLM-гейтвей (namespace gateway) перед локальным инференсом ADR-0021.
+# Отдельная play (не продолжение "ADR-0021 — локальный инференс") — гейтвей не часть модели, а
+# следующий архитектурный слой (ADR-0015 §6). Helm-релиз через Helmwave (helm/envs/
+# platform-devops-labs-ru.yaml), а не задачи kubernetes.core.k8s напрямую, как llama-server/TEI —
+# у LiteLLM, в отличие от кастомного llama-server, нет специфичной bootstrap-логики (initContainer
+# для весов и т.п.), обычный контейнер+конфиг вписывается в уже используемый в коллекции
+# generic-чарт universal-chart тем же способом, что nexus/semaphore/authelia/infra-panel. Отдельный
+# `helmwave up --tags litellm` (не вместе с безусловным вызовом для Gitea/Semaphore/... в начале
+# файла) — тот прогоняется раньше во времени, чем существуют namespace llm и его сервисы.
+#
+# Идёт ПОСЛЕ play "Standalone PostgreSQL" выше (не до неё, как было до ADR-0023-подключения БД) —
+# под litellm обращается к DATABASE_URL сразу при старте (Prisma-миграция), БД/пользователь
+# litellm должны существовать на postgresql-infra-1 раньше, чем Helm поднимет Deployment.
+- name: "ADR-0015 §6/§7 — LiteLLM-гейтвей"
+  hosts: platform_hosts
+  become: true
+  environment:
+    KUBECONFIG: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+    K8S_CLUSTER: platform-devops-labs-ru
+    NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+    no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+  tasks:
+    # Тот же приём, что "Secret aicd-platform-ca в namespace monitoring (для OIDC-обмена Grafana с
+    # Authelia)" выше — без доверия к внутреннему PKI CA generic-OIDC-клиент LiteLLM падает на
+    # POST токен-эндпоинта Authelia с "certificate verify failed: self-signed certificate in
+    # certificate chain" (найдено реальным прогоном — SSO возвращал "Internal server error").
+    - name: "Secret aicd-platform-ca в namespace gateway (для OIDC-обмена LiteLLM с Authelia)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      environment:
+        KUBECONFIG: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+      kubernetes.core.k8s:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        state: present
+        kind: Secret
+        name: aicd-platform-ca
+        namespace: gateway
+        definition:
+          apiVersion: v1
+          metadata:
+            labels:
+              app.kubernetes.io/managed-by: ansible
+          type: Opaque
+          stringData:
+            ca.pem: "{{ platform_aicd_devops_labs_ru_pki_ca_pem.content }}"
+
+    # ROADMAP.md №59 — сетевой периметр перед /ui. Копия Middleware "Authelia: Middleware
+    # authelia-forward-auth (Traefik)" (play выше, ns platform), но в ns gateway — встроенный в
+    # k3s Traefik не поддерживает cross-namespace ссылку на Middleware без явного флага контроллера
+    # (--providers.kubernetescrd.allowCrossNamespace, здесь не включён), найдено реальным прогоном
+    # (см. комментарий в helm/values/.../gateway/litellm/values.yaml, ingressroutes.litellm).
+    - name: "Authelia: Middleware authelia-forward-auth в ns gateway (Traefik, для litellm)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      kubernetes.core.k8s:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        state: present
+        definition:
+          apiVersion: traefik.io/v1alpha1
+          kind: Middleware
+          metadata:
+            name: authelia-forward-auth
+            namespace: gateway
+            labels:
+              app.kubernetes.io/managed-by: ansible
+          spec:
+            forwardAuth:
+              address: "http://authelia-authelia.platform.svc.cluster.local:9091/api/authz/forward-auth"
+              trustForwardHeader: true
+              maxResponseBodySize: 8192
+              authResponseHeaders:
+                - Remote-User
+                - Remote-Groups
+                - Remote-Name
+                - Remote-Email
+
+    # secret/litellm вне доступа render-token (см. комментарий у "OpenBao: проверить наличие
+    # secret/litellm" выше) — передаётся обычным k8s Secret, тем же приёмом, что
+    # grafana-admin-credentials-custom, а не gomplate vault:// в values.yaml. Должен существовать
+    # ДО Helmwave up ниже — под litellm ссылается на все три поля переменными окружения при первом
+    # же старте (master_key — всегда, database_url — с подключением БД ADR-0023, client_secret —
+    # с OIDC-логином /ui, ROADMAP.md №59). client_secret — plaintext-значение из secret/authelia
+    # (не hash — тот идёт только в конфиг Authelia), опубликован фактом хоста выше по playbook.
+    - name: "Secret litellm-master-key (master_key + database_url + client_secret из OpenBao)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      no_log: true
+      kubernetes.core.k8s:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        state: present
+        kind: Secret
+        name: litellm-master-key
+        namespace: gateway
+        definition:
+          apiVersion: v1
+          metadata:
+            labels:
+              app.kubernetes.io/managed-by: ansible
+          type: Opaque
+          stringData:
+            master_key: "{{ platform_aicd_devops_labs_ru_openbao_secret_litellm_read.json.data.data.master_key }}"
+            database_url: "postgresql://litellm:{{ platform_aicd_devops_labs_ru_openbao_secret_litellm_read.json.data.data.db_password }}@postgresql-infra-1.aicd.devops-labs.ru:5432/litellm?sslmode=require"
+            client_secret: "{{ platform_aicd_devops_labs_ru_authelia_litellm_client_secret }}"
+
+    - name: Helmwave up (LiteLLM gateway, helm/envs/platform-devops-labs-ru.yaml)
+      delegate_to: localhost
+      become: false
+      run_once: true
+      ansible.builtin.command:
+        chdir: "{{ playbook_dir }}/../../../helm"
+        argv:
+          - helmwave
+          - up
+          - --build
+          - --yml
+          - --templater
+          - gomplate
+          - --file
+          - helmwave.platform-devops-labs-ru.yml
+          - --tags
+          - litellm
+      register: platform_aicd_devops_labs_ru_helmwave_up_litellm
+      changed_when: true
+
+    - name: "Gateway: дождаться готовности litellm"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        api_version: apps/v1
+        kind: Deployment
+        namespace: gateway
+        name: litellm-litellm
+      register: platform_aicd_devops_labs_ru_litellm_deploy
+      until: >-
+        platform_aicd_devops_labs_ru_litellm_deploy.resources | length > 0 and
+        (platform_aicd_devops_labs_ru_litellm_deploy.resources[0].status.readyReplicas | default(0)) >= 1
+      retries: 30
+      delay: 10
+
+    # ROADMAP.md №59 — маппинг групп Authelia в роли LiteLLM (platform-admins → proxy_admin,
+    # platform-engineers → internal_user). Не `GENERIC_USER_ROLE_ATTRIBUTE` (env, ждёт СКАЛЯРНОЕ
+    # значение claim'а, а `groups` — список) — реальный механизм для списочного claim'а найден
+    # через openapi.json живого инстанса: `role_mappings` внутри `SSOConfig`
+    # (`PATCH /update/sso_settings`), хранится в БД (`LiteLLM_SSOConfig`), не в config.yaml/env —
+    # существующие GENERIC_*-переменные (`provenance: env`) и это поле (`provenance` для него до
+    # первого PATCH вообще отсутствует) сосуществуют, не конфликтуют. Вызов —k8s_exec внутрь
+    # самого пода на localhost:4000, а не через внешний https://litellm.aicd.devops-labs.ru —
+    # тот теперь целиком за forwardAuth (IngressRoute без PathPrefix), внешний uri-вызов с
+    # master_key получил бы редирект на sso, а не ответ API.
+    - name: "LiteLLM: найти под (для k8s_exec, role_mappings)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        api_version: v1
+        kind: Pod
+        namespace: gateway
+        label_selectors:
+          - app.kubernetes.io/instance=litellm
+      register: platform_aicd_devops_labs_ru_litellm_pod_info
+
+    # Найдено реальным прогоном: kubernetes.core.k8s_exec (в отличие от документации других
+    # модулей этой коллекции) требует `command` СТРОКОЙ, не списком — сам делает `shlex.split()`
+    # (plugins/modules/k8s_exec.py). Список молча превращается в мусорную строку вида
+    # "['python3', ...]", exec в контейнере падает на уровне OCI-рантайма ("unable to start
+    # container process"), а библиотека `kubernetes` пытается распарсить текст этой ошибки как
+    # целочисленный код возврата и падает с "invalid literal for int()" — вводящее в заблуждение
+    # сообщение, реальная причина глубже.
+    - name: "LiteLLM: прочитать текущие SSO role_mappings (/get/sso_settings)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      no_log: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+      kubernetes.core.k8s_exec:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        namespace: gateway
+        pod: "{{ platform_aicd_devops_labs_ru_litellm_pod_info.resources[0].metadata.name }}"
+        command: >-
+          python3 -c "import urllib.request as u;
+          r=u.Request('http://localhost:4000/get/sso_settings',
+          headers={'Authorization': 'Bearer {{ platform_aicd_devops_labs_ru_openbao_secret_litellm_read.json.data.data.master_key }}'});
+          print(u.urlopen(r).read().decode())"
+      register: platform_aicd_devops_labs_ru_litellm_sso_settings_get
+
+    # Найдено реальным прогоном (сломало кнопку SSO на логин-странице сразу после первого PATCH
+    # с одним только role_mappings): после ПЕРВОГО PATCH /update/sso_settings LiteLLM переключает
+    # источник правды для ВСЕГО SSOConfig на БД целиком, а не мёржит по полям с env — поля,
+    # которых нет в записанном PATCH (generic_client_id/_secret/_endpoint/proxy_base_url),
+    # перестают резолвиться из GENERIC_*-переменных окружения и становятся null (в GET
+    # /get/sso_settings их provenance меняется с "env" на "unset"), хотя сами env-переменные
+    # никуда не делись. PATCH обязан нести ВЕСЬ желаемый SSOConfig разом, не только role_mappings.
+    - name: "LiteLLM: настроить SSOConfig целиком (role_mappings + generic_* — БД источник правды после первого PATCH)"
+      # ['values']['...'], а не .values.<key> — найдено реальным прогоном: ключ JSON-ответа
+      # "values" коллизирует с методом dict.values(), точечная нотация Jinja молча резолвится в
+      # bound method, а не в значение ключа ("object of type 'method' has no attribute '...'").
+      when: >-
+        (platform_aicd_devops_labs_ru_litellm_sso_settings_get.stdout | from_json)['values']['role_mappings'] is none
+        or (platform_aicd_devops_labs_ru_litellm_sso_settings_get.stdout | from_json)['values']['generic_client_id'] is none
+      delegate_to: localhost
+      become: false
+      run_once: true
+      no_log: true
+      changed_when: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+      kubernetes.core.k8s_exec:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        namespace: gateway
+        pod: "{{ platform_aicd_devops_labs_ru_litellm_pod_info.resources[0].metadata.name }}"
+        command: >-
+          python3 -c "import urllib.request as u, json;
+          b=json.dumps({
+          'generic_client_id': 'litellm',
+          'generic_client_secret': '{{ platform_aicd_devops_labs_ru_authelia_litellm_client_secret }}',
+          'generic_authorization_endpoint': 'https://sso.aicd.devops-labs.ru/api/oidc/authorization',
+          'generic_token_endpoint': 'https://sso.aicd.devops-labs.ru/api/oidc/token',
+          'generic_userinfo_endpoint': 'https://sso.aicd.devops-labs.ru/api/oidc/userinfo',
+          'generic_scope': 'openid profile email groups',
+          'proxy_base_url': 'https://litellm.aicd.devops-labs.ru',
+          'role_mappings': {'provider': 'generic', 'group_claim': 'groups',
+          'default_role': 'internal_user_viewer', 'roles': {'proxy_admin': ['platform-admins'],
+          'internal_user': ['platform-engineers']}}}).encode();
+          r=u.Request('http://localhost:4000/update/sso_settings', data=b,
+          headers={'Authorization': 'Bearer {{ platform_aicd_devops_labs_ru_openbao_secret_litellm_read.json.data.data.master_key }}',
+          'Content-Type': 'application/json'}, method='PATCH');
+          print(u.urlopen(r).read().decode())"
+
+    # ADR-0015 §7 — теперь, когда litellm/namespace gateway реально существуют, добавляем
+    # соответствующее разрешающее правило в default-deny NetworkPolicy ns: agents (до этого была
+    # только allow-egress-kube-dns — остальные три адреса физически не существовали, см. play
+    # "ADR-0015 (Фаза 1)" выше). mcp-gateway.gateway/egress-proxy.egress по-прежнему не существуют
+    # — их правила появятся вместе с их собственными namespace/сервисами в следующей фазе.
+    - name: "Namespace agents: allow egress к litellm.gateway"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      kubernetes.core.k8s:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        state: present
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: NetworkPolicy
+          metadata:
+            name: allow-egress-litellm
+            namespace: agents
+            labels:
+              app.kubernetes.io/managed-by: ansible
+          spec:
+            podSelector: {}
+            policyTypes:
+              - Egress
+            egress:
+              - to:
+                  - namespaceSelector:
+                      matchLabels:
+                        kubernetes.io/metadata.name: gateway
+                    podSelector:
+                      matchLabels:
+                        app.kubernetes.io/instance: litellm
+                ports:
+                  - protocol: TCP
+                    port: 4000
