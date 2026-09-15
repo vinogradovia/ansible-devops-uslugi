@@ -233,7 +233,7 @@
             # от `template`, который такого ограничения не имеет).
             aicd-devops-labs-ru.override: |
               template IN A aicd.devops-labs.ru {
-                match "^(gitea|semaphore|radar|infra-panel|docs|openbao|sso|litellm)\.aicd\.devops-labs\.ru\.$"
+                match "^(gitea|semaphore|radar|infra-panel|docs|openbao|sso|litellm|openwebui)\.aicd\.devops-labs\.ru\.$"
                 answer "{{ '{{' }} .Name {{ '}}' }} 60 IN A {{ platform_aicd_devops_labs_ru_traefik_cluster_ip }}"
                 fallthrough
               }
@@ -1084,6 +1084,63 @@
             platform_aicd_devops_labs_ru_litellm_db_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_litellm_read.json.data.data.db_password }}"
           no_log: true
 
+        # ROADMAP.md №65 — Open WebUI. webui_secret_key подписывает сессионные cookie (без
+        # фиксированного значения каждый рестарт пода инвалидировал бы все сессии — Recreate-
+        # стратегия и обновления образа стали бы разлогинивать всех). litellm_virtual_key
+        # доминчивается позже, в play "Open WebUI" (после готовности пода litellm) — тот же
+        # аддитивный приём, что db_password у secret/litellm выше (KV v2 POST заменяет данные
+        # версии целиком, поэтому нельзя потерять уже посчитанный webui_secret_key при добавлении
+        # ключа).
+        - name: "OpenBao: проверить наличие secret/openwebui"
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/openwebui"
+            ca_path: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
+            method: GET
+            headers:
+              X-Vault-Token: "{{ platform_aicd_devops_labs_ru_openbao_root_token }}"
+            status_code: [200, 404]
+          register: platform_aicd_devops_labs_ru_openbao_secret_openwebui
+          no_log: true
+
+        - name: "OpenBao: сгенерировать и записать secret/openwebui (webui_secret_key, только при первом прогоне)"
+          when: >-
+            platform_aicd_devops_labs_ru_openbao_secret_openwebui.status == 404
+            or 'webui_secret_key' not in platform_aicd_devops_labs_ru_openbao_secret_openwebui.json.data.data
+          no_log: true
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/openwebui"
+            ca_path: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
+            method: POST
+            headers:
+              X-Vault-Token: "{{ platform_aicd_devops_labs_ru_openbao_root_token }}"
+            body_format: json
+            body:
+              data: >-
+                {{
+                  (platform_aicd_devops_labs_ru_openbao_secret_openwebui.json.data.data
+                   if platform_aicd_devops_labs_ru_openbao_secret_openwebui.status == 200
+                   else {})
+                  | combine({'webui_secret_key': lookup('ansible.builtin.password', '/dev/null', length=64)})
+                }}
+            status_code: [200, 204]
+
+        - name: "OpenBao: прочитать secret/openwebui (значение нужно ниже по playbook)"
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/openwebui"
+            ca_path: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
+            method: GET
+            headers:
+              X-Vault-Token: "{{ platform_aicd_devops_labs_ru_openbao_root_token }}"
+            status_code: [200]
+          register: platform_aicd_devops_labs_ru_openbao_secret_openwebui_read
+          no_log: true
+
+        - name: Опубликовать секреты Open WebUI как факты хоста (для play "Open WebUI", hostvars)
+          ansible.builtin.set_fact:
+            platform_aicd_devops_labs_ru_openwebui_webui_secret_key: "{{ platform_aicd_devops_labs_ru_openbao_secret_openwebui_read.json.data.data.webui_secret_key }}"
+            platform_aicd_devops_labs_ru_openwebui_litellm_virtual_key: "{{ platform_aicd_devops_labs_ru_openbao_secret_openwebui_read.json.data.data.litellm_virtual_key | default(omit) }}"
+          no_log: true
+
         # ADR-0013 §1 — пароли Directory Manager/admin для persistent freeipa (единый каталог
         # для Authelia), тот же идемпотентный приём, что secret/gitea/secret/radar выше.
         - name: "OpenBao: проверить наличие secret/freeipa"
@@ -1226,6 +1283,7 @@
                 semaphore_client_secret: "{{ lookup('ansible.builtin.password', '/dev/null', length=48) }}"
                 grafana_client_secret: "{{ lookup('ansible.builtin.password', '/dev/null', length=48) }}"
                 litellm_client_secret: "{{ lookup('ansible.builtin.password', '/dev/null', length=48) }}"
+                openwebui_client_secret: "{{ lookup('ansible.builtin.password', '/dev/null', length=48) }}"
             status_code: [200, 204]
 
         # Ретрофит для уже забутстрапленного secret/authelia — тот же приём, что
@@ -1271,6 +1329,27 @@
                 }}
             status_code: [200, 204]
 
+        # Ретрофит для Open WebUI OIDC-клиента (ROADMAP.md №65) — тот же приём, что LiteLLM выше.
+        - name: "OpenBao: добавить openwebui_client_secret в существующий secret/authelia"
+          when: >-
+            platform_aicd_devops_labs_ru_openbao_secret_authelia.status == 200
+            and 'openwebui_client_secret' not in platform_aicd_devops_labs_ru_openbao_secret_authelia.json.data.data
+          no_log: true
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/authelia"
+            ca_path: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
+            method: POST
+            headers:
+              X-Vault-Token: "{{ platform_aicd_devops_labs_ru_openbao_root_token }}"
+            body_format: json
+            body:
+              data: >-
+                {{
+                  platform_aicd_devops_labs_ru_openbao_secret_authelia.json.data.data
+                  | combine({'openwebui_client_secret': lookup('ansible.builtin.password', '/dev/null', length=48)})
+                }}
+            status_code: [200, 204]
+
         - name: "OpenBao: прочитать secret/authelia (значения нужны ниже по playbook)"
           ansible.builtin.uri:
             url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/authelia"
@@ -1286,6 +1365,7 @@
           ansible.builtin.set_fact:
             platform_aicd_devops_labs_ru_authelia_ldap_bind_password: "{{ platform_aicd_devops_labs_ru_openbao_secret_authelia_read.json.data.data.ldap_bind_password }}"
             platform_aicd_devops_labs_ru_authelia_litellm_client_secret: "{{ platform_aicd_devops_labs_ru_openbao_secret_authelia_read.json.data.data.litellm_client_secret }}"
+            platform_aicd_devops_labs_ru_authelia_openwebui_client_secret: "{{ platform_aicd_devops_labs_ru_openbao_secret_authelia_read.json.data.data.openwebui_client_secret }}"
           no_log: true
 
         # Authelia требует client_secret OIDC-клиента в конфиге в ВИДЕ ХЭША (pbkdf2-sha512), не
@@ -1429,6 +1509,48 @@
                 }}
             status_code: [200, 204]
 
+        # Ретрофит для Open WebUI OIDC-клиента (ROADMAP.md №65) — тот же приём, что LiteLLM выше.
+        - name: "Authelia: посчитать pbkdf2-хэш client_secret для Open WebUI (только пока его нет)"
+          when: "'openwebui_client_secret_hash' not in platform_aicd_devops_labs_ru_openbao_secret_authelia_read.json.data.data"
+          no_log: true
+          ansible.builtin.command:
+            argv:
+              - docker
+              - run
+              - --rm
+              - "authelia/authelia:4.39.20"
+              - authelia
+              - crypto
+              - hash
+              - generate
+              - pbkdf2
+              - --variant
+              - sha512
+              - --password
+              - "{{ platform_aicd_devops_labs_ru_openbao_secret_authelia_read.json.data.data.openwebui_client_secret }}"
+          register: platform_aicd_devops_labs_ru_authelia_openwebui_client_secret_hash_raw
+          changed_when: false
+
+        - name: "Authelia: сохранить посчитанный хэш Open WebUI в secret/authelia (только пока его нет)"
+          when: "'openwebui_client_secret_hash' not in platform_aicd_devops_labs_ru_openbao_secret_authelia_read.json.data.data"
+          no_log: true
+          ansible.builtin.uri:
+            url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/authelia"
+            ca_path: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
+            method: POST
+            headers:
+              X-Vault-Token: "{{ platform_aicd_devops_labs_ru_openbao_root_token }}"
+            body_format: json
+            body:
+              data: >-
+                {{
+                  platform_aicd_devops_labs_ru_openbao_secret_authelia_read.json.data.data
+                  | combine({
+                      'openwebui_client_secret_hash': platform_aicd_devops_labs_ru_authelia_openwebui_client_secret_hash_raw.stdout | regex_search('(?<=Digest: ).+'),
+                  })
+                }}
+            status_code: [200, 204]
+
         # ADR-0019 §3/§8 п.1 — пароль первого реального человека в каталоге (platform-admins).
         # Тот же check-404-then-generate паттерн, что secret/authelia выше — пароль генерируется
         # один раз; повторный прогон не должен подставлять новое значение (роль freeipa_directory
@@ -1483,7 +1605,7 @@
         # openbao.aicd.devops-labs.ru/openbao-ingress-tls — docs/adr/0017-platform-cicd-default-addons.md
         # §3, внешний Ingress-сертификат OpenBao (отдельный от внутреннего bootstrap-сертификата
         # openbao-server-tls самого listener'а).
-        - name: "OpenBao: выпустить/перевыпустить TLS-сертификаты (gitea, semaphore, radar, infra-panel, docs-site, openbao, authelia, grafana, nexus, litellm)"
+        - name: "OpenBao: выпустить/перевыпустить TLS-сертификаты (gitea, semaphore, radar, infra-panel, docs-site, openbao, authelia, grafana, nexus, litellm, openwebui)"
           no_log: true
           ansible.builtin.include_tasks: tasks/issue-tls-cert.yml
           loop:
@@ -1501,6 +1623,8 @@
             - {host: nexus-cache.aicd.devops-labs.ru, secret: nexus-cache-tls, namespace: cache}
             # ROADMAP.md №59 — LiteLLM UI наружу.
             - {host: litellm.aicd.devops-labs.ru, secret: litellm-tls, namespace: gateway}
+            # ROADMAP.md №65 — Open WebUI (ns platform, как gitea/semaphore/authelia/infra-panel).
+            - {host: openwebui.aicd.devops-labs.ru, secret: openwebui-tls, namespace: platform}
           loop_control:
             label: "{{ item.host }}"
 
@@ -4771,3 +4895,153 @@
                 ports:
                   - protocol: TCP
                     port: 4000
+
+# ROADMAP.md №65 — Open WebUI (namespace platform, чат-фронтенд человека-оператора поверх уже
+# работающего LiteLLM-гейтвея). Отдельная play ПОСЛЕ "ADR-0015 §6/§7 — LiteLLM-гейтвей" — минтинг
+# virtual key через k8s_exec требует уже готового пода litellm. Middleware authelia-forward-auth и
+# Secret aicd-platform-ca в ns platform уже существуют (заведены раньше для Gitea) — здесь не
+# дублируются, в отличие от play LiteLLM (там ns gateway, своя копия обоих ресурсов).
+- name: "ROADMAP.md №65 — Open WebUI"
+  hosts: platform_hosts
+  become: true
+  environment:
+    KUBECONFIG: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+    K8S_CLUSTER: platform-devops-labs-ru
+    NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+    no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+  tasks:
+    - name: "LiteLLM: найти под (для k8s_exec, virtual key Open WebUI)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        api_version: v1
+        kind: Pod
+        namespace: gateway
+        label_selectors:
+          - app.kubernetes.io/instance=litellm
+      register: platform_aicd_devops_labs_ru_litellm_pod_info_openwebui
+
+    # POST /key/generate — тот же живьём проверенный эндпоинт, что уже подтверждён при подключении
+    # БД (ROADMAP.md, "POST /key/generate реально создал virtual key в БД"). Принцип наименьших
+    # привилегий: Open WebUI получает ограниченный virtual key, не master_key. `command` СТРОКОЙ —
+    # тот же баг k8s_exec, что уже пойман выше (site.yml, play LiteLLM-гейтвей).
+    - name: "LiteLLM: сминтить virtual key для Open WebUI (только если его ещё нет в secret/openwebui)"
+      when: platform_aicd_devops_labs_ru_openwebui_litellm_virtual_key is not defined
+      delegate_to: localhost
+      become: false
+      run_once: true
+      no_log: true
+      changed_when: true
+      environment:
+        NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+        no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
+      kubernetes.core.k8s_exec:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        namespace: gateway
+        pod: "{{ platform_aicd_devops_labs_ru_litellm_pod_info_openwebui.resources[0].metadata.name }}"
+        command: >-
+          python3 -c "import urllib.request as u, json;
+          b=json.dumps({'key_alias': 'openwebui'}).encode();
+          r=u.Request('http://localhost:4000/key/generate', data=b,
+          headers={'Authorization': 'Bearer {{ platform_aicd_devops_labs_ru_openbao_secret_litellm_read.json.data.data.master_key }}',
+          'Content-Type': 'application/json'}, method='POST');
+          print(u.urlopen(r).read().decode())"
+      register: platform_aicd_devops_labs_ru_openwebui_key_generate_raw
+
+    - name: "OpenBao: сохранить litellm_virtual_key в secret/openwebui"
+      when: platform_aicd_devops_labs_ru_openwebui_litellm_virtual_key is not defined
+      delegate_to: localhost
+      become: false
+      run_once: true
+      no_log: true
+      ansible.builtin.uri:
+        url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/openwebui"
+        ca_path: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
+        method: POST
+        headers:
+          X-Vault-Token: "{{ platform_aicd_devops_labs_ru_openbao_root_token }}"
+        body_format: json
+        body:
+          data: >-
+            {{
+              platform_aicd_devops_labs_ru_openbao_secret_openwebui_read.json.data.data
+              | combine({'litellm_virtual_key': (platform_aicd_devops_labs_ru_openwebui_key_generate_raw.stdout | from_json).key})
+            }}
+        status_code: [200, 204]
+
+    # Перечитано заново (не переиспользуется факт из блока секретов play "Единая авторизация" выше)
+    # — на первом прогоне litellm_virtual_key появляется только что, факт оттуда его не видел бы.
+    - name: "OpenBao: прочитать secret/openwebui (актуальное значение, включая только что сминченный ключ)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      ansible.builtin.uri:
+        url: "{{ platform_aicd_devops_labs_ru_openbao_addr }}/v1/secret/data/openwebui"
+        ca_path: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
+        method: GET
+        headers:
+          X-Vault-Token: "{{ platform_aicd_devops_labs_ru_openbao_root_token }}"
+        status_code: [200]
+      register: platform_aicd_devops_labs_ru_openbao_secret_openwebui_final
+      no_log: true
+
+    - name: "Secret openwebui-secrets (oauth_client_secret + webui_secret_key + litellm_api_key)"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      no_log: true
+      kubernetes.core.k8s:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        state: present
+        kind: Secret
+        name: openwebui-secrets
+        namespace: platform
+        definition:
+          apiVersion: v1
+          metadata:
+            labels:
+              app.kubernetes.io/managed-by: ansible
+          type: Opaque
+          stringData:
+            oauth_client_secret: "{{ platform_aicd_devops_labs_ru_authelia_openwebui_client_secret }}"
+            webui_secret_key: "{{ platform_aicd_devops_labs_ru_openbao_secret_openwebui_final.json.data.data.webui_secret_key }}"
+            litellm_api_key: "{{ platform_aicd_devops_labs_ru_openbao_secret_openwebui_final.json.data.data.litellm_virtual_key }}"
+
+    - name: Helmwave up (Open WebUI, helm/helmwave.platform-devops-labs-ru.yml)
+      delegate_to: localhost
+      become: false
+      run_once: true
+      ansible.builtin.command:
+        chdir: "{{ playbook_dir }}/../../../helm"
+        argv:
+          - helmwave
+          - up
+          - --build
+          - --yml
+          - --templater
+          - gomplate
+          - --file
+          - helmwave.platform-devops-labs-ru.yml
+          - --tags
+          - openwebui
+      register: platform_aicd_devops_labs_ru_helmwave_up_openwebui
+      changed_when: true
+
+    - name: "Platform: дождаться готовности openwebui"
+      delegate_to: localhost
+      become: false
+      run_once: true
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ platform_aicd_devops_labs_ru_kubeconfig.dest }}"
+        api_version: apps/v1
+        kind: Deployment
+        namespace: platform
+        name: openwebui-openwebui
+      register: platform_aicd_devops_labs_ru_openwebui_deploy
+      until: >-
+        platform_aicd_devops_labs_ru_openwebui_deploy.resources | length > 0 and
+        (platform_aicd_devops_labs_ru_openwebui_deploy.resources[0].status.readyReplicas | default(0)) >= 1
+      retries: 30
+      delay: 10

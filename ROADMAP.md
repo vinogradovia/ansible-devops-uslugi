@@ -1377,6 +1377,138 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
       отдельной оценки (maturity/maintenance cadence) прежде, чем менять текущий generic-чарт
       (`helm/localrepo/universal-chart`) — миграция не начата и не запрошена.
 
+65. **Open WebUI — человеческий чат-фронтенд поверх уже работающего LiteLLM-гейтвея (ADR-0015
+    §6/§7). Реализовано и живо проверено на `aicd-devops-labs-ru` — 2026-09-15.** До этого с
+    моделью можно было говорить только через прямой API-вызов (curl/Python) — у платформы не было
+    веб-интерфейса для человека-оператора, аналогичного ChatGPT/Open WebUI. Закрывает именно этот
+    разрыв, не заменяет и не трогает сам LiteLLM.
+
+    **Реализовано ровно по плану ниже (все 15 пунктов), три реальных бага найдены и исправлены
+    живым прогоном (полная история — [docs/platform/agent-platform.md](docs/platform/agent-platform.md)):**
+    1. Control-node `aicd-devops-labs-ru` — CPU почти исчерпан (2 allocatable, ~1920m занято) —
+       `requests.cpu: 250m` не проходил scheduler, снижено до `50m`.
+    2. OOMKilled (exit 137) — дефолтный RAG-путь Open WebUI безусловно тянет
+       `sentence-transformers/all-MiniLM-L6-v2` с huggingface.co; `SSL_CERT_FILE` (нужен для OIDC
+       с Authelia) подменяет системный CA-бандл целиком, публичный huggingface.co перестаёт
+       проходить TLS-проверку, `huggingface_hub` уходит в retry-цикл до OOM. Решение —
+       `RAG_EMBEDDING_ENGINE=openai`+`RAG_EMBEDDING_MODEL=local-embeddings`: эмбеддинги идут через
+       уже работающий LiteLLM/TEI, публичный интернет не нужен вовсе.
+    3. Тот же класс бага, что `SSOConfig` у LiteLLM, но у другого вендора: `rag.embedding_engine`
+       живёт в SQLite-таблице `Config` (`PersistentConfig`), сеется из env только при первом
+       создании записи — упавший (до фикса №2) под уже засеял пустое значение, новый env
+       игнорировался. PVC ещё не содержал реальных данных — удалён целиком, чистая БД пересеялась
+       из актуальных переменных.
+
+    Живая проверка: `pytest platform/aicd-devops-labs-ru/tests/test_openwebui.py` — 6/6 зелёных
+    (Deployment ready, PVC Bound, TLS Secret, секреты смонтированы без утечки в лог,
+    unauthenticated-редирект на `sso.aicd.devops-labs.ru`, пункт в `infra-panel`); логи Authelia —
+    без ошибок валидации нового OIDC-клиента; повторный `site.yml` — идемпотентен. Браузерный
+    клик-тест логина человеком — тот же класс ограничения среды, что уже зафиксирован для
+    ADR-0019 §8 шаг 3, оставлен оператору.
+
+    **Отложено (сознательно, задокументировано, не молчаливый пробел):** метрики (§4, нет
+    OTel-коллектора), backup (§11, тот же пробел, что у всех stateful-компонентов), NetworkPolicy
+    `ns: platform` (§10, уже в списке известных пробелов), Operator (§15, не найден).
+
+    **План по чек-листу ADR-0022 (15 требований), поставленный до реализации:**
+
+    1. **Установка (§1).** Официальный Helm-чарт есть (`open-webui/helm-charts`), но Nexus'овый
+       `helm`-proxy до сих пор не включён (ADR-0018 §3, блокирующий пробел ADR-0022 §1 всё ещё не
+       закрыт) — тянуть чарт напрямую из интернета значило бы нарушить требование, а не законно
+       исключиться из него. Решение: тот же `helm/localrepo/universal-chart`, что уже несёт
+       nexus/semaphore/authelia/infra-panel/litellm — простой Deployment/Service/Secret из
+       деклативных полей, конфиг только через env (у Open WebUI нет YAML-конфига, всё через
+       переменные окружения — даже проще, чем `config.yaml` у litellm). Образ —
+       `ghcr.io/open-webui/open-webui` — уже идёт через Nexus `docker-group`
+       (docker-hub-proxy+ghcr-proxy, заведён для litellm, ROADMAP №64) без дополнительной работы.
+       Версия — пинить конкретный релизный тег на момент реализации (не `:main` — плавающий,
+       официально не рекомендован для прода), сверять по `github.com/open-webui/open-webui/releases`
+       живьём, не угадывать сейчас.
+    2. **RBAC (§2).** Двухслойно, тем же классом решения, что LiteLLM: (1) сетевой периметр —
+       `IngressRoute`+`authelia-forward-auth`+`access_control.rules`, но, в отличие от LiteLLM UI
+       (только admins/engineers — операционный доступ к деньгам/ключам), сюда пускаются ВСЕ три
+       группы (`platform-admins`/`platform-engineers`/`platform-viewers`) — чат с моделью не
+       деструктивное действие, это обычный рабочий инструмент; переиспользуется уже существующая
+       именованная политика `authorization_policies.platform_all_groups`
+       (`helm/values/.../platform/authelia/values.yaml:158`, сейчас используется только Gitea/
+       Semaphore). (2) Собственный логин — Open WebUI, в отличие от LiteLLM, не нуждается в
+       PATCH-эквилибристике `SSOConfig`: нативные `ENABLE_OAUTH_SIGNUP`, `OPENID_PROVIDER_URL`
+       (discovery-документ Authelia), `OAUTH_CLIENT_ID`/`_SECRET`, `OAUTH_SCOPES=openid email
+       profile groups`, ролевой маппинг из коробки —
+       `ENABLE_OAUTH_ROLE_MANAGEMENT=true`+`OAUTH_ROLES_CLAIM=groups`+`OAUTH_ADMIN_ROLES=
+       platform-admins`+`OAUTH_ALLOWED_ROLES=platform-admins,platform-engineers,platform-viewers`
+       (источник — [официальная интеграция Authelia](https://www.authelia.com/integration/openid-connect/clients/open-webui/),
+       не угадано). Клиент Authelia: `redirect_uris: ['https://openwebui.aicd.devops-labs.ru/oauth/oidc/callback']`
+       (путь колбэка другой, чем у litellm — `/sso/callback`), `token_endpoint_auth_method:
+       'client_secret_basic'` (то же семейство клиентской библиотеки, что у LiteLLM — проверить
+       живьём, не считать гарантированным по аналогии, тот же урок, что уже дважды пойман на
+       Semaphore/LiteLLM). Open WebUI официально поддерживает PKCE (`OAUTH_CODE_CHALLENGE_METHOD=
+       S256`) — единственный клиент платформы, где стоит включить `require_pkce: true` (остальные
+       — gitea/semaphore/grafana/litellm — работают без PKCE, это не регресс для них, а
+       дополнительное усиление конкретно для нового клиента, раз библиотека это поддерживает).
+    3. **Ссылка в infra-panel (§3).** Прямой one-click SSO-редирект обязателен (нативный OIDC).
+       Нужно живьём подтвердить точный путь — не угадывать по аналогии с `/sso/key/generate`
+       LiteLLM (то был путь конкретно litellm-proxy, не переносится механически). Кандидат для
+       проверки — `OAUTH_AUTO_REDIRECT` (упоминается в части источников как флаг, форсирующий
+       редирект на IdP прямо с корня `/`, не только скрывающий кнопку логина) — подтвердить
+       эмпирически на живом инстансе, тем же приёмом, что уже применён для LiteLLM.
+    4. **Метрики (§4) — под вопросом, не тривиально в этом стеке.** Open WebUI отдаёт `/metrics`,
+       но официальный путь — через OpenTelemetry (`ENABLE_OTEL`+`ENABLE_OTEL_METRICS`+OTLP-экспорт),
+       не голый Prometheus pull, как у LiteLLM (`callbacks: ["prometheus"]`). У платформы сейчас
+       нет OTel-коллектора вообще — заводить его ради одного компонента может быть несоразмерно
+       тяжёлым. Решить на этапе реализации: либо поднять минимальный OTel-collector с
+       Prometheus-exporter (`ns: monitoring`, разовая инвестиция, переиспользуется будущими
+       OTel-компонентами), либо найти голый `/metrics`-путь в обход OTel (не подтверждено, что
+       существует), либо явно задокументировать как осознанно отложенное — не оставлять
+       незамеченным пробелом (тот же урок, что найден для LiteLLM в ROADMAP №64).
+    5. **TLS (§5), 6. DNS (§6), 7. Секреты (§7), 8. releases_common-стаб (§8)** — тот же
+       устоявшийся цикл, что у всех компонентов, без нового механизма. Секреты: `secret/openwebui`
+       в OpenBao — `oauth_client_secret`(+hash для Authelia) тем же аддитивным приёмом, что
+       litellm; плюс отдельный **virtual key LiteLLM** (не master key!) для связки Open
+       WebUI↔LiteLLM — минтится через уже проверенный живьём `POST /key/generate` (ROADMAP №57),
+       принцип наименьших привилегий: скомпрометированный фронтенд получает ограниченный ключ, не
+       `proxy_admin`-полномочия мастер-ключа.
+    9. **Resources (§9).** Явные `requests`/`limits` — чат-фронтенд, не инференс, умеренные
+       (ориентир: `requests: {cpu: 250m, memory: 512Mi}`, `limits: {memory: 1-2Gi}` — уточнить по
+       факту, SQLite-режим и websocket-сессии не должны требовать много).
+    10. **NetworkPolicy (§10).** `ns: platform` (куда логично положить компонент — тот же класс,
+        что gitea/semaphore/authelia/infra-panel/nexus, не `ns: gateway`, зарезервированный под
+        сам API-гейтвей) уже в списке известных исключений ADR-0022 §10 (решение не принято ни для
+        одного компонента этого namespace) — новый компонент явного решения не меняет, но и не
+        обязан быть первым, кто его принимает (не блокирует эту задачу).
+    11. **Backup (§11).** SQLite на PVC (`/app/backend/data`) хранит реальные пользовательские
+        данные (история чатов) — не эфемерно, как у stateless-компонентов. Explicit-решение
+        обязательно: тот же паттерн, что уже отложен для всех остальных stateful-компонентов
+        платформы (Bareos `backup_server` нигде не развёрнут) — задокументировать как осознанно
+        отложенное, не молчаливый пробел.
+    12. **MCP (§12) — не применимо.** Open WebUI сам не вендор инструмента для регистрации в
+        `mcp_servers:` LiteLLM — это потребитель гейтвея (включая его MCP-агрегацию), не цель.
+    13. **Документация (§13).** Не заводить отдельный `docs/platform/openwebui.md` — расширить уже
+        существующий `docs/platform/agent-platform.md` новым разделом (тот же приём, что уже
+        применён для самого LiteLLM — тесно связанные компоненты одного логического стека
+        документируются вместе, не дробятся по файлу на каждый Helm-релиз).
+    14. **Инфраструктурные тесты (§14) — впервые обязательны, не «известное исключение».** Open
+        WebUI — первый компонент платформы, предлагаемый ПОСЛЕ появления требования №14
+        (2026-09-13) — litellm/остальные 14 компонентов попадают под ретроактивное исключение,
+        этот НЕ попадает. Реализация обязана принести с собой реальный testinfra-тест (или
+        эквивалент), не просто задокументировать намерение.
+    15. **Operator (§15) — не найден.** Поиск через OperatorHub.io и `github.com/open-webui`
+        никакого официального/community Operator не нашёл (обычный Deployment, как у litellm и
+        большинства компонентов платформы) — фиксируется явно, а не молча пропускается.
+        **Задача на будущее, если появится:** найти готовый Operator для Open WebUI позже или
+        оценить целесообразность написания своего — не блокирует эту реализацию.
+
+    **Интеграция с гейтвеем:** `OPENAI_API_BASE_URL: http://litellm-litellm.gateway.svc.cluster.local:4000/v1`
+    (в кластере, без выхода через IngressRoute/forwardAuth — тот же приём, что уже используют
+    `local-default`/`local-embeddings` внутри самого LiteLLM), `OPENAI_API_KEY` — virtual key из
+    п.7 выше, не мастер-ключ.
+
+    **Явно НЕ решено на этапе разведки, требует подтверждения перед/во время реализации:**
+    точный путь one-click SSO-редиректа (п.3), механизм метрик (п.4), точное значение
+    `token_endpoint_auth_method` (п.2, эмпирически, не по аналогии), конкретная версия образа
+    (п.1). Ничего из этого не блокирует старт реализации — все четыре проверяются живым прогоном
+    на месте, тем же способом, что уже применялся для LiteLLM.
+
 ---
 
 ## Предлагаемая последовательность работ

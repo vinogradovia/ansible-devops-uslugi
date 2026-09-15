@@ -123,3 +123,15 @@ releases:
     chart: localrepo/universal-chart
     tags: [litellm]
     version: 2.8.1
+
+  # ROADMAP.md №65 — Open WebUI, чат-фронтенд человека-оператора поверх уже работающего
+  # LiteLLM-гейтвея. Тот же generic-чарт, что nexus/semaphore/authelia/infra-panel/litellm выше —
+  # у Open WebUI тоже нет официального чарта под этот паттерн, применимого без нарушения ADR-0022
+  # §1 (Nexus helm-proxy всё ещё не включён). tags: [openwebui] в отдельном `helmwave up` (play
+  # "ROADMAP.md №65 — Open WebUI" в конце site.yml) — ПОСЛЕ того, как litellm-под готов (минтинг
+  # virtual key через k8s_exec зависит от него), не вместе с безусловным `helmwave up` выше.
+  - name: openwebui
+    namespace: platform
+    chart: localrepo/universal-chart
+    tags: [openwebui]
+    version: 2.8.1

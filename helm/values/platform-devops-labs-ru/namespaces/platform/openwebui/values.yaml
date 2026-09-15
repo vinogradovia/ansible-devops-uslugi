@@ -1,0 +1,170 @@
+# Open WebUI (https://github.com/open-webui/open-webui) — человеческий чат-фронтенд поверх уже
+# работающего LiteLLM-гейтвея (ADR-0015 §6/§7). ROADMAP.md №65 — закрывает разрыв: до этого с
+# моделью можно было говорить только прямым API-вызовом (curl/Python), не через веб-UI.
+#
+# Официального Helm-чарта под наш паттерн (Deployment+Service+PVC из декларативных значений) нет —
+# тот же generic-чарт, что nexus/semaphore/authelia/infra-panel/litellm (helm/localrepo/universal-chart).
+#
+# OIDC-механизм Open WebUI — нативный (в отличие от LiteLLM, где нужен PATCH /update/sso_settings
+# для role_mappings): ENABLE_OAUTH_ROLE_MANAGEMENT + OAUTH_ROLES_CLAIM=groups + OAUTH_ADMIN_ROLES/
+# OAUTH_ALLOWED_ROLES маппят claim `groups` от Authelia напрямую, без БД-стороннего конфига. Значения
+# — по официальной интеграции Authelia (authelia.com/integration/openid-connect/clients/open-webui/),
+# не по аналогии с LiteLLM (там другой набор GENERIC_*-переменных и другой redirect-путь).
+#
+# ENABLE_SIGNUP: "false" — локальная email/password-регистрация отключена (defense in depth: сеть и
+# так закрыта forwardAuth'ом на IngressRoute ниже, но так убирается риск гонки "кто первый
+# зарегистрировался — тот admin" для любого, кто окажется внутри периметра, но не прошёл OIDC).
+#
+# SSL_CERT_FILE — то же самое доверие к внутреннему PKI CA, что уже потребовалось Gitea/Grafana/
+# LiteLLM (Python/httpx уважает SSL_CERT_FILE как путь к доп. CA) — без него OAuth-обмен с Authelia
+# падает на "certificate verify failed: self-signed certificate in certificate chain". Secret
+# aicd-platform-ca в ns platform уже существует (заведён для Gitea, site.yml) — здесь просто
+# переиспользуется, не создаётся заново.
+
+pvcs:
+  data:
+    accessModes:
+      - ReadWriteOnce
+    size: 5Gi
+    storageClassName: local-path
+
+deployments:
+  openwebui:
+    # SQLite на ReadWriteOnce PVC (/app/backend/data) — тот же аргумент, что llama-server/tei/
+    # litellm: второй под поверх того же тома не поднять, Recreate вместо RollingUpdate.
+    strategy:
+      type: Recreate
+    containers:
+      - name: openwebui
+        image: ghcr.io/open-webui/open-webui
+        imageTag: v0.11.3
+        ports:
+          - name: http
+            containerPort: 8080
+        env:
+          - name: WEBUI_URL
+            value: https://openwebui.aicd.devops-labs.ru
+          - name: ENABLE_SIGNUP
+            value: "false"
+          - name: ENABLE_OAUTH_SIGNUP
+            value: "true"
+          - name: OAUTH_MERGE_ACCOUNTS_BY_EMAIL
+            value: "true"
+          - name: OAUTH_PROVIDER_NAME
+            value: Authelia
+          - name: OPENID_PROVIDER_URL
+            value: https://sso.aicd.devops-labs.ru/.well-known/openid-configuration
+          - name: OAUTH_CLIENT_ID
+            value: openwebui
+          - name: OAUTH_CLIENT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: openwebui-secrets
+                key: oauth_client_secret
+          - name: OAUTH_SCOPES
+            value: "openid email profile groups"
+          - name: OAUTH_CODE_CHALLENGE_METHOD
+            value: S256
+          - name: ENABLE_OAUTH_ROLE_MANAGEMENT
+            value: "true"
+          - name: OAUTH_ROLES_CLAIM
+            value: groups
+          - name: OAUTH_ADMIN_ROLES
+            value: platform-admins
+          - name: OAUTH_ALLOWED_ROLES
+            value: "platform-admins,platform-engineers,platform-viewers"
+          - name: OAUTH_AUTO_REDIRECT
+            value: "true"
+          - name: WEBUI_SECRET_KEY
+            valueFrom:
+              secretKeyRef:
+                name: openwebui-secrets
+                key: webui_secret_key
+          # Гейтвей ADR-0015 §6/§7 — в кластере, без выхода через IngressRoute/forwardAuth, тот же
+          # приём, что local-default/local-embeddings внутри самого LiteLLM. Virtual key (не
+          # master_key) — минтится через POST /key/generate, play "ROADMAP.md №65 — Open WebUI".
+          - name: OPENAI_API_BASE_URL
+            value: http://litellm-litellm.gateway.svc.cluster.local:4000/v1
+          - name: OPENAI_API_KEY
+            valueFrom:
+              secretKeyRef:
+                name: openwebui-secrets
+                key: litellm_api_key
+          - name: ENABLE_OLLAMA_API
+            value: "false"
+          # Найдено реальным прогоном: под уходил в OOMKilled (exit 137) на дефолтном RAG-пути —
+          # при первом старте Open WebUI безусловно пытается скачать
+          # sentence-transformers/all-MiniLM-L6-v2 с huggingface.co, а SSL_CERT_FILE ниже
+          # указывает ТОЛЬКО на внутренний CA (не добавляет его к системному бандлу, а подменяет
+          # его целиком для Python ssl-модуля) — публичные сайты вроде huggingface.co перестают
+          # проходить проверку сертификата ("unable to get local issuer certificate"),
+          # huggingface_hub уходит в retry-цикл, который под нагрузкой домолачивает под до OOM.
+          # Решение — не чинить доверие к публичному интернету ради одной дефолтной модели, а
+          # вообще туда не ходить: RAG-эмбеддинги идут через уже работающий LiteLLM/TEI
+          # (`local-embeddings` — тот же алиас, что в config.yaml litellm, ADR-0015 §6/§7), тем же
+          # OPENAI_API_BASE_URL/OPENAI_API_KEY, что чат — RAG_OPENAI_* явно не переопределяются.
+          - name: RAG_EMBEDDING_ENGINE
+            value: openai
+          - name: RAG_EMBEDDING_MODEL
+            value: local-embeddings
+          - name: SSL_CERT_FILE
+            value: /etc/ssl/certs/aicd-platform-ca.pem
+        volumeMounts:
+          - name: data
+            mountPath: /app/backend/data
+          - name: aicd-platform-ca
+            mountPath: /etc/ssl/certs/aicd-platform-ca.pem
+            subPath: ca.pem
+        # Найдено реальным прогоном: control-node aicd-devops-labs-ru — 2 CPU allocatable, уже
+        # занято ~1920m остальными релизами (nexus/litellm/vm-стек/gitea/radar/...) — исходные
+        # 250m не проходили scheduler ("Insufficient cpu", Pending). Снижено до 50m — тот же
+        # порядок, что gitea-actions-runner (тоже 50m) на этом же узле; memory — headroom большой
+        # (~6Gi свободно), не трогается.
+        resources:
+          requests:
+            cpu: "50m"
+            memory: "512Mi"
+          limits:
+            memory: "2Gi"
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          periodSeconds: 10
+          failureThreshold: 12
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          periodSeconds: 30
+          failureThreshold: 3
+    volumes:
+      - name: data
+        type: pvc
+      - name: aicd-platform-ca
+        type: secret
+        originalName: aicd-platform-ca
+
+services:
+  openwebui:
+    ports:
+      - name: http
+        port: 8080
+
+# Сетевой периметр — тот же паттерн, что radar/infra-panel/gitea (ns platform, Middleware
+# authelia-forward-auth уже существует в этом namespace — не копируется отдельно, в отличие от
+# LiteLLM в ns gateway). Все три группы (platform_all_groups, authelia/values.yaml) — чат не
+# деструктивное действие, доступен platform-viewers тоже, в отличие от LiteLLM UI.
+ingressroutes:
+  openwebui:
+    entryPoints:
+      - websecure
+    routes:
+      "Host(`openwebui.aicd.devops-labs.ru`)":
+        middlewares:
+          - name: authelia-forward-auth
+        services:
+          openwebui-openwebui:
+            port: 8080
+    tls:
+      secretName: openwebui-tls

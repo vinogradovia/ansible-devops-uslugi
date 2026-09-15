@@ -59,6 +59,13 @@ configMaps:
               - name: LiteLLM
                 url: https://litellm.aicd.devops-labs.ru/sso/key/generate
                 target: _blank
+              # ROADMAP.md №65 — Open WebUI. OAUTH_AUTO_REDIRECT=true (values/.../platform/
+              # openwebui/values.yaml) уводит с корня прямо на sso.aicd.devops-labs.ru — тот же
+              # однокликовый паттерн, что остальные ссылки выше, без отдельного клика по кнопке
+              # SSO на странице логина.
+              - name: Open WebUI
+                url: https://openwebui.aicd.devops-labs.ru/
+                target: _blank
 
 deployments:
   infra-panel:

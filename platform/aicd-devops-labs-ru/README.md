@@ -31,6 +31,7 @@ libvirt, под доменом `aicd.devops-labs.ru` вместо `aicd.platform
   10.10.10.249 docs.aicd.devops-labs.ru
   10.10.10.246 postgresql-infra-1.aicd.devops-labs.ru
   10.10.10.249 litellm.aicd.devops-labs.ru
+  10.10.10.249 openwebui.aicd.devops-labs.ru
   ```
   `postgresql-infra-1` — свой IP, не ClusterIP Traefik (docs/adr/0023-postgresql-standalone-role.md,
   standalone Postgres, сырой TCP на 5432, не HTTP/Ingress) — тот же принцип, что уже действует для
@@ -377,6 +378,33 @@ up` в vmagent. `GrafanaDashboard` CR `postgres-exporter` — `DashboardSynchron
 — Semaphore Key id=6, не в git) добавлен в `authorized_keys` вручную (VM уже жила, ключ из
 `postgresql-infra-target.tf` при первом создании не подхватывается заново) и зафиксирован в
 Terraform для воспроизводимости — `tofu apply` (in-place update, без пересоздания VM) подтверждён.
+
+## Open WebUI (ROADMAP.md №65)
+
+Человеческий чат-фронтенд поверх уже работающего LiteLLM-гейтвея — `namespace platform`,
+`helm/localrepo/universal-chart`, `ghcr.io/open-webui/open-webui:v0.11.3`. RBAC тем же двухслойным
+паттерном, что LiteLLM, но шире: сетевой периметр (`authelia-forward-auth`) пускает все три группы
+(чат не деструктивное действие), собственный логин — нативный OIDC-механизм Open WebUI
+(`OPENID_PROVIDER_URL` на discovery-документ целиком, `ENABLE_OAUTH_ROLE_MANAGEMENT` мапит `groups`
+в роли из коробки, без PATCH-эквилибристики `SSOConfig`, которая потребовалась LiteLLM),
+`require_pkce: true`. Интеграция с гейтвеем — `OPENAI_API_BASE_URL` в кластере, `OPENAI_API_KEY` —
+отдельный virtual key (не master_key), минтится через `POST /key/generate`.
+
+**Живо развёрнуто и проверено (2026-09-15).** Три реальных бага найдены и исправлены:
+CPU control-node почти исчерпан (`requests.cpu` снижен с `250m` до `50m`); OOMKilled на дефолтном
+RAG-пути — `SSL_CERT_FILE` (нужен для OIDC с Authelia) подменяет системный CA-бандл целиком,
+huggingface.co (дефолтная embedding-модель) перестаёт проходить TLS-проверку, `huggingface_hub`
+уходит в retry-цикл до OOM — решение: `RAG_EMBEDDING_ENGINE=openai`+
+`RAG_EMBEDDING_MODEL=local-embeddings`, эмбеддинги идут через уже работающий LiteLLM/TEI, публичный
+интернет не нужен вовсе; тот же класс бага, что `SSOConfig` у LiteLLM, но у другого вендора —
+`rag.embedding_engine` живёт в SQLite-таблице `Config`, сеется из env только при первом создании
+записи, упавший (до фикса) под уже засеял пустое значение — PVC (без реальных данных) удалён
+целиком, БД пересеялась из актуальных env. Живая проверка: `pytest platform/aicd-devops-labs-ru/
+tests/test_openwebui.py` — 6/6 (первый testinfra-тест коллекции, ADR-0022 §14), логи Authelia
+чистые, повторный `site.yml` идемпотентен. Полная история — [docs/platform/agent-platform.md](../../docs/platform/agent-platform.md).
+
+Отложено сознательно (не молчаливый пробел): метрики (нет OTel-коллектора), backup (тот же
+пробел, что у всех stateful-компонентов), NetworkPolicy `ns: platform`, Operator (не найден).
 
 ## docs-site (docs/adr/0024-platform-docs-site.md)
 

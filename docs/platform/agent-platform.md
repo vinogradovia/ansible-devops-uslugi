@@ -192,6 +192,61 @@ graph LR
     [`litellm-operator`](https://operatorhub.io/operator/litellm-operator) (требование №15 —
     найден, не официальный от вендора, ~11 звёзд, зрелость не подтверждена).
 
+- **Open WebUI (ROADMAP.md №65)** — человеческий чат-фронтенд поверх LiteLLM-гейтвея, `namespace
+  platform` (не `gateway` — тот же класс компонента, что gitea/semaphore/authelia/infra-panel),
+  `helm/localrepo/universal-chart`, образ `ghcr.io/open-webui/open-webui:v0.11.3`. RBAC — тем же
+  двухслойным паттерном, что LiteLLM, но **шире**: сетевой периметр (`authelia-forward-auth`,
+  `access_control` домена) пускает все три группы (`platform_all_groups`) — чат не деструктивное
+  действие, в отличие от LiteLLM UI (только admins/engineers). Собственный логин — **нативный**
+  OIDC-механизм Open WebUI (`OPENID_PROVIDER_URL` на discovery-документ Authelia целиком,
+  `ENABLE_OAUTH_ROLE_MANAGEMENT`+`OAUTH_ROLES_CLAIM=groups`+`OAUTH_ADMIN_ROLES`/
+  `OAUTH_ALLOWED_ROLES` — маппинг групп в роли из коробки, без PATCH-эквилибристики
+  `SSOConfig`/БД, которая потребовалась LiteLLM), `require_pkce: true` (единственный клиент
+  платформы с PKCE — сама библиотека Open WebUI это официально поддерживает и рекомендует).
+  Интеграция с гейтвеем — `OPENAI_API_BASE_URL` на `litellm-litellm.gateway.svc.cluster.local:4000/v1`
+  в кластере, `OPENAI_API_KEY` — отдельный virtual key (не master_key), минтится через `POST
+  /key/generate` (тот же приём, что уже проверен при подключении БД LiteLLM). SQLite на PVC 5Gi.
+
+  **Три реальных бага найдены живым прогоном:**
+  - **CPU control-node почти исчерпан** (`aicd-devops-labs-ru` — 2 CPU allocatable, ~1920m уже
+    занято остальными релизами) — исходные `requests.cpu: 250m` не проходили scheduler
+    ("Insufficient cpu", под годами `Pending`). Снижено до `50m` (тот же порядок, что
+    `gitea-actions-runner` на этом же узле).
+  - **OOMKilled (exit 137) на дефолтном RAG-пути** — при первом старте Open WebUI безусловно
+    пытается скачать `sentence-transformers/all-MiniLM-L6-v2` с huggingface.co; `SSL_CERT_FILE`,
+    указывающий на внутренний PKI CA (нужен для OIDC-обмена с Authelia), **подменяет** системный
+    CA-бандл целиком для Python `ssl`-модуля, а не дополняет его — huggingface.co (публичный CA)
+    перестаёт проходить проверку сертификата, `huggingface_hub` уходит в бесконечный retry-цикл,
+    под забивает CPU/память до OOM. Решение — не чинить доверие к публичному интернету ради одной
+    дефолтной модели, а вообще туда не ходить: `RAG_EMBEDDING_ENGINE=openai` +
+    `RAG_EMBEDDING_MODEL=local-embeddings` — эмбеддинги идут через уже работающий LiteLLM/TEI
+    (`local-embeddings`, тот же алиас, что в `config.yaml` litellm), тем же
+    `OPENAI_API_BASE_URL`/`OPENAI_API_KEY`, что чат.
+  - **DB как источник правды после первой записи** — тот же класс бага, что уже пойман у LiteLLM
+    `SSOConfig` (`PATCH /update/sso_settings`), но в другом вендоре: Open WebUI на старте читает
+    `rag.embedding_engine`/`rag.embedding_model` из SQLite-таблицы `Config`
+    (`PersistentConfig`), которая сеется из env ТОЛЬКО при первом создании записи — после того как
+    первый (упавший, до фикса выше) под уже успел засеять пустой `rag.embedding_engine` из
+    старого набора переменных окружения, добавление `RAG_EMBEDDING_ENGINE=openai` в Deployment
+    перестало иметь эффект. Т.к. реальных пользовательских данных в PVC ещё не было (компонент ни
+    разу не поднимался успешно), решение — удалить PVC целиком (`kubectl delete pvc`, чистая БД с
+    нуля пересеялась из актуальных env).
+
+  **Сознательно отложено** (задокументировано, не молчаливый пробел): метрики (§4) — Open WebUI
+  отдаёт их только через OpenTelemetry (`ENABLE_OTEL`/`ENABLE_OTEL_METRICS`, OTLP push), голого
+  `/metrics` нет, а OTel-коллектора на платформе не существует; backup (§11) — SQLite на PVC
+  хранит реальные чаты, explicit-решение отложено (тот же класс, что у всех stateful-компонентов
+  платформы); NetworkPolicy (§10) для `ns: platform` — решение не принято ни для одного
+  компонента этого namespace, новый компонент его не меняет; Operator (§15) — не найден
+  (OperatorHub.io + `github.com/open-webui` проверены).
+
+  **Первый компонент платформы с обязательным testinfra-тестом** (ADR-0022 §14, появилось
+  2026-09-13 — litellm/остальные 14 компонентов попадают под ретроактивное исключение, этот
+  НЕТ): `platform/aicd-devops-labs-ru/tests/test_openwebui.py`, pytest + `kubernetes`
+  python-клиент, 6 проверок (Deployment ready, PVC Bound, TLS Secret, переменные-секреты
+  смонтированы без утечки значения в лог, unauthenticated-редирект на SSO, пункт в
+  `infra-panel`/assets/config.yml) — все проверки живьём подтверждены зелёными.
+
 ## DD
 
 ```mermaid
@@ -247,6 +302,8 @@ RuntimeClass'ы и каркас namespace (`llm`/`gateway`/`agents`/`data`/`obs`
 - `dedicated=agents` — единственная изоляция от остальной платформы (общий control-plane,
   общий etcd, общий встроенный Traefik) — слабее полноценного отдельного кластера, явно принятый
   компромисс для пилота.
+- Open WebUI без метрик (OTel-коллектора нет) и без зарегистрированного backup-решения (см.
+  «Сознательно отложено» выше) — явные, задокументированные, не молчаливые пробелы.
 
 ## Ссылки
 

@@ -33,7 +33,12 @@ dev = [
     # roles/infra_panel/tasks/infra-panel.k3s.yml (тот же паттерн, что kubernetes выше: весь k3s-
     # оркестратор работает с control-хоста, не с целевой VM). Без него падает "Failed to import
     # the required Python library (passlib)".
-    "passlib (>=1.7.4,<2.0.0)"
+    "passlib (>=1.7.4,<2.0.0)",
+    # docs/adr/0022-new-component-requirements.md §14 — testinfra-style живые тесты уже
+    # развёрнутого окружения (отдельно от Molecule, который тестирует роль изолированно
+    # pre-deploy). Первый раз используется в platform/aicd-devops-labs-ru/tests/test_openwebui.py
+    # (ROADMAP.md №65).
+    "pytest (>=8.0.0,<9.0.0)"
 ]
 
 

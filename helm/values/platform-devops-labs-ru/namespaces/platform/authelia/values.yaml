@@ -78,6 +78,15 @@ configMaps:
               subject:
                 - 'group:platform-admins'
                 - 'group:platform-engineers'
+            # ROADMAP.md №65 — Open WebUI. Все три группы (не только admins/engineers, как
+            # LiteLLM) — чат не деструктивное действие, тот же класс доступа, что radar/
+            # infra-panel/docs.
+            - domain: 'openwebui.aicd.devops-labs.ru'
+              policy: one_factor
+              subject:
+                - 'group:platform-admins'
+                - 'group:platform-engineers'
+                - 'group:platform-viewers'
 
         session:
           secret: '[[ (ds "vault").data.session_secret ]]'
@@ -252,6 +261,26 @@ configMaps:
                 # ROADMAP.md №59 — 'groups' добавлен для role_mappings (LiteLLM SSOConfig,
                 # /update/sso_settings) — без запроса этого scope Authelia не кладёт claim
                 # 'groups' в userinfo для этого клиента, маппинг групп→ролей не на чем строить.
+                scopes: ['openid', 'profile', 'email', 'groups']
+                response_types: ['code']
+                grant_types: ['authorization_code']
+              # ROADMAP.md №65 — Open WebUI. В отличие от LiteLLM, значения не по аналогии, а по
+              # офиц. интеграции Authelia (authelia.com/integration/openid-connect/clients/
+              # open-webui/) — токен-эндпоинт тоже client_secret_basic, но PKCE поддерживается и
+              # официально рекомендован (в отличие от остальных клиентов платформы, где библиотека
+              # PKCE не заявляет) — единственный клиент с require_pkce: true.
+              - client_id: 'openwebui'
+                client_name: 'Open WebUI'
+                client_secret: '[[ (ds "vault").data.openwebui_client_secret_hash ]]'
+                public: false
+                authorization_policy: 'platform_all_groups'
+                require_pkce: true
+                pkce_challenge_method: 'S256'
+                consent_mode: 'pre-configured'
+                pre_configured_consent_duration: '1 year'
+                token_endpoint_auth_method: 'client_secret_basic'
+                redirect_uris:
+                  - 'https://openwebui.aicd.devops-labs.ru/oauth/oidc/callback'
                 scopes: ['openid', 'profile', 'email', 'groups']
                 response_types: ['code']
                 grant_types: ['authorization_code']
