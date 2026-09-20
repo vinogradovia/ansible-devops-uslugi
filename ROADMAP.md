@@ -964,7 +964,9 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
     моделей; `egress-proxy` — единственный разрешённый исходящий путь из `ns: agents` во внешний
     интернет (§7); сами пять агентов (`ai infra agent` и т.д.) и первый реальный
     MCP-инструмент-бэкенд + первый `agent-job` (bootstrap-порядок ADR-0015 §9, шаг 9 — вручную,
-    один `kubectl create job`, до Temporal и расписаний) — **следующий шаг**. Также не решены
+    один `kubectl create job`, до Temporal и расписаний) — **следующий шаг**. Контур активации
+    и паспорт `ai infra agent` (LK «Инфраструктура», Plan/Review, Estate/Inventory, уровни
+    размещения) зафиксирован ADR-0015.1 — архитектура, без кода. Также не решены
     открытые вопросы обоих ADR: мультитенантность/права агентов (ADR-0015 «Не проработано»),
     способ подключения `Senior`-яруса `moon-local-engineer` через платформенный LiteLLM или в
     обход (ADR-0021 §8; LiteLLM на `aicd-devops-labs-ru` теперь БД-backed — virtual
