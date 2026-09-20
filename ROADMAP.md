@@ -1598,6 +1598,26 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
     Реализация (Terraform/Ansible/Helm для MinIO+Loki на `aicd-devops-labs-ru`, устранение §1/§11/
     §12 гэпов) — отдельная задача, не начата.
 
+69. **Скилл `client-onboarding` — Terraform+Ansible для нового внешнего клиента, по анкете
+    (`docs/adr/0025-client-onboarding-architecture.md`).** Закрывает пробел, обозначенный №61
+    (naming convention `client-<slug>` не имела ни одного реального потребителя): `.claude/skills/
+    client-onboarding/SKILL.md` — интервью → `client-profile.yaml` → генерация отдельного
+    git-репозитория клиента (Terraform + Ansible), не каталога внутри этой коллекции.
+
+    **Реализовано:** `terraform-modules/site-proxmox/` и `terraform-modules/site-libvirt/` —
+    переиспользуемые дочерние модули (обобщение `platform/aicd-devops-labs-ru/terraform`/
+    `platform/aicd/terraform` через `for_each` по карте ВМ из анкеты), подключаются клиентским
+    репозиторием git-ссылкой с закреплённым `ref`. Ansible клиента вызывает уже существующие
+    роли по полному имени коллекции (`devops.uslugi.freeipa`/`postgresql`/`infra_dns`/`fail2ban`).
+    k3s — тот же join-паттерн, что `llm1` (ADR-0015): первый узел `xanmanning.k3s`, второй —
+    сырой `get.k3s.io` agent-join с тейнтом, без Helm-нагрузки.
+
+    **Явно не сделано (см. ADR-0025 «Явно вне периметра v1»):** Redis/MinIO/git-сервер —
+    заглушка (ВМ + `fail2ban`, установка софта — TODO-маркер в `site.yml`, новых ролей не
+    писали); Helm-слой на клиентском k3s; регистрация клиента в Semaphore/Module CRD/Flux
+    существующей платформы — решение сознательно отложено, самодостаточный репозиторий
+    исполняется вручную.
+
 ---
 
 ## Предлагаемая последовательность работ
