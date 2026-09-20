@@ -1,0 +1,95 @@
+# Схема-пример анкеты клиента. Значения ниже — заглушки для документации, НЕ копировать как
+# есть. Реальный заполненный файл живёт ТОЛЬКО в целевом (клиентском) репозитории, никогда в
+# этой коллекции и никогда внутри .claude/skills/client-onboarding/.
+
+client: example                     # slug клиента: [a-z0-9-]+, используется как имя релиза/сети/пула
+domain_internal: infra.example.com  # внутренний домен для DNS/TLS-CN клиентских ВМ
+
+provider: proxmox                   # proxmox | libvirt — определяет, какой terraform-modules/site-* используется
+
+# Присутствует только если provider: proxmox (см. terraform-modules/site-proxmox/README.md
+# «Предусловия» — cloud-init шаблон и API-токен должны существовать ДО первого apply).
+proxmox:
+  node: proxmox-node-name
+  datastore_id: local-lvm
+  network_bridge: vmbr1
+  gateway: 10.0.0.1
+  template_vmid: 9000               # уже подготовленный cloud-init шаблон, terraform его не создаёт
+
+# Присутствует только если provider: libvirt (см. terraform-modules/site-libvirt/README.md).
+# libvirt:
+#   libvirt_uri: qemu:///system
+#   network_cidr: 10.66.30.0/24
+#   base_images:
+#     default: https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2
+
+ssh_public_key_path: ~/.ssh/id_ed25519.pub
+ansible_user: ansible
+
+# Список ВМ клиента. `role` — что заводит Ansible поверх ВМ:
+#   - devops.uslugi.<role> — уже существующая роль коллекции, применяется как есть
+#   - stub:<name> — роли нет, ВМ поднимается и получает только базовый hardening
+#     (devops.uslugi.fail2ban), установка софта — TODO в сгенерированном site.yml
+#   - k3s_server / k3s_agent_tainted — не роль, отдельный k3s-bootstrap play (см. SKILL.md §4)
+#   - none — голая ВМ без единой прикладной задачи (например, будущий gitlab-хост "просто ВМ")
+vms:
+  - name: dns
+    role: devops.uslugi.infra_dns
+    cores: 1
+    memory: 1024
+    disk_gb: 10
+    ip_cidr: 10.0.0.10/24
+
+  - name: freeipa
+    role: devops.uslugi.freeipa
+    cores: 2
+    memory: 2048
+    disk_gb: 20
+    ip_cidr: 10.0.0.11/24
+
+  - name: postgres
+    role: devops.uslugi.postgresql
+    cores: 2
+    memory: 4096
+    disk_gb: 40
+    ip_cidr: 10.0.0.12/24
+
+  - name: redis
+    role: stub:redis
+    cores: 1
+    memory: 2048
+    disk_gb: 15
+    ip_cidr: 10.0.0.13/24
+
+  - name: minio
+    role: stub:minio
+    cores: 2
+    memory: 2048
+    disk_gb: 100
+    ip_cidr: 10.0.0.14/24
+
+  - name: gitlab
+    role: none
+    cores: 4
+    memory: 8192
+    disk_gb: 60
+    ip_cidr: 10.0.0.15/24
+
+  - name: k3s-main
+    role: k3s_server
+    cores: 2
+    memory: 4096
+    disk_gb: 40
+    ip_cidr: 10.0.0.20/24
+
+  - name: k3s-monitoring
+    role: k3s_agent_tainted
+    taint: monitoring
+    cores: 2
+    memory: 4096
+    disk_gb: 40
+    ip_cidr: 10.0.0.21/24
+
+# Открытый вопрос, не решается этим файлом (см. ADR-0025) — оставить как есть до отдельного
+# решения, не менять молча внутри скилла.
+integration_with_platform: undecided
