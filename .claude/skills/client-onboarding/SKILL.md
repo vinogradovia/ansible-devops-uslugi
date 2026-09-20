@@ -26,9 +26,13 @@ description: Generate a new client infrastructure GitOps repository (Terraform +
 - Роли коллекции переиспользуются как есть: `freeipa`, `postgresql`, `infra_dns`, `fail2ban`.
   Redis/MinIO/GitLab (софт) — ролей ещё нет, v1 только поднимает ВМ и заводит базовый hardening,
   установка помечается TODO (см. §4).
-- Интеграция с существующей GitOps-платформой (`platform-controller`/Semaphore/Flux на
-  `aicd-devops-labs-ru`) сознательно **не решена** — генерируемый репозиторий самодостаточен,
-  подключение к контуру платформы — отдельная, ещё не начатая задача.
+- Материализация сгенерированного репозитория (`tofu apply`/`ansible-playbook`) идёт через
+  `Module` CRD + platform-controller + Semaphore (`docs/adr/0014-platform-controller-architecture.md`)
+  — тот же механизм, что уже обслуживает саму платформу, не отдельный ручной путь (уточнено
+  `docs/adr/0025-client-onboarding-architecture.md` §5, 2026-09-20). Конкретная регистрация
+  (Semaphore Project/Task Template на клиента, владение `inventoryRef`, изоляция OpenBao
+  клиента) — ещё не специфицирована. Этот скилл её не выполняет в любом случае — см. §6, он
+  только генерирует и валидирует репозиторий, ничего не применяет.
 
 ## Процедура
 
