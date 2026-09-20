@@ -69,10 +69,26 @@ configMaps:
                 - 'group:platform-admins'
                 - 'group:platform-engineers'
                 - 'group:platform-viewers'
+            # Найдено живым прогоном (curl --resolve снаружи, без Authelia-сессии): правило
+            # litellm.aicd.devops-labs.ru ниже гейтило forwardAuth'ом ВЕСЬ домен целиком, включая
+            # OpenAI-совместимый API (/v1/*) — программные клиенты (python-скрипты, opencode CLI)
+            # с одним Bearer sk-... ключом получали 302 на sso.aicd.devops-labs.ru вместо ответа
+            # LiteLLM, т.к. Authelia не распознаёт заголовок Authorization как свою сессию.
+            # Правила Authelia матчатся сверху вниз, первое совпадение побеждает
+            # (authelia.com/configuration/security/access-control/) — bypass для /v1/.* должен
+            # идти ПЕРЕД общим правилом на домен ниже, иначе никогда не сработает. Авторизацией
+            # самого API дальше занимается LiteLLM (проверка virtual key), forwardAuth больше не
+            # дублирует эту проверку для этих путей — trade-off осознанный (ROADMAP №59/№68
+            # обсуждение): API-поверхность открыта в сеть без сетевого периметра, безопасность
+            # только на валидности ключа, как и задумано для programmatic-доступа.
+            - domain: 'litellm.aicd.devops-labs.ru'
+              resources: ['^/v1/.*$']
+              policy: bypass
             # ROADMAP.md №59 — сетевой периметр перед LiteLLM UI (forwardAuth, отдельно от
             # OIDC-клиента litellm ниже — тот отвечает за логин самого /ui). БЕЗ platform-viewers
             # (в отличие от read-only docs/infra-panel/radar выше) — LiteLLM UI создаёт/удаляет
-            # virtual keys и меняет бюджеты, операционное действие, не просмотр.
+            # virtual keys и меняет бюджеты, операционное действие, не просмотр. Не покрывает
+            # /v1/* (API) — то правило bypass выше, матчится первым.
             - domain: 'litellm.aicd.devops-labs.ru'
               policy: one_factor
               subject:
