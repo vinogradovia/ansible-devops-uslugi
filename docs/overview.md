@@ -226,7 +226,8 @@ CI/CD-платформа (`docs/adr/0012-cicd-platform-architecture.md`), еди
   архитектур — переопределяет позиционирование проекта с «набора ролей» на «платформу», см.
   раздел «Архитектура платформы» выше.
 - **Реализовано пилотно, только на `platform/aicd-devops-labs-ru`**: локальный LLM-инференс и
-  гейтвей (ADR-0015/0021) — `docs/platform/agent-platform.md`.
+  гейтвей (ADR-0015/0021) — `docs/platform/agent-platform.md`. Контур `ai infra agent` и LK
+  «Инфраструктура» — `docs/adr/0015.1-infra-agent.md` (архитектура, не реализация).
 - **Архитектурно решено, не реализовано**: Execution Environment/Harbor (ADR-0012 §1), доступ к
   `kube-apiserver` по OIDC (`docs/adr/0020-kube-apiserver-oidc.md`).
 

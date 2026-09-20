@@ -312,6 +312,8 @@ RuntimeClass'ы и каркас namespace (`llm`/`gateway`/`agents`/`data`/`obs`
 
 - `docs/adr/0015-ai-agent-platform-architecture.md` — полная целевая архитектура, namespace-
   границы, схема связей компонентов (§«Схема размещения агентного стека»), Фаза 1 (§10).
+- `docs/adr/0015.1-infra-agent.md` — контур `ai infra agent` и LK «Инфраструктура» (активация,
+  Plan/Review, Estate/Inventory, уровни размещения); код агента не реализован.
 - `docs/adr/0021-agent-platform-model-selection.md` — выбор модели/движка, история пересмотра
   решения, живая проверка chat completion/tool-calling/эмбеддингов.
 - `roles/k3s_gpu_node/README.md` — роль bootstrap GPU-ноды.

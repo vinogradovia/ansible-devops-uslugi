@@ -153,6 +153,8 @@ GitOps-контур существующей платформы.
 - `platform/aicd/terraform` — референс для `site-libvirt` (§2).
 - `docs/adr/0014-platform-controller-architecture.md` §11 — статус пилота, на который ссылается
   §5 как причина отложить интеграцию.
+- `docs/adr/0015.1-infra-agent.md` — агентный контур, который должен повторить этот онбординг
+  диалогом в LK (скилл остаётся ручным прецедентом).
 - `docs/adr/0022-new-component-requirements.md` требование №4 — прецедент явного TODO-маркера
   вместо молчаливой недоделки, на который ссылается §3.
 - `roles/freeipa`, `roles/postgresql`, `roles/infra_dns`, `roles/fail2ban` — переиспользуемые
