@@ -361,6 +361,16 @@ Nexus `docker-hub-proxy` обёрнут в docker-группу с новым `gh
 `VMServiceScrape`). Два пункта аудита сознательно отложены (ROADMAP.md №64) — NetworkPolicy для
 `ns: gateway` и оценка кандидата-Operator `litellm-operator`.
 
+**Регрессионные тесты моделей при апгрейде (черновик, не прогонялся).**
+[`tests/promptfoo/promptfooconfig.yaml`](tests/promptfoo/promptfooconfig.yaml) — сравнение
+baseline/candidate-версий модели (`qwen3-6-35b-a3b` vs `qwen3-8-27b-vl`, реальные `model_name` из
+`helm/values/platform-devops-labs-ru/namespaces/gateway/litellm/values.yaml`) через LiteLLM:
+golden-датасет с `llm-rubric`, structured-output, заготовка под tool-calling (актуальна, когда
+появится первый реальный `mcp_servers`-бэкенд — пока пуст) и прямое A/B через LLM-as-judge. Требует
+`kubectl port-forward` на `svc/litellm-litellm` в обход `authelia-forward-auth` (тот висит на весь
+`Host` в `IngressRoute`, включая API-пути) и временного `replicas: 1` у неактивной модели — GPU-нода
+держит на GPU обычно только активную.
+
 **Grafana-дашборд тоже проверен реальными данными.** `VMScrapeConfig monitoring-agent-hosts`
 (`helm/values/platform-devops-labs-ru/namespaces/monitoring/vm/extra-objects.yaml`) уже содержал
 статические таргеты для `postgresql-infra-1` — оба (`node-exporter`/`postgres-exporter`) `health:
