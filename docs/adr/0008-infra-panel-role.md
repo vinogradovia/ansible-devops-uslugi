@@ -227,6 +227,8 @@ compose-определения).
 - `helm/envs/k3s-monitoring.yaml`, `helm/values/k3s-monitoring/namespaces/monitoring/homer/`,
   `helm/localrepo/universal-chart/` — k3s-деплой homer (§2, §5), values-файл теперь рендерится
   ролью, а не статичный пример.
+- `docs/adr/0015.2.1-admin-panel-architecture.md` — platform admin не расширяет эту роль:
+  отдельный `admin-ui`/`platform-api`; Homer остаётся лаунчером (ссылка в `extra_services`).
 - `docs/adr/0007-monitoring-server-role.md` §6 — механизм `Helmwave up`, переиспользованный для
   k3s-примера homer без изменений.
 - `docs/adr/0001-reverse-proxy-npm-role.md` §5 — прецедент fail-fast на дефолтном

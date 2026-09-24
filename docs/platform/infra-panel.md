@@ -75,5 +75,6 @@ graph TD
 ## Ссылки
 
 - `docs/adr/0008-infra-panel-role.md` §2 — граница между `docker`- и `k3s`-путём роли.
+- `docs/adr/0015.2.1-admin-panel-architecture.md` — platform admin не живёт в этом ConfigMap.
 - `docs/adr/0017-platform-cicd-default-addons.md` §3 — выбор homer, второй стандартный аддон.
 - [authelia.md](authelia.md) — источник допуска.
