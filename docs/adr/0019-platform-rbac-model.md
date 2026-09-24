@@ -440,6 +440,8 @@ Grafana, когда каталог лежит.
 - `docs/adr/0015-ai-agent-platform-architecture.md` §2 — `Projects` как единица изоляции
   тенантов, под которую резервируется префикс `proj-` (§2); «Не проработано» того ADR —
   межагентная авторизация, смежная и не покрытая здесь.
+- `docs/adr/0015.2-admin-panel.md` — platform admin как ещё один сервис на те же `platform-*`
+  (§3 того ADR); новую группу на панель не заводим.
 - `docs/adr/0016-openbao-secrets-pki.md` — хранилище паролей (первичные пароли пользователей §3,
   break-glass §7); интеграция самого OpenBao с каталогом — вне охвата.
 - `ROADMAP.md` №55 — единая авторизация для `kube-apiserver` (Dex/OIDC + `groups`→RBAC),
