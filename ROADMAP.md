@@ -968,7 +968,8 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
     и паспорт `ai infra agent` (LK «Инфраструктура», Plan/Review, Estate/Inventory, уровни
     размещения) зафиксирован ADR-0015.1; админка платформы — ADR-0015.2 (фонд ресурсов,
     метка system/user, счёт у провайдера ProviderAccount, модели, агенты, люди 0019) /
-    каркас 0015.2.1;
+    каркас 0015.2.1; учёт фонда — ADR-0014.1 (`ExternalResource` / `InternalResource`);
+    протокол входа в фонд — ADR-0014.1.1;
     контракты Intent/Plan/Estate/Inventory — ADR-0015.3. Все — архитектура, без кода. Также не решены
     открытые вопросы обоих ADR: мультитенантность/права агентов (ADR-0015 «Не проработано»),
     способ подключения `Senior`-яруса `moon-local-engineer` через платформенный LiteLLM или в

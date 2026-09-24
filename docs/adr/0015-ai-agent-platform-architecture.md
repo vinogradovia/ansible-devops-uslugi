@@ -611,6 +611,7 @@ human-in-the-loop» ниже) — но это возможность механ�
 - `docs/adr/0013-unified-auth-architecture.md` — единая авторизация (Authelia/freeipa) для
   людей-операторов платформенной инфраструктуры; пересекается с открытым вопросом
   мультитенантности агентов, но не закрывает его.
+- `docs/adr/0014.1-platform-resource-controller.md` — учёт фонда (купленное / свои ноды), не apply.
 - `docs/adr/0014-platform-controller-architecture.md` — `Module` CRD, GitOps-reconcile,
   оркестрация Semaphore — реализованный механизм самой платформы (Фазы 0–6), не то, чем сегодня
   `ai infra agent` исполняет изменения клиентской инфраструктуры (§5, уточнение 2026-09-20).

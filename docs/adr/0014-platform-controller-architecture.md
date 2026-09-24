@@ -146,3 +146,5 @@ inventory-файл — часть того же репозитория.
 - `docs/adr/0002-docker-role.md` §2 — прецедент `meta`-зависимостей между ролями, потенциальный
   образец для зависимостей между модулями (см. «Не проработано»).
 - `docs/adr/0016-openbao-secrets-pki.md` — секреты и внутренний PKI CA для `platform/aicd`.
+- [ADR-0014.1](0014.1-platform-resource-controller.md) — учёт фонда (`ExternalResource` /
+  `InternalResource`); не ветка этого контроллера и не источник inventory.
