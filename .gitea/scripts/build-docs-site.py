@@ -11,10 +11,23 @@ docs/runbooks/, docs/proxmox-templates.md, docs/Requirements Specification/ — 
 """
 import re
 import shutil
+import subprocess
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STAGING = REPO_ROOT / "docs_build"
+
+
+def get_git_commit_hash() -> str:
+    """Короткий хеш коммита, из которого собрана документация."""
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=str(REPO_ROOT),
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return "unknown"
 
 STATUS_RE = re.compile(r"^-\s+\*\*Статус:\*\*\s+(.+)$", re.MULTILINE)
 
@@ -105,6 +118,44 @@ def copy_static_assets() -> None:
     for js_file in (REPO_ROOT / "docs/js").glob("*.js"):
         shutil.copy(js_file, js_dest / js_file.name)
 
+    # Записать хеш коммита сборки в .build-info — читается mermaid-zoom.js
+    commit_hash = get_git_commit_hash()
+    (STAGING / ".build-info").write_text(f"commit: {commit_hash}\n", encoding="utf-8")
+    # Копируем .build-info в site/ (MkDocs не копирует dotfiles, копируем вручную)
+    shutil.copy(STAGING / ".build-info", STAGING / "build-info.json")
+
+
+def inject_build_version() -> None:
+    """Добавляет extra.build_version в mkdocs.yml (только для mkdocs build).
+
+    Material theme рендерит extra.footer в футере — используем его для показа
+    хеша коммита сборки. build-docs-site.py модифицирует mkdocs.yml перед
+    mkdocs build, а сам mkdocs.yml не коммитится с extra — чистый исходник.
+    """
+    mkdocs_path = REPO_ROOT / "mkdocs.yml"
+    text = mkdocs_path.read_text(encoding="utf-8")
+    commit_hash = get_git_commit_hash()
+    footer_html = (
+        '<div class="build-version">'
+        'Сборка: <a href="https://github.com/anomalycs/devops-uslugi/tree/'
+        + commit_hash
+        + '" target="_blank" rel="noopener">'
+        + commit_hash[:7]
+        + '</a></div>'
+    )
+    # Добавляем extra: секцию перед extra_css (или вставляем после extra_javascript)
+    if "extra:" not in text:
+        # Вставляем extra перед extra_css
+        text = text.replace("extra_css:", f"extra:\n  footer: {footer_html}\n\nextra_css:", 1)
+    else:
+        # Вставляем footer в существующий extra
+        text = text.replace(
+            "extra:",
+            f"extra:\n  footer: {footer_html}",
+            1,
+        )
+    mkdocs_path.write_text(text, encoding="utf-8")
+
 
 # Ни один исходник в docs/ не соответствует корню сайта — без этого у STAGING нет index.md,
 # mkdocs не генерирует корневой index.html, а nginx отдаёt 403 на "/" (autoindex выключен,
@@ -133,6 +184,7 @@ def main() -> None:
     build_architecture_section()
     build_roles_section()
     copy_static_assets()
+    inject_build_version()
     build_index_page()
 
 

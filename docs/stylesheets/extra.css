@@ -31,3 +31,22 @@
 .adr-status-unknown {
   background-color: #757575;
 }
+
+/* Build version — footer, mkdocs.yml, mermaid-zoom.js */
+.build-version {
+  text-align: center;
+  font-size: 0.75em;
+  padding: 0.5em 0 1em;
+  color: var(--md-default-fg-color--light);
+}
+
+.build-version a {
+  color: var(--md-default-fg-color--lighter);
+  text-decoration: none;
+  font-family: monospace;
+}
+
+.build-version a:hover {
+  color: var(--md-default-fg-color);
+  text-decoration: underline;
+}

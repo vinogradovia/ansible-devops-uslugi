@@ -93,4 +93,29 @@
   window.addEventListener("load", function() {
     setTimeout(tryWrap, 0);
   });
+
+  // Build version: загружаем build-info.json и вставляем в footer
+  fetch("/build-info.json")
+    .then(function(r) { return r.text(); })
+    .then(function(text) {
+      var match = text.match(/commit:\s*(\S+)/);
+      if (!match) return;
+      var hash = match[1];
+      var shortHash = hash.slice(0, 7);
+      var versionEl = document.createElement("div");
+      versionEl.className = "build-version";
+      versionEl.innerHTML = 'Сборка: <a href="https://github.com/anomalycs/devops-uslugi/tree/' + hash + '" target="_blank" rel="noopener">' + shortHash + '</a>';
+      var footer = document.querySelector("footer.md-footer");
+      if (footer) {
+        footer.appendChild(versionEl);
+      } else {
+        var mdSource = document.querySelector("a.md-source");
+        if (mdSource) {
+          mdSource.parentElement.insertBefore(versionEl, mdSource.nextSibling);
+        }
+      }
+    })
+    .catch(function() {
+      // build-info.json нет (локальная сборка без CI) — не критично
+    });
 })();
