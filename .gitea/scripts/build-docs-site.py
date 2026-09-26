@@ -126,34 +126,31 @@ def copy_static_assets() -> None:
 
 
 def inject_build_version() -> None:
-    """Добавляет extra.build_version в mkdocs.yml (только для mkdocs build).
+    """Подменяет copyright в mkdocs.yml на хеш коммита сборки.
 
-    Material theme рендерит extra.footer в футере — используем его для показа
-    хеша коммита сборки. build-docs-site.py модифицирует mkdocs.yml перед
-    mkdocs build, а сам mkdocs.yml не коммитится с extra — чистый исходник.
+    Material theme рендерит copyright в футере страницы. build-docs-site.py
+    подменяет его перед mkdocs build — mkdocs.yml остаётся чистым в git.
     """
     mkdocs_path = REPO_ROOT / "mkdocs.yml"
     text = mkdocs_path.read_text(encoding="utf-8")
     commit_hash = get_git_commit_hash()
-    # Экранируем двойные кавычки HTML для YAML (двойные кавычки YAML)
-    footer_html = footer_html_raw = (
-        '<div class="build-version">'
-        'Сборка: <a href="https://github.com/anomalycs/devops-uslugi/tree/'
-        + commit_hash
-        + '" target="_blank" rel="noopener">'
-        + commit_hash[:7]
-        + '</a></div>'
+    short_hash = commit_hash[:7] if commit_hash != "unknown" else "unknown"
+    build_html = (
+        f'Сборка: <a href="https://github.com/anomalycs/devops-uslugi/tree/{commit_hash}" '
+        f'target="_blank" rel="noopener">{short_hash}</a>'
     )
-    footer_yaml = '"' + footer_html_raw.replace('"', '\\"') + '"'
-    # Добавляем extra: секцию перед extra_css
-    if "extra:" not in text:
+    if "copyright:" in text:
         text = text.replace(
-            "extra_css:",
-            f"extra:\n  footer: {footer_yaml}\n\nextra_css:",
+            "copyright:",
+            f"copyright: {build_html}\n",
             1,
         )
     else:
-        text = text.replace("extra:", f"extra:\n  footer: {footer_yaml}", 1)
+        text = text.replace(
+            "extra_css:",
+            f"copyright: {build_html}\n\nextra_css:",
+            1,
+        )
     mkdocs_path.write_text(text, encoding="utf-8")
 
 
