@@ -135,7 +135,8 @@ def inject_build_version() -> None:
     mkdocs_path = REPO_ROOT / "mkdocs.yml"
     text = mkdocs_path.read_text(encoding="utf-8")
     commit_hash = get_git_commit_hash()
-    footer_html = (
+    # Экранируем двойные кавычки HTML для YAML (двойные кавычки YAML)
+    footer_html = footer_html_raw = (
         '<div class="build-version">'
         'Сборка: <a href="https://github.com/anomalycs/devops-uslugi/tree/'
         + commit_hash
@@ -143,17 +144,16 @@ def inject_build_version() -> None:
         + commit_hash[:7]
         + '</a></div>'
     )
-    # Добавляем extra: секцию перед extra_css (или вставляем после extra_javascript)
+    footer_yaml = '"' + footer_html_raw.replace('"', '\\"') + '"'
+    # Добавляем extra: секцию перед extra_css
     if "extra:" not in text:
-        # Вставляем extra перед extra_css
-        text = text.replace("extra_css:", f"extra:\n  footer: {footer_html}\n\nextra_css:", 1)
-    else:
-        # Вставляем footer в существующий extra
         text = text.replace(
-            "extra:",
-            f"extra:\n  footer: {footer_html}",
+            "extra_css:",
+            f"extra:\n  footer: {footer_yaml}\n\nextra_css:",
             1,
         )
+    else:
+        text = text.replace("extra:", f"extra:\n  footer: {footer_yaml}", 1)
     mkdocs_path.write_text(text, encoding="utf-8")
 
 
