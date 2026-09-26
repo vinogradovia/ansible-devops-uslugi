@@ -1,7 +1,14 @@
-/* Автоматически оборачивает все mermaid-диаграммы в zoom-контейнеры и вешает обработчики. */
+/* Автоматически оборачивает все mermaid-диаграммы в zoom-контейнеры и вешает обработчики.
+   Использует MutationObserver вместо DOMContentLoaded — mermaid рендерит SVG асинхронно
+   и DOMContentLoaded срабатывает до того, как внутри .mermaid появится <svg>. */
 document.addEventListener("DOMContentLoaded", () => {
-  document.querySelectorAll(".mermaid").forEach(mermaidEl => {
-    const svg = mermaidEl.querySelector("svg");
+  const processed = new WeakSet();
+
+  function wrapMermaid(el) {
+    if (processed.has(el)) return;
+    processed.add(el);
+
+    const svg = el.querySelector("svg");
     if (!svg) return;
 
     const wrapper = document.createElement("div");
@@ -13,9 +20,8 @@ document.addEventListener("DOMContentLoaded", () => {
     btn.setAttribute("title", "Открыть диаграмму на весь экран");
 
     wrapper.appendChild(btn);
-    wrapper.appendChild(mermaidEl);
-
-    mermaidEl.parentElement.replaceChild(wrapper, mermaidEl);
+    wrapper.appendChild(el);
+    el.parentElement.replaceChild(wrapper, el);
 
     btn.addEventListener("click", () => {
       const overlay = document.createElement("div");
@@ -56,5 +62,28 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       });
     });
+  }
+
+  // Проверяем уже отрендеренные диаграммы
+  document.querySelectorAll(".mermaid").forEach(wrapMermaid);
+
+  // Отслеживаем появление новых SVG внутри .mermaid (рендеринг mermaid)
+  const observer = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      for (const node of mutation.addedNodes) {
+        if (node.nodeType !== Node.ELEMENT_NODE) continue;
+        if (node.classList?.contains("mermaid")) {
+          wrapMermaid(node);
+        } else if (node.querySelector?.("svg")) {
+          // SVG появился внутри .mermaid — это рендеринг mermaid
+          const mermaidEl = node.closest(".mermaid") || node;
+          if (mermaidEl.classList?.contains("mermaid")) {
+            wrapMermaid(mermaidEl);
+          }
+        }
+      }
+    }
   });
+
+  observer.observe(document.body, { childList: true, subtree: true });
 });
