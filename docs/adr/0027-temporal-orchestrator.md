@@ -33,8 +33,9 @@ ADR-0015 §12 описывает Temporal подробно, но как влож
 
 **Решение:** Temporal используется как движок durable execution (workflow описывается обычным
 кодом, не YAML/DSL), а не как cron-планировщик или простая обёртка над `kubectl create job`.
-Каждый шаг агента — отдельная Activity в workflow, с ретраями, retry-policy, таймерами
-(signal, query).
+Каждый шаг агента — отдельная Activity в workflow, с ретраями по retry-policy и таймерами.
+`Signal`/`Query` — отдельные примитивы Temporal (внешнее событие и чтение состояния
+выполняющегося workflow), не разновидность таймера.
 
 **Обоснование:** прогон агента — цепочка из нескольких вызовов модели и инструментов,
 растянутая на минуты. Одноразовый Job без durable-слоя при любом транзиентном сбое
@@ -49,8 +50,11 @@ Temporal восстанавливает workflow с последнего зав�
 
 **Решение:** Temporal Server живёт в namespace `platform` под дефолтным `runc`-рантаймом.
 Сам Temporal не исполняет код агента — только оркестрирует создание/повтор/расписание Job'ов.
-Отдельный namespace для Worker'ов не требуется, если Worker'ы исполняются как часть agent-job
-(паттерн 1) или как отдельный под (паттерн 2, см. Открытый вопрос №1).
+Отдельный namespace для Worker'ов не требуется, если Worker остаётся постоянным процессом в
+`ns: platform` (Паттерн A «Job-per-turn» или Паттерн C «Worker-in-platform, Job-wait» — см.
+Открытый вопрос №1). Если вместо этого Worker переносится в `ns: agents` (Паттерн B
+«Worker-in-agents»), потребуется отдельная схема NetworkPolicy — выбор паттерна не входит в этот
+ADR (Открытый вопрос №1).
 
 **Обоснование:** Temporal — инфраструктурный компонент платформы, а не агентный workload.
 Размещение в `ns: platform` рядом с другими платформенными сервисами (Semaphore, Gitea,
@@ -78,9 +82,13 @@ Authelia) упрощает сеть и доступ к БД. `runc` достат
 
 2. **Совместимость.** Начиная с Temporal Server v1.20 — требуется только SQL-совместимая БД
    (PostgreSQL/MySQL), Elasticsearch для advanced visibility больше не обязателен.
-   `postgresql-infra-1` предоставляет PostgreSQL 15+ — полностью совместимо. Сетевой доступ
-   по TCP на порт 5432 уже разрешён для LiteLLM (ADR-0015 §6/§7 — egress из `ns: platform`
-   к `postgresql-infra-1` через egress-proxy).
+   `postgresql-infra-1` предоставляет PostgreSQL 15+ — полностью совместимо. LiteLLM уже
+   обращается к `postgresql-infra-1` по TCP 5432 — прецедент, что маршрут с платформенных нод до
+   этой VM в принципе рабочий, но LiteLLM живёт в `ns: gateway`, не в `ns: platform`, а
+   `egress-proxy` (ADR-0015 §7) — это путь `ns: gateway` во внешний интернет, к внутренней
+   `postgresql-infra-1` отношения не имеет и в кластере пока не реализован ни для одного
+   namespace (NetworkPolicy для `ns: platform` не заведены). Для Temporal правило egress к
+   `postgresql-infra-1:5432` предстоит завести отдельно — см. чек-лист ADR-0022 №10 ниже.
 
 3. **Изоляция отказов на уровне схемы.** Хотя БД общая с LiteLLM, schema/temporal отделена
    на уровне PostgreSQL (отдельный пользователь, отдельная schema). Падение БД LiteLLM не
@@ -101,9 +109,11 @@ Temporal Technologies). Из чарта сознательно отключаю�
 
 **Обоснование:** ADR-0015 §07 (`agent-stack-k3s.md`, §04, таблица `platform`) прямо указывает:
 «Отключите в values встроенные Cassandra, Elasticsearch и Prometheus — иначе чарт поднимет
-вторую половину кластера». На пилоте один узел k3s с embedded SQLite и limited RAM — каждая
-лишняя сервисная нагрузка критична. Prometheus для мониторинга Temporal будет подниматься
-отдельно через `kube-prometheus-stack` (namespace `obs`), а не встроенным в чарт.
+вторую половину кластера». На пилоте один узел k3s и ограниченный RAM — каждая лишняя сервисная
+нагрузка критична, независимо от того, что БД самого Temporal (§3) — внешний
+`postgresql-infra-1`, а не встроенная в чарт зависимость. Prometheus для мониторинга Temporal
+будет подниматься отдельно через `kube-prometheus-stack` (namespace `obs`), а не встроенным в
+чарт.
 
 **Отличие от ADR-0015 §12:** ADR-0015 не описывает механизм установки чарта — здесь фиксируется
 конкретный Helm-чарт и осознанные отключения.
@@ -169,12 +179,14 @@ ADR не определены. В OpenAI Agents SDK human-in-the-loop собир
 **Вне скоупа:** детали наблюдаемости за Temporal. Решения будут приниматься при реализации,
 когда станет известен SLA компонента и потребность в его UI/метриках для операторов.
 
-### 4. Мигация хранилища (SQLite → PostgreSQL)
+### 4. Хранилище при локальной разработке — не мигрирует в кластер (закрыто §3)
 
-При переходе от ручного `kubectl create job` к Temporal с embedded SQLite (для локальной
-разработки/тестирования) к production-развёртыванию с PostgreSQL — потребуется ли мигрировать
-историю workflow? Для пилота (один узел) это маловероятно, но при росте до кластера с
-несколькими нодами — может потребоваться.
+Черновая формулировка предполагала, что пилот сначала работает на embedded SQLite и только потом
+переходит на PostgreSQL, требуя миграции истории. §3 этого ADR решает иначе: пилот и продакшн с
+самого начала используют `postgresql-infra-1`, SQLite остаётся только инструментом локальной
+разработки/тестирования вне этого кластера. Миграция истории workflow между SQLite и PostgreSQL
+в рамках этого кластера не требуется — соответствующей истории просто не существует до первого
+прогона на PostgreSQL.
 
 ### 5. Версионирование и совместимость
 
@@ -223,6 +235,14 @@ ADR-0015 §11 выбирает OpenAI Agents SDK с официальной ин�
 - `docs/adr/0015-ai-agent-platform-architecture.md` — §12 (исходное описание), §6–§9 (bootstrap,
   namespace'ы, runtime), §11 (выбор OpenAI Agents SDK)
 - `docs/adr/0015.1-infra-agent.md` — контур активации агентных workflow
+- `docs/adr/0016-openbao-secrets-pki.md` — секреты и TLS/PKI (чек-лист ADR-0022 №5/№7)
+- `docs/adr/0019-platform-rbac-model.md`, `docs/adr/0020-kube-apiserver-oidc.md` — модель допуска
+  (чек-лист ADR-0022 №2)
+- `docs/adr/0022-new-component-requirements.md` — чек-лист онбординга, применённый целиком в
+  разделе «Соответствие ADR-0022»
+- `docs/adr/0023-postgresql-standalone-role.md` — `postgresql-infra-1`, решение §3
+- `docs/adr/0009-backup-server-role.md`, `docs/adr/0010-backup-agent-role.md` — Bareos-бэкап
+  (чек-лист ADR-0022 №11)
 - `docs/Requirements Specification/agent-stack-k3s.md` — §04 (таблица `platform`, Helm-чарт),
   §07 (bootstrap)
 - `docs/platform/agent-platform.md` — HLD/LLD, текущий статус реализации
