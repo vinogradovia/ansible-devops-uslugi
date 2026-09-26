@@ -599,6 +599,105 @@ human-in-the-loop» ниже) — но это возможность механ�
   «Не проработано»; не решается заново этим ADR, но становится актуальным раньше, если агент — не
   человек, а автоматический вызывающий.
 
+## Схема связей ADR-0015*
+
+Карта всей серии — как `0015` (агенты и домены), `0015.1` (цикл `ai infra agent`), `0015.2`/
+`0015.2.1` (platform admin и его backend) и `0015.3` (контракты объектов) стыкуются друг с другом.
+Пунктирные связи с внешними ADR (`0014`, `0014.1`, `0016`) — соседи вне периметра этой серии, не
+её часть.
+
+```mermaid
+flowchart TB
+    LK["lk web ui<br/>кабинет клиента"] --> PRJ["Projects (0015 §2)"]
+    SHOW["showcase<br/>юзеры клиента"] --> PRJ
+    PRJ --> INFRA["user-infra"]
+    PRJ --> APPS["user apps"]
+    PRJ --> CODE["Code"]
+    PRJ --> PKB[("project knowledge base")]
+
+    subgraph AGENTS["0015 §3 — 5 агентов"]
+        MONA["monitoring agent"]
+        INFA["ai infra agent"]
+        KBA["AI KB agent"]
+        CODA["coding agent"]
+        TSTA["testing agent"]
+    end
+
+    MONA --> AIKB[("AI knowledge base<br/>платформенная")]
+    INFA --> AIKB
+    KBA --> AIKB
+    CODA --> AIKB
+    TSTA --> AIKB
+    AIKB --> DS["dataset"]
+
+    subgraph CYCLE["0015.1 — цикл ai infra agent"]
+        INTENT["Intent<br/>collecting→ready→locked"]
+        PLAN["Plan vN<br/>draft→in_review→approved"]
+        ESTATE["Estate<br/>imported/planned/in_repo/applied"]
+        INV["Inventory<br/>placement / +guest / full"]
+        INIT["Init / import"]
+        INTENT --> PLAN
+        PLAN -->|Approve| ESTATE
+        INIT --> INV
+    end
+    INFA --> INTENT
+    ESTATE -. читает перед каждым Run .-> INFA
+    INV -. читает перед каждым Run .-> INFA
+
+    PLACE["owner × procurement × connect<br/>+ provider_id + pattern P1–P15<br/>(0015.1 §9)"]
+    INTENT --> PLACE
+
+    subgraph CONTRACTS["0015.3 — контракты lk-api"]
+        SCHEMA["общие поля: id, revision,<br/>updated_by: client|agent|system<br/>1 активный цикл на Project"]
+    end
+    PLAN -. формализует .-> SCHEMA
+    ESTATE -. формализует .-> SCHEMA
+    INV -. формализует .-> SCHEMA
+
+    ESTATE -->|Approve, server-to-server| MODULE["Module CRD (0014)"]
+    MODULE --> CTRL["Платформенный контроллер"] --> SEM["Semaphore"] --> INFRA
+
+    subgraph ADMIN["0015.2 — platform admin"]
+        CORE["ядро / feature flags"]
+        PROV["провайдеры + прайс закупки"]
+        SITES["каталог площадок<br/>connect: local/api/overlay"]
+        MENU["схема меню LK"]
+    end
+    PEOPLE["группы 0019:<br/>admins/engineers/viewers"] --> ADMIN
+    SITES -->|"offered: true"| PLACE
+    MENU --> LK
+
+    subgraph BACKEND["0015.2.1 — admin-ui + platform-api"]
+        PAPI["platform-api"]
+        FUND["книга фонда<br/>allocation: system/user"]
+        PACC["ProviderAccount/Tariff"]
+        MODELS["каталог моделей LiteLLM"]
+        AREG["реестр версий агентов"]
+    end
+    ADMIN -->|admin-ui| PAPI
+    PAPI --> FUND
+    PAPI --> PACC
+    PAPI --> MODELS
+    PAPI --> AREG
+    PROV -. хранится в .-> PACC
+    SITES -. хранится в .-> FUND
+
+    OPENBAO[("OpenBao (0016)")] -. секреты/ссылки .-> PAPI
+    OPENBAO -. секреты .-> ESTATE
+    PRC["platform-resource-controller<br/>(0014.1, вне 0015*)"] -. observe/upsert .-> FUND
+
+    style AGENTS fill:#f9f9f9,stroke:#999
+    style AIKB fill:#f9f9f9,stroke:#999
+    style DS fill:#f9f9f9,stroke:#999
+```
+
+*Единственный из пяти агентов, детализированный дальше в серии, — `ai infra agent` (`0015.1`);
+`0015.3` не вводит отдельный контур, а лишь формализует поля тех же четырёх объектов
+(`Intent`/`Plan`/`Estate`/`Inventory`). `0015.2`/`0015.2.1` — параллельный контур для оператора,
+не для клиента: каталог площадок публикует в LK только `offered`-срез, который и наполняет ось
+размещения `0015.1` §9. Материализация через `Module CRD`/Semaphore (`0014`) и наполнение книги
+фонда через `platform-resource-controller` (`0014.1`) — соседние ADR за пределами этой серии.*
+
 ## Ссылки
 
 - `docs/Requirements Specification/scheme-cloud-platform-development.md` — исходное описание
