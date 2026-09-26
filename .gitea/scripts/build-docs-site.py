@@ -100,6 +100,10 @@ def copy_static_assets() -> None:
         STAGING / "stylesheets",
         dirs_exist_ok=True,
     )
+    js_dest = STAGING / "js"
+    js_dest.mkdir(exist_ok=True)
+    for js_file in (REPO_ROOT / "docs/js").glob("*.js"):
+        shutil.copy(js_file, js_dest / js_file.name)
 
 
 # Ни один исходник в docs/ не соответствует корню сайта — без этого у STAGING нет index.md,
