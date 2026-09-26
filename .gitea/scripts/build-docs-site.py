@@ -124,31 +124,39 @@ def copy_static_assets() -> None:
     # Копируем .build-info в site/ (MkDocs не копирует dotfiles, копируем вручную)
     shutil.copy(STAGING / ".build-info", STAGING / "build-info.json")
 
+    # Генерируем version.js — JS-файл с хешем, который читается mermaid-zoom.js
+    # Не требует модификации mkdocs.yml — mkdocs.yml не коммитится с extra_javascript
+    (js_dest / "version.js").write_text(
+        f'window.__BUILD_VERSION={commit_hash!r};\n',
+        encoding="utf-8",
+    )
+    # Добавляем version.js в extra_javascript перед mkdocs build
+    _inject_version_script()
 
-def inject_build_version() -> None:
-    """Подменяет copyright в mkdocs.yml на хеш коммита сборки.
 
-    Material theme рендерит copyright в футере страницы. build-docs-site.py
-    подменяет его перед mkdocs build — mkdocs.yml остаётся чистым в git.
-    """
+def _inject_version_script() -> None:
+    """Вставляет extra_javascript: js/version.js в mkdocs.yml (только для mkdocs build)."""
     mkdocs_path = REPO_ROOT / "mkdocs.yml"
     text = mkdocs_path.read_text(encoding="utf-8")
-    commit_hash = get_git_commit_hash()
-    short_hash = commit_hash[:7] if commit_hash != "unknown" else "unknown"
-    build_html = (
-        f'Сборка: <a href="https://github.com/anomalycs/devops-uslugi/tree/{commit_hash}" '
-        f'target="_blank" rel="noopener">{short_hash}</a>'
+    # Удаляем старую extra: секцию с footer (если есть)
+    text = re.sub(
+        r'^extra:\n\s+footer:.*?(?=\n\S|\Z)',
+        '',
+        text,
+        flags=re.MULTILINE | re.DOTALL,
     )
-    if "copyright:" in text:
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    # Проверяем, есть ли уже extra_javascript
+    if "extra_javascript:" in text:
         text = text.replace(
-            "copyright:",
-            f"copyright: {build_html}\n",
+            "extra_javascript:",
+            "extra_javascript:\n  - js/version.js\n  - js/mermaid-zoom.js",
             1,
         )
     else:
         text = text.replace(
             "extra_css:",
-            f"copyright: {build_html}\n\nextra_css:",
+            "extra_javascript:\n  - js/version.js\n\nextra_css:",
             1,
         )
     mkdocs_path.write_text(text, encoding="utf-8")
@@ -181,7 +189,6 @@ def main() -> None:
     build_architecture_section()
     build_roles_section()
     copy_static_assets()
-    inject_build_version()
     build_index_page()
 
 
