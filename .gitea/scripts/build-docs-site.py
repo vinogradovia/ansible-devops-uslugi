@@ -40,8 +40,29 @@ ROLE_README_DOCS_LINK_RE = re.compile(r"\]\(\.\./\.\./docs/(adr|platform)/([^)]+
 COMPONENTS_ROLE_LINK_RE = re.compile(r"\]\(\.\./roles/([\w-]+)/README\.md([^)]*)\)")
 
 
-def rewrite_role_readme_links(text: str) -> str:
-    return ROLE_README_DOCS_LINK_RE.sub(r"](../Архитектура/\1/\2)", text)
+def collect_adr_files() -> list[Path]:
+    """ADR лежат в подпапках таксономии (docs(adr): разложить ADR по Control-Plane, DataPlane
+    и SharedModules) — обход обязан быть рекурсивным, плоский glob("*.md") их не находит."""
+    return sorted((REPO_ROOT / "docs/adr").rglob("*.md"))
+
+
+def adr_relative_paths() -> dict[str, str]:
+    """Имя файла ADR -> путь относительно docs/adr/, для переписывания ссылок из
+    roles/*/README.md — там ссылки по-прежнему плоские: `docs/adr/<file>.md`."""
+    adr_root = REPO_ROOT / "docs/adr"
+    return {f.name: f.relative_to(adr_root).as_posix() for f in collect_adr_files()}
+
+
+def rewrite_role_readme_links(text: str, adr_paths: dict) -> str:
+    def _replace(match: re.Match) -> str:
+        section, name = match.group(1), match.group(2)
+        if section == "adr":
+            name = adr_paths.get(name, name)
+        # Папки таксономии содержат пробелы ("02. Control-Plane") — экранируем для валидной
+        # markdown-ссылки.
+        return f"](../Архитектура/{section}/{name.replace(' ', '%20')})"
+
+    return ROLE_README_DOCS_LINK_RE.sub(_replace, text)
 
 
 def rewrite_components_links(text: str) -> str:
@@ -89,11 +110,14 @@ def build_architecture_section() -> None:
     components_text = (REPO_ROOT / "docs/components.md").read_text(encoding="utf-8")
     (dest / "components.md").write_text(rewrite_components_links(components_text), encoding="utf-8")
 
+    adr_src = REPO_ROOT / "docs/adr"
     adr_dest = dest / "adr"
     adr_dest.mkdir(exist_ok=True)
-    for adr_file in sorted((REPO_ROOT / "docs/adr").glob("*.md")):
+    for adr_file in collect_adr_files():
+        target = adr_dest / adr_file.relative_to(adr_src)
+        target.parent.mkdir(parents=True, exist_ok=True)
         text = adr_file.read_text(encoding="utf-8")
-        (adr_dest / adr_file.name).write_text(inject_status_badge(text), encoding="utf-8")
+        target.write_text(inject_status_badge(text), encoding="utf-8")
 
     shutil.copytree(REPO_ROOT / "docs/platform", dest / "platform", dirs_exist_ok=True)
 
@@ -101,10 +125,12 @@ def build_architecture_section() -> None:
 def build_roles_section() -> None:
     dest = STAGING / "Роли коллекции"
     dest.mkdir(parents=True, exist_ok=True)
+    adr_paths = adr_relative_paths()
     for readme in sorted((REPO_ROOT / "roles").glob("*/README.md")):
         role_name = readme.parent.name
         text = readme.read_text(encoding="utf-8")
-        (dest / f"{role_name}.md").write_text(rewrite_role_readme_links(text), encoding="utf-8")
+        rewritten = rewrite_role_readme_links(text, adr_paths)
+        (dest / f"{role_name}.md").write_text(rewritten, encoding="utf-8")
 
 
 def copy_static_assets() -> None:
