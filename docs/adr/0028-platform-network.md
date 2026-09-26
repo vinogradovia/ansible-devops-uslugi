@@ -24,112 +24,74 @@ IaaS, managed у провайдера, BYO клиента.
 
 ## Схема
 
-Одна модель на все услуги: allocator выдаёт ProjectNet, edge держит VRF, площадка — site с
-underlay, на сайте — сегмент (VLAN) проекта. Ниже все варианты U1–U9 на одном рисунке;
-одиночная VM на dedicated — вырезка из U1.
+Одна модель по [0015.1](0015.1-infra-agent.md) §9: один Project — один `provider_id`, этажи
+облако → dedicated → virt. У нас только Control Plane платформы. Allocator выдаёт ProjectNet
+у провайдера; edge — mgmt/published/hop, не east-west.
 
-Где что лежит (оси 0015.1: `owner` / `procurement`):
+U4a/b/c и U5 в этом ADR появились как перебор hybrid («наша VM + Yandex MK8s», «наш CP +
+нода Selectel»). Из 0015.1 они **не следуют** — в живой схеме их нет (§9 «отклонено»).
+
+Где что лежит:
 
 | На схеме | Чьё | Закупка | Примеры |
 |---|---|---|---|
-| **Платформа** | мы, `allocation: system` | `platform_metal` ядра | edge, allocator, published, агенты |
-| **Наше железо** | мы, фонд `user` | `platform_metal` | свои PVE/ноды, VLAN проектов на них |
-| **Аренда** | мы сняли, клиенту ЛК нет | `partner` | dedicated Selectel, VPC/MK8s/БД Yandex |
-| **Своё клиента** | клиент | `byo` | его LAN, его стойка |
+| **Платформа** | мы, `allocation: system` | `platform_metal` ядра | edge, allocator, агенты — только CP платформы |
+| **Аренда** | один `provider_id` проекта | `partner` | dedicated Selectel **или** VPC/MK8s Yandex, не оба в одном Project |
+| **Своё клиента** | клиент, тот же смысл: один кабинет | `byo` | его Selectel / его стойка, не смесь с нашей арендой |
 
 ```mermaid
 flowchart TB
-    subgraph plat [ПЛАТФОРМА system наши компоненты ядра]
-        Alloc["allocator: ProjectNet на каждый Project"]
-        Edge["platform edge: VRF A / B / C"]
-        Pub["published: git DNS ingress проекта"]
-        Ag["agents: hop только в свой VRF"]
+    subgraph plat [ПЛАТФОРМА system только Control Plane]
+        Alloc["allocator: ProjectNet"]
+        Edge["edge: VRF A / B"]
+        Pub["published проекта"]
+        Ag["agents: hop в свой VRF"]
     end
-    CloudAPI["АРЕНДА кабинеты Selectel / Yandex :443"]
+    CloudAPI["кабинет одного provider_id :443"]
 
-    subgraph siteMetal [НАШЕ ЖЕЛЕЗО platform_metal фонд user]
-        SegMetalA["VLAN Project A"]
-        SegMetalC["VLAN Project C: apiserver self-k8s"]
-        MetalAvm["U3/U5: нода k8s A или C"]
-        MetalCcp["U5/U7: control plane C"]
-    end
-
-    subgraph siteSel [АРЕНДА dedicated Selectel partner общий ящик]
+    subgraph siteSel [АРЕНДА один dedicated того же провайдера]
         PVE["PVE mgmt не в VLAN клиентов"]
-        SegSelA["VLAN A ProjectNet A"]
-        SegSelB["VLAN B ProjectNet B"]
-        SegSelC["VLAN C ProjectNet C"]
+        SegA["VLAN A Project A"]
+        SegB["VLAN B Project B"]
         A1["U1: A VM1"]
         A2["U1: A VM2"]
         B1["U1: B VM1"]
-        B2["U2: B VM2 + compose внутри"]
+        B2["U2: B VM2 + compose"]
         B3["U1: B VM3"]
-        Csel["U5: нода k8s C"]
-    end
-
-    subgraph siteYx [АРЕНДА Yandex VPC partner managed]
-        Mkcp["U4/U6: Managed K8s API"]
-        YxNode["U4b: нода MK8s в облаке"]
-        Rds["U8: managed DB"]
-    end
-
-    subgraph siteByo [СВОЁ КЛИЕНТА byo]
-        ByoLan["U9: LAN клиента"]
+        Bcp["U7: B vm-cp"]
+        Bn["U7: B vm-node"]
     end
 
     Alloc --> Edge
-    Pub --> CloudAPI
+    Edge -->|"HTTPS"| CloudAPI
     Edge -->|"wg-mgmt"| PVE
-    Edge -->|"SiteUnderlay WG"| siteSel
-    Edge -->|"SiteUnderlay WG"| siteMetal
-    Edge -->|"VpcAttach IPsec"| siteYx
-    Edge -->|"SiteUnderlay клиент инициирует"| siteByo
-
-    PVE --> SegSelA
-    PVE --> SegSelB
-    PVE --> SegSelC
-    SegSelA --> A1
-    SegSelA --> A2
-    SegSelB --> B1
-    SegSelB --> B2
-    SegSelB --> B3
-    SegSelC --> Csel
+    Edge -->|"wg-data SiteUnderlay"| siteSel
+    PVE --> SegA
+    PVE --> SegB
+    SegA --> A1
+    SegA --> A2
+    SegB --> B1
+    SegB --> B2
+    SegB --> B3
+    SegB --> Bcp
+    SegB --> Bn
     A1 -->|"east-west U1"| A2
-    B1 -->|"east-west U1"| B3
-
-    SegMetalA --> MetalAvm
-    SegMetalC --> MetalCcp
-    MetalCcp -->|"U3/U5/U7 CNI поверх ProjectNet"| MetalAvm
-    MetalCcp -->|"U5 hairpin через edge"| Csel
-
-    B1 -.->|"U4a клиент API не kubelet"| Mkcp
-    YxNode --> Mkcp
-    B1 -.->|"U4c только если API разрешил"| Mkcp
-    B1 -->|"U8 к endpoint"| Rds
-    ByoLan -->|"тот же VRF что и наши VM проекта"| Edge
-
+    Bcp -->|"CNI U7"| Bn
     A1 --> Edge
     B2 --> Edge
-    Csel --> Edge
     Edge --> Pub
     Ag -.-> Edge
 ```
 
-Описание блоков на схеме:
+Живые варианты:
 
 | id | Что на схеме | Сеть | Что нельзя |
 |---|---|---|---|
-| **U1** | На Selectel VLAN A: 2 VM; VLAN B: 3 VM. Два VRF на edge, один underlay на ящик | Два ProjectNet. East-west только в своём VLAN | Один `vmbr` на A+B; общий `10/24`; WG на каждую VM |
-| **U2** | `B VM2 + compose внутри` | Как U1. docker0 только в госте; наружу порт на адрес B в ProjectNet | compose на PVE; тащить `172.18/16` в edge |
-| **U3** | VM на нашем железе или в VLAN проекта = нода **своего** self-k8s | NodeIP из ProjectNet. CNI поверх. apiserver в том же VRF | Нода в VLAN соседа; одинаковый pod CIDR у всех клиентов |
-| **U4a** | Пунктир `B VM → Managed K8s API`: наша VM **клиент** Ingress/API | ProjectNet + IPsec в VPC **или** published HTTPS | Назвать это нодой MK8s |
-| **U4b** | `нода MK8s в облаке` — kubelet **в Yandex VPC**, не на dedicated | Нода живёт в VPC. Наши VM остаются U4a | «Нода на dedicated, а кластер managed» без U4c |
-| **U4c** | Пунктир `B VM → MK8s` с подписью «только если API разрешил» | Hybrid kubelet: анонс ProjectNet (+ PodCIDR) в VPC. Нет поддержки — отказ Plan | Молчаливый join |
-| **U5** | CP на нашем железе + `нода k8s C` в VLAN C на Selectel | Один ProjectNet C, два site, hairpin через edge. CNI едет по этому L3 | Второй кластер «потому что Selectel» |
-| **U6** | Только блок Yandex MK8s, без VM проекта | ProjectNet всё равно выдан; стык VpcAttach или published API | «Сети нет, потому что managed» |
-| **U7** | Все ноды self-k8s в одном VLAN на dedicated (как C, но без нашего железа) | Как U3, один site | CNI на mgmt-bridge PVE |
-| **U8** | `B VM → managed DB` в Yandex VPC | ProjectNet + endpoint в VPC. На RDS нет WG | Посадить БД в VLAN dedicated |
-| **U9** | `BYO LAN → edge` в тот же VRF, что и наши VM этого Project | Два underlay, один ProjectNet | Склеить LAN BYO с VLAN соседа на Selectel |
+| **U1** | Два Project на одном dedicated: 2 и 3 VM | Два ProjectNet, два VLAN, один underlay | Общий `vmbr` / `10/24`; WG на каждую VM |
+| **U2** | У B ещё compose **внутри** своей VM | docker0 только в госте | compose на PVE; `172.18/16` в edge |
+| **U7** | Self-k8s проекта B: cp + node в **том же** VLAN B | NodeIP из ProjectNet B, CNI поверх | CNI на `vmbr0`; нода на нашем CP |
+| **U6** | Другой Project, целиком MK8s **того же** одного провайдера, без наших VM | published / VPC attach, без второй площадки | Смешать с U1 на Selectel в одном Project |
+| **U8** | VM + managed БД **того же** `provider_id` | endpoint в его VPC | БД другого облака; БД в VLAN dedicated |
 
 Плоскости на той же схеме: `wg-mgmt` → только PVE; кабинеты облаков → с платформы, не из VLAN
 гостей; агент → hop в **свой** VRF; гости → platform только через published.
@@ -303,11 +265,107 @@ apply — как остальной IAC, не `docker compose up` из чата.
 изоляции и начать маршрутизировать чужие `172.17.0.0/16`. На гипервизоре compose обходит
 VLAN проекта целиком.
 
+### 5.3 Два слоя: облако и гипервизор
+
+**Решение:** два слоя, не один apply. Selectel ортогонален: **чей** платёжный аккаунт.
+
+| Слой | Что создаём | API | State / раннер |
+|---|---|---|---|
+| **1. облако** | сервер у провайдера (dedicated + выделенный IP, ОС) | Selectel | state 1, раннер у нас |
+| **2. гипервизор** | виртуалки **внутри** уже созданного сервера | PVE по wg-mgmt | state 2, второй раннер у нас |
+
+После слоя 2 — Ansible / Helmwave на гостей, не третий tfstate.
+
+Кабинет **один** — Selectel. Не «наш ЛК платформы» плюс отдельно Selectel. Развилка оплаты:
+
+| Кто платит | `procurement` | Ключ API | Слой 1 |
+|---|---|---|---|
+| Мы | `partner` | `ProviderAccount` платформы | заказ в нашем аккаунте; клиенту ЛК Selectel нет |
+| Клиент | `byo` | ключ Project в OpenBao | сначала discover, потом заказ в **его** аккаунте |
+
+Сеть на ящике режется **до** гостей, как у U7, даже если Project на dedicated пока один.
+
+Раннер в обоих случаях стоит **у нас** (Semaphore / `agent-job` на control plane). На ещё не
+существующем ящике ему жить негде. HTTPS — только с платформы на API Selectel.
+
+```mermaid
+sequenceDiagram
+    participant R1 as раннер 1 (у нас)
+    participant Sel as API Selectel
+    participant Box as dedicated WAN IP
+    participant Rtr as vm-router в PVE
+    participant Edge as platform edge
+    participant R2 as раннер 2 (у нас)
+    participant PVE as PVE API :8006
+    participant Node as VM / нода U7
+
+    alt кабинет клиента
+        R1->>Sel: ключ BYO, discover
+    else кабинет платформы
+        R1->>Sel: ключ ProviderAccount
+    end
+    R1->>Sel: заказ dedicated
+    Sel-->>Box: сервер + выделенный IP
+    R1->>Box: SSH bootstrap, накат PVE
+    R1->>PVE: создать vm-router
+    Rtr->>Edge: WG mgmt + WG data
+    Note over Box,PVE: :8006 и SSH — не в 0.0.0.0/0
+    R2->>Edge: wg-mgmt
+    Edge->>PVE: создать VM / ноды
+    R2->>Node: Ansible / Helmwave по ProjectNet
+```
+
+Слои нельзя склеить в один state: разные provider и срок жизни. Пока нет слоя 1 — нет PVE.
+Пока нет слоя 2 — нет адресов ProjectNet, Ansible/Helmwave рано. Helmwave не ходит на
+публичный IP ноды.
+
+**Как режется сеть на ящике** (с первого дня, не «потом поправим»):
+
+| Интерфейс | Где | Что по нему едет | Чего нет |
+|---|---|---|---|
+| **WAN** | NIC dedicated, выделенный IP Selectel | UDP туннеля; до готовности WG — временный SSH bootstrap | `8006`, kube-apiserver, SSH гостей |
+| **vmbr0 / mgmt** | хост PVE | API гипервизора, SSH хоста | CNI, eth0 нод U7 |
+| **vmbr-N / VLAN проекта** | только гости этого Project | ProjectNet, east-west U7, NodeIP | WAN, mgmt PVE |
+| **wg-mgmt** | **хост PVE** (после bootstrap) | раннер 2 → `:8006` | трафик подов |
+| **wg-data** | **vm-router** | VRF проекта ↔ platform edge; published; hop агента | API Selectel, чужой ProjectNet |
+
+Роутер — **первая** VM в PVE, не «ещё одна нода k8s». Он — шлюз ProjectNet и `wg-data`.
+Хост PVE туннель data **не** терминирует: иначе hypervisor и сеть тенанта — один fault domain.
+
+Пока WG не встал, раннер 1 ходит на выделенный IP. Как только `wg-mgmt` up — публичные
+`22`/`8006` закрываются (остаётся UDP WG; break-glass SSH — с CIDR платформы, не `0.0.0.0/0`).
+Дальше `connect` площадки = `overlay` (0014.1.1 путь A → C, потом PVE API как «local через
+туннель»).
+
+U7 садится **только** на VLAN проекта: cp + node живут в одном ProjectSegment, CNI overlay
+поверх NodeIP из ProjectNet, не на `vmbr0`. Интернет с нод — NAT в VRF на vm-router, не
+второй выделенный IP на каждую VM. Выделенный IP — у ящика, один.
+
+Ящик после заказа — **site** в фонде (`user`). Если Project на нём один — это U7 (один VLAN).
+Сеть всё равно как у площадки, не «весь dedicated = один L2»: иначе U1 потом не налезет.
+Ноды U7 не получают второй NIC «в интернет Selectel».
+
+**Обоснование:** 0025 уже видел этот паттерн вручную («дедик + PVE + отдельная VM-роутер»).
+Один state не может одновременно вызвать API Selectel и API PVE, которого ещё нет. Канал к
+control plane обязан родиться на ящике **до** второго раннера, иначе создавать гостей нечем.
+CNI на WAN/mgmt — дыра и конфликт с U1.
+
+### 5.4 Один Project — один провайдер (как 0015.1 §9)
+
+**Решение:** мультиклауда для клиента нет (0015.1 §9). Один Project — один `provider_id`.
+Весь стек (VM, k8s, БД) у него. У нас на железе — только Control Plane **платформы**.
+
+Бывшие U4/U5 из перебора hybrid — не каталог. Слои create §5.3 — этажи того же P1.
+
+East-west — у провайдера (VLAN / VPC). Edge — mgmt, published, hop.
+
+**Обоснование:** иначе снова hairpin CNI и два кабинета в одном Plan.
+
 ### 6. Пять способов ресурса — разные Attachment, один ProjectNet
 
 | Откуда ресурс | Стык |
 |---|---|
-| Фонд `user` на нашем железе | VLAN/bridge проекта или WG в тот же VRF |
+| Фонд `user` на нашем железе | не тенант: у нас только CP платформы (0015.1 §9) |
 | Купленное IaaS | VPC, который создали мы; WG или IPsec на edge |
 | Managed | Private Endpoint / SG в нашем VPC; WG на RDS нет |
 | BYO | overlay инициирует клиент, приземление только в его VRF |
@@ -328,7 +386,7 @@ VLAN проекта целиком.
 ### 8. Модель услуги: один каркас на все стыки
 
 **Решение:** у каждого Project ровно один **ProjectNet** (VRF + синтетический CIDR). Площадка
-(dedicated, наше железо, VPC) — **site** в фонде `user`. На сайте живёт много проектов.
+(dedicated / VPC **одного** `provider_id`) — **site**. На сайте живёт много проектов.
 Изоляция — между проектами, не «ящик = один клиент».
 
 Три объекта стыка, не путать с VM:
@@ -340,20 +398,15 @@ VLAN проекта целиком.
 | **ClusterOverlay** | один на k8s проекта | CNI (VXLAN и т.п.) **поверх** ProjectNet. Edge поды не маршрутизирует |
 
 Плюс невидимый платформе уровень: docker0 / compose network внутри гостя (§5.2).
-Полная схема всех U1–U9 — в разделе «Схема» выше; здесь только правило каркаса.
+Живые U — в разделе «Схема»; U4/U5/U9 — §9 «отклонено».
 
 На одном dedicated: один `wg-mgmt`, один **data-underlay**, N VLAN. Не N туннелей на N VM.
 Между VLAN проектов на ящике **нет** маршрута. Компрометация гипервизора — граница доверия
 общей площадки (как у любого shared PVE), не дыра в модели.
 
-k8s: адрес **ноды** — из ProjectNet. Pod/Service CIDR allocator выдаёт **уникальные** на
-кластер (не дефолт `10.42.0.0/16` / `10.43.0.0/16` у всех клиентов). Трафик под↔под между
-нодами — инкапсуляция CNI по underlay ProjectNet. Edge знает ноды, не каждый pod /32.
-
-Managed k8s (Yandex и аналоги): control plane в VPC провайдера. Наша VM становится
-**kubelet'ом** только если провайдер это позволяет **и** мы анонсируем ProjectNet (и при
-необходимости PodCIDR ноды) в этот VPC через IPsec VTI. Иначе услуга — «VM как клиент
-кластера» (API/Ingress), не «нода». Plan не обещает hybrid-node молча.
+k8s: адрес **ноды** — из ProjectNet. Весь кластер у того же `provider_id` (U7 self или U6
+managed). Pod/Service CIDR — уникальные на кластер. Edge знает ноды, не каждый pod /32.
+Hybrid kubelet (бывший U4c) и сплит CP/нод (U5) не строим.
 
 ### 9. Перебор вариантов услуги
 
@@ -363,15 +416,10 @@ Managed k8s (Yandex и аналоги): control plane в VPC провайдер�
 |---|---|---|---|
 | **U1** | Два Project: 2 VM и 3 VM на **одном** dedicated | Два ProjectNet, два VLAN, один SiteUnderlay. East-west только внутри своего VLAN | Общий `vmbr1`, общий `10.0.0.0/24`, один WG «на всех гостей» |
 | **U2** | Как U1, у второго ещё docker-compose на своей VM | Как U1 + docker0 только в госте B. Порты наружу — на `100.64.B.x` | compose на PVE; маршрутизировать `172.18.0.0/16` в VRF |
-| **U3** | Project сделал VM и **добавил её нодой** в **свой** k8s (self-managed на наших VM) | NodeIP из ProjectNet. ClusterOverlay поверх. apiserver — адрес в том же ProjectNet | Нода в VLAN соседа; дефолтный pod CIDR как у другого клиента |
-| **U4a** | VM на наших ресурсах + **Yandex Managed K8s**; VM — **клиент** API/Ingress | ProjectNet + **VpcAttach** (IPsec) в VPC MK8s **или** только публичный API+Ingress по published | Считать VM нодой без стыка в VPC |
-| **U4b** | То же, но нода MK8s должна быть **в облаке** | Нода заводится **в Yandex VPC** (не dedicated). Наши VM остаются U4a | Выдать kubelet на dedicated и назвать это managed-node |
-| **U4c** | Hybrid: наша VM как kubelet в MK8s | Только если API MK8s принимает внешний kubelet **и** VpcAttach анонсирует ProjectNet (+ PodCIDR ноды) в VPC. Иначе Plan — отказ, не «попробуем» | Молчаливый join |
-| **U5** | k8s **у нас** (self-managed), доп. нода **в Selectel** | Тот же ProjectNet на двух site: наш + dedicated. Два SiteUnderlay, два ProjectSegment, один VRF. Ноды видят друг друга **через edge** (hairpin VRF). CNI overlay едет по этому L3 | Второй кластер «потому что Selectel»; нода в VLAN чужого Project на том dedicated |
-| **U6** | Только MK8s, своих VM нет | VpcAttach или published API; ProjectNet всё равно выдаётся (под будущие VM и hop агента к API) | Жить без ProjectNet «потому что managed» |
-| **U7** | Весь self-managed k8s на одном dedicated | U3: все NodeIP в одном VLAN/ProjectNet | Flannel на mgmt-bridge |
-| **U8** | VM у нас + managed БД в облаке | ProjectNet + endpoint в VPC (как 0015.1 P4). WG на RDS нет | Класть БД в VLAN dedicated |
-| **U9** | BYO-площадка + VM на нашем dedicated | Два SiteUnderlay (клиент инициирует BYO). Один ProjectNet | Склеить LAN клиента с VLAN соседа |
+| **U6** | Только MK8s у выбранного провайдера, своих VM нет | published / VPC attach; ProjectNet всё равно | Второй провайдер; «сети нет, потому что managed» |
+| **U7** | Весь self-k8s на dedicated **этого** провайдера | Все NodeIP в одном VLAN/ProjectNet | Flannel на mgmt-bridge; нода на нашем CP |
+| **U8** | VM + managed БД у **того же** провайдера | endpoint в его VPC. WG на RDS нет | БД другого облака; БД в VLAN dedicated |
+| **U4a/b/c, U5, U3-на-нашем-железе, U9-склейка** | отклонено: не из 0015.1 | — | мультиклауд / сплит площадок |
 
 Сводная картина — в разделе «Схема». Ниже каждый случай отдельно: маленькая схема и что
 именно строится.
@@ -443,137 +491,21 @@ VM разговаривают по docker0; платформа этот CIDR н�
 стек обойдёт VLAN и увидит чужой сегмент. Если app и db разъедутся на две VM — это уже U1
 east-west, в compose пишут адрес соседнего гостя из Estate, не имя контейнера.
 
-#### U3 — VM добавили нодой в свой self-managed k8s
+#### Отклонено: U3-на-нашем-железе, U4a/b/c, U5, U9-склейка
 
-Где: ноды — **наше железо** или **аренда** (тот же ProjectNet). Control plane кластера — не
-ядро платформы (не `ns: platform`).
+Откуда были: ранняя таблица «все сочетания площадок» (наша VM + Yandex MK8s; наш k8s CP +
+нода Selectel; офис BYO + VLAN на dedicated). **Не вывод из 0015.1.**
 
-```mermaid
-flowchart LR
-    subgraph plat [ПЛАТФОРМА system]
-        Edge["edge VRF проекта"]
-    end
-    subgraph site [НАШЕ ЖЕЛЕЗО или АРЕНДА фонд user]
-        Vlan["VLAN проекта ProjectNet"]
-        Cp["vm-cp kube-apiserver"]
-        N1["vm-worker kubelet"]
-        Pods["поды CNI overlay"]
-    end
-    Edge --> Vlan
-    Vlan --> Cp
-    Vlan --> N1
-    Cp -->|"NodeIP из ProjectNet"| N1
-    N1 --> Pods
-    Cp --> Pods
-```
+| id | Что предполагали | Почему нет |
+|---|---|---|
+| **U4a** | VM (у нас или на Selectel) ходит клиентом в **Yandex** MK8s | Два провайдера в одном Project |
+| **U4b** | VM на dedicated + kubelet **в VPC Яндекса** | То же + compute на двух площадках |
+| **U4c** | Наша VM как kubelet в чужом MK8s | Hybrid, hairpin через edge |
+| **U5** | CP self-k8s у нас, worker в Selectel | Тенантный CP на нашем железе; CNI через нас |
+| **U3** как «нода на нашем PVE» | Self-k8s на фонде `user` | У нас только CP платформы; живой self-k8s — U7 |
+| **U9** | Склеить BYO LAN и VLAN на dedicated в один ProjectNet | Две площадки, тот же запрет |
 
-Роль гостя сменилась на kubelet, VRF нет. NodeIP и адрес apiserver — из того же ProjectNet.
-Поды — ClusterOverlay (VXLAN и т.п.) поверх нод; edge поды /32 не держит. Allocator выдаёт
-уникальные PodCIDR/ServiceCIDR этого кластера, не дефолт `10.42.0.0/16` как у соседа.
-Ноду нельзя повесить в VLAN другого Project. Join — по адресу apiserver в ProjectNet, не
-через WAN dedicated.
-
-#### U4a — наша VM клиент Yandex Managed K8s
-
-Где: VM — **наше железо** или **аренда** dedicated; кластер — **аренда** Yandex managed;
-стык — **платформа** (edge).
-
-```mermaid
-flowchart LR
-    subgraph site [НАШЕ ЖЕЛЕЗО или АРЕНДА dedicated]
-        VM["VM в ProjectNet"]
-    end
-    subgraph plat [ПЛАТФОРМА system]
-        Edge["edge VRF проекта"]
-        IPsec["VpcAttach IPsec"]
-    end
-    subgraph yx [АРЕНДА Yandex partner]
-        Api["MK8s API / Ingress"]
-    end
-    VM --> Edge
-    Edge --> IPsec
-    IPsec --> Api
-```
-
-Услуга по умолчанию: VM **не** kubelet. Она ходит к API или Ingress кластера как клиент.
-Стык — IPsec в VPC MK8s или только published HTTPS, если частный путь не нужен. В Estate
-кластер — managed-ресурс, VM — compute. Нельзя писать в каталоге «нода в вашем k8s».
-
-#### U4b — нода MK8s создаётся в облаке
-
-Где: клиентская VM — **наши/аренда dedicated**; kubelet и CP — целиком **аренда** Yandex VPC.
-
-```mermaid
-flowchart LR
-    subgraph site [НАШЕ ЖЕЛЕЗО или АРЕНДА dedicated]
-        VM["VM клиент как U4a"]
-    end
-    subgraph plat [ПЛАТФОРМА system]
-        Edge["edge"]
-    end
-    subgraph yx [АРЕНДА Yandex VPC partner]
-        Node["kubelet в облаке"]
-        Api["MK8s control plane"]
-    end
-    VM --> Edge
-    Edge -->|"IPsec"| yx
-    Node --> Api
-```
-
-Kubelet живёт там, где его ждёт managed-продукт — в VPC Яндекса, не на dedicated. Наша VM
-остаётся U4a. Plan, который рисует «нода на Selectel, control plane managed», без U4c — ошибка.
-
-#### U4c — hybrid: наша VM как kubelet в MK8s
-
-Где: kubelet — **наши/аренда dedicated**; API — **аренда** Yandex; анонс префикса — **платформа**.
-
-```mermaid
-flowchart LR
-    subgraph site [НАШЕ ЖЕЛЕЗО или АРЕНДА dedicated]
-        VM["VM kubelet"]
-    end
-    subgraph plat [ПЛАТФОРМА system]
-        Edge["edge анонс ProjectNet"]
-        Vti["IPsec VTI"]
-    end
-    subgraph yx [АРЕНДА Yandex partner]
-        Api["MK8s API"]
-    end
-    VM --> Edge
-    Edge --> Vti
-    Vti --> Api
-```
-
-Только если API MK8s принимает внешний kubelet **и** мы анонсируем в VPC ProjectNet и PodCIDR
-этой ноды. Иначе отказ Plan, не «попробуем join». Не обещаем в прайсе по умолчанию. Список
-провайдеров, где это реально, — открытый пункт ADR.
-
-#### U5 — self-k8s у нас, доп. нода в Selectel
-
-Где: CP — **наше железо**; доп. нода — **аренда** Selectel; hairpin — **платформа**.
-
-```mermaid
-flowchart LR
-    subgraph ours [НАШЕ ЖЕЛЕЗО platform_metal]
-        Cp["CP VLAN C"]
-    end
-    subgraph plat [ПЛАТФОРМА system]
-        Edge["edge VRF C hairpin"]
-    end
-    subgraph rent [АРЕНДА Selectel dedicated]
-        Node["нода VLAN C"]
-    end
-    Cni["CNI overlay по ProjectNet"]
-    Cp --> Edge
-    Edge --> Node
-    Cp --- Cni
-    Node --- Cni
-```
-
-Один ProjectNet, два site, два ProjectSegment. Пакет нода↔apiserver идёт через edge (hairpin
-VRF), не через интернет Selectel. CNI инкапсулирует поды по этому L3 — второй кластер не нужен.
-Нода должна сесть в VLAN **этого** проекта на dedicated, не в VLAN соседа U1. mgmt PVE в join
-не участвует.
+Чертежи этих строк из ADR убраны, чтобы не читались как каталог услуг.
 
 #### U6 — только Managed K8s, своих VM нет
 
@@ -594,9 +526,10 @@ flowchart LR
     Hop --> Edge
 ```
 
-Compute на нашей стороне нет, сеть проекта всё равно есть: место под будущие VM, hop агента,
-учёт в Inventory. Нельзя сказать «ProjectNet не нужен, потому что managed». Гостевого VLAN
-на dedicated нет, пока не появится U1/U5.
+Это **другой** Project с `provider_id` этого managed-облака, не «ещё один кластер» у проекта
+с dedicated. Compute на нашей стороне нет. ProjectNet всё равно выдаётся (hop агента, учёт).
+Нельзя сказать «сети нет, потому что managed». Нельзя добавить к этому же Project VM в
+другом облаке (это был U4).
 
 #### U7 — весь self-k8s на одном dedicated
 
@@ -623,60 +556,35 @@ flowchart LR
     N2 --- Cni
 ```
 
-Как U3, один site: все NodeIP в одном ProjectSegment. East-west нод — по bridge, не через
-edge. CNI нельзя сажать на mgmt-bridge PVE. Соседний проект на том же ящике — свой VLAN, свой
-кластер, свой pod CIDR.
+Один site, все NodeIP в одном ProjectSegment. East-west нод — по bridge, не через edge.
+CNI нельзя сажать на mgmt-bridge PVE. Соседний проект на том же ящике — свой VLAN, свой
+кластер, свой pod CIDR. Тенантный CP не на нашем железе.
 
-#### U8 — наша VM + managed БД в облаке
+Как ящик и канал появляются — §5.3 (слой облака → слой гипервизора, vm-router, потом этот VLAN).
 
-Где: VM — **наше железо** или **аренда** dedicated; БД — **аренда** managed; стык — **платформа**.
+#### U8 — VM + managed БД
+
+Где: оба у **одного** `provider_id` (0015.1). VM на dedicated того же кабинета, не на нашем
+Control Plane. БД — managed того же провайдера. Стык — площадка / published, не hairpin U4.
 
 ```mermaid
 flowchart LR
-    subgraph site [НАШЕ ЖЕЛЕЗО или АРЕНДА dedicated]
+    subgraph rent [АРЕНДА тот же provider_id]
         VM["VM в ProjectNet"]
-    end
-    subgraph plat [ПЛАТФОРМА system]
-        Edge["edge VRF"]
-    end
-    subgraph yx [АРЕНДА Yandex partner]
         Ep["Private Endpoint / SG"]
         Db["managed Postgres"]
     end
-    VM --> Edge
-    Edge -->|"VpcAttach"| Ep
-    Ep --> Db
-```
-
-Цепочка как P4 в 0015.1: compute у нас, данные у провайдера. На RDS нет WG. БД не кладут в
-VLAN dedicated и не выдают ей адрес из ProjectNet как гостю. VM ходит на endpoint в VPC;
-чужой Project этот endpoint не резолвит.
-
-#### U9 — BYO-площадка + VM на нашем dedicated
-
-Где: LAN — **своё клиента**; VM — **аренда** dedicated (или наше железо); стык — **платформа**.
-
-```mermaid
-flowchart LR
-    subgraph byo [СВОЁ КЛИЕНТА byo]
-        ByoLan["LAN клиента"]
-    end
     subgraph plat [ПЛАТФОРМА system]
-        Edge["edge один VRF"]
+        Edge["edge hop / published"]
     end
-    subgraph rent [АРЕНДА dedicated или НАШЕ ЖЕЛЕЗО]
-        Our["VLAN проекта"]
-        VM["VM проекта"]
-    end
-    ByoLan -->|"клиент инициирует underlay"| Edge
-    Edge --> Our
-    Our --> VM
+    VM --> Ep
+    Ep --> Db
+    VM --> Edge
 ```
 
-Два SiteUnderlay, один ProjectNet. Клиентский туннель инициирует дальняя сторона (NAT). Хост
-у клиента и VM на dedicated видят друг друга в одном VRF. Нельзя склеить LAN BYO с VLAN
-соседа на том же dedicated. Без поднятого BYO-underlay гостевой слой у клиента —
-`placement-only` (0015.1).
+Compute и БД у **одного** провайдера (P4 в 0015.1, без второго облака). На RDS нет WG. БД не
+кладут в VLAN dedicated как гостя. Чужой Project endpoint не резолвит. Стык через наш edge
+нужен только если published/hop, не чтобы склеить два облака.
 
 ## Явно вне периметра
 
@@ -687,7 +595,7 @@ flowchart LR
 - объекты Intent/Plan (0015.3) — Attachment ссылается на них, не заменяет;
 - публичный Ingress / Traefik как замена edge;
 - оркестрация docker-compose платформой и compose на гипервизоре dedicated;
-- гарантия «любая наша VM = нода Yandex MK8s» без U4c (внешний kubelet не обещаем по умолчанию).
+- мультиклауд и hybrid-kubelet (бывшие U4/U5) — не обещаем.
 
 ## Открыто
 
@@ -695,8 +603,7 @@ flowchart LR
 - TTL и процедура ротации WG/IPsec ключей;
 - обязателен ли data-туннель, если гостю достаточно только published Ingress;
 - HA пары edge;
-- откуда именно published-список (каталог 0015.2 vs объект Project);
-- список MK8s-провайдеров, где U4c реально возможен (проверять API, не гадать).
+- откуда именно published-список (каталог 0015.2 vs объект Project).
 
 ## Последствия
 
@@ -708,6 +615,8 @@ flowchart LR
   default gw на PVE».
 - Allocator — домен `platform-api` (0015.2.1), не lk-api. LK видит свой CIDR и Attachment,
   не пул и не чужие VRF.
+- 0015.1 §9 остаётся источником: оси, мастер, этажи create, один `site_id` на Project.
+  Этот ADR рисует FIB и туннели, не переписывает мастер.
 
 ## Ссылки
 
