@@ -1,8 +1,8 @@
 /* Автоматически оборачивает все mermaid-диаграммы в zoom-контейнеры.
-   Mermaid Material рендерит SVG в <body> после document.readyState='interactive',
-   поэтому используем window.onload + setTimeout как fallback. */
+   Material theme рендерит mermaid из <pre class="mermaid"><code> в SVG через
+   mermaid.js (CDN). SVG появляется после DOMContentLoaded + выполнения mermaid. */
 (function() {
-  var processed = new WeakSet();
+  var processed = new Set();
 
   function wrap(el) {
     if (processed.has(el)) return;
@@ -29,7 +29,7 @@
 
       var closeBtn = document.createElement("button");
       closeBtn.className = "mermaid-zoom-close";
-      closeBtn.textContent = "✕";
+      closeBtn.textContent = "\u2715";
       closeBtn.setAttribute("aria-label", "Закрыть");
 
       var container = document.createElement("div");
@@ -64,35 +64,30 @@
     });
   }
 
-  function tryWrap() {
-    var found = false;
-    document.querySelectorAll(".mermaid").forEach(function(el) {
+  function tryWrapAll() {
+    document.querySelectorAll("pre.mermaid, div.mermaid").forEach(function(el) {
       if (el.querySelector("svg")) {
         wrap(el);
-        found = true;
       }
     });
-    return found;
   }
 
-  // Пробуем сразу
-  tryWrap();
+  // Initial pass
+  tryWrapAll();
 
-  // retry — mermaid рендерит синхронно при document.readyState='interactive'
-  // в Material theme SVG появляется до load, но после DOMContentLoaded
-  var attempts = 0;
-  var maxAttempts = 20;
-  var interval = setInterval(function() {
-    attempts++;
-    if (tryWrap() || attempts >= maxAttempts) {
-      clearInterval(interval);
-    }
-  }, 50);
-
-  // final fallback на load
+  // Wait for mermaid.js to finish rendering
+  // Material theme loads mermaid from CDN — it may render after load
   window.addEventListener("load", function() {
-    setTimeout(tryWrap, 0);
+    setTimeout(tryWrapAll, 100);
+    setTimeout(tryWrapAll, 500);
+    setTimeout(tryWrapAll, 1000);
   });
+
+  // MutationObserver — catch any mermaid elements added dynamically
+  var observer = new MutationObserver(function(mutations) {
+    tryWrapAll();
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
 
   // Build version: загружаем build-info.json и вставляем в footer
   fetch("/build-info.json")
