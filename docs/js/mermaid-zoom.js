@@ -1,6 +1,7 @@
 /* Автоматически оборачивает все mermaid-диаграммы в zoom-контейнеры и вешает обработчики.
-   Использует MutationObserver вместо DOMContentLoaded — mermaid рендерит SVG асинхронно
-   и DOMContentLoaded срабатывает до того, как внутри .mermaid появится <svg>. */
+   Использует MutationObserver на .mermaid элемент — mermaid рендерит SVG асинхронно,
+   вставляя <svg> внутрь .mermaid div. DOMContentLoaded срабатывает раньше рендеринга,
+   поэтому нужно ждать появления дочерних узлов. */
 document.addEventListener("DOMContentLoaded", () => {
   const processed = new WeakSet();
 
@@ -64,26 +65,19 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Проверяем уже отрендеренные диаграммы
+  // Уже отрендеренные
   document.querySelectorAll(".mermaid").forEach(wrapMermaid);
 
-  // Отслеживаем появление новых SVG внутри .mermaid (рендеринг mermaid)
+  // Ловим появление SVG внутри .mermaid — mermaid вставляет <svg> как child
   const observer = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
-      for (const node of mutation.addedNodes) {
-        if (node.nodeType !== Node.ELEMENT_NODE) continue;
-        if (node.classList?.contains("mermaid")) {
-          wrapMermaid(node);
-        } else if (node.querySelector?.("svg")) {
-          // SVG появился внутри .mermaid — это рендеринг mermaid
-          const mermaidEl = node.closest(".mermaid") || node;
-          if (mermaidEl.classList?.contains("mermaid")) {
-            wrapMermaid(mermaidEl);
-          }
-        }
-      }
+      const mermaidEl = mutation.target;
+      if (!mermaidEl.classList?.contains("mermaid")) continue;
+      wrapMermaid(mermaidEl);
     }
   });
 
-  observer.observe(document.body, { childList: true, subtree: true });
+  document.querySelectorAll(".mermaid").forEach(el => {
+    observer.observe(el, { childList: true, subtree: true });
+  });
 });
