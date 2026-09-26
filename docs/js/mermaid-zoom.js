@@ -1,21 +1,20 @@
-/* Автоматически оборачивает все mermaid-диаграммы в zoom-контейнеры и вешает обработчики.
-   Использует MutationObserver на .mermaid элемент — mermaid рендерит SVG асинхронно,
-   вставляя <svg> внутрь .mermaid div. DOMContentLoaded срабатывает раньше рендеринга,
-   поэтому нужно ждать появления дочерних узлов. */
-document.addEventListener("DOMContentLoaded", () => {
-  const processed = new WeakSet();
+/* Автоматически оборачивает все mermaid-диаграммы в zoom-контейнеры.
+   Mermaid Material рендерит SVG в <body> после document.readyState='interactive',
+   поэтому используем window.onload + setTimeout как fallback. */
+(function() {
+  var processed = new WeakSet();
 
-  function wrapMermaid(el) {
+  function wrap(el) {
     if (processed.has(el)) return;
     processed.add(el);
 
-    const svg = el.querySelector("svg");
+    var svg = el.querySelector("svg");
     if (!svg) return;
 
-    const wrapper = document.createElement("div");
+    var wrapper = document.createElement("div");
     wrapper.className = "mermaid-zoom-wrapper";
 
-    const btn = document.createElement("button");
+    var btn = document.createElement("button");
     btn.className = "mermaid-zoom-btn";
     btn.textContent = "Zoom";
     btn.setAttribute("title", "Открыть диаграмму на весь экран");
@@ -24,16 +23,16 @@ document.addEventListener("DOMContentLoaded", () => {
     wrapper.appendChild(el);
     el.parentElement.replaceChild(wrapper, el);
 
-    btn.addEventListener("click", () => {
-      const overlay = document.createElement("div");
+    btn.addEventListener("click", function() {
+      var overlay = document.createElement("div");
       overlay.className = "mermaid-zoom-overlay";
 
-      const closeBtn = document.createElement("button");
+      var closeBtn = document.createElement("button");
       closeBtn.className = "mermaid-zoom-close";
       closeBtn.textContent = "✕";
       closeBtn.setAttribute("aria-label", "Закрыть");
 
-      const container = document.createElement("div");
+      var container = document.createElement("div");
       container.className = "mermaid-zoom-container";
       container.appendChild(svg.cloneNode(true));
 
@@ -41,43 +40,57 @@ document.addEventListener("DOMContentLoaded", () => {
       overlay.appendChild(container);
       document.body.appendChild(overlay);
 
-      const remove = () => {
+      function remove() {
         if (document.body.contains(overlay)) {
           document.body.removeChild(overlay);
         }
-      };
+      }
 
-      closeBtn.addEventListener("click", (e) => {
+      closeBtn.addEventListener("click", function(e) {
         e.stopPropagation();
         remove();
       });
 
-      overlay.addEventListener("click", (e) => {
+      overlay.addEventListener("click", function(e) {
         if (e.target === overlay) remove();
       });
 
-      document.addEventListener("keydown", function escHandler(e) {
+      document.addEventListener("keydown", function esc(e) {
         if (e.key === "Escape") {
           remove();
-          document.removeEventListener("keydown", escHandler);
+          document.removeEventListener("keydown", esc);
         }
       });
     });
   }
 
-  // Уже отрендеренные
-  document.querySelectorAll(".mermaid").forEach(wrapMermaid);
+  function tryWrap() {
+    var found = false;
+    document.querySelectorAll(".mermaid").forEach(function(el) {
+      if (el.querySelector("svg")) {
+        wrap(el);
+        found = true;
+      }
+    });
+    return found;
+  }
 
-  // Ловим появление SVG внутри .mermaid — mermaid вставляет <svg> как child
-  const observer = new MutationObserver((mutations) => {
-    for (const mutation of mutations) {
-      const mermaidEl = mutation.target;
-      if (!mermaidEl.classList?.contains("mermaid")) continue;
-      wrapMermaid(mermaidEl);
+  // Пробуем сразу
+  tryWrap();
+
+  // retry — mermaid рендерит синхронно при document.readyState='interactive'
+  // в Material theme SVG появляется до load, но после DOMContentLoaded
+  var attempts = 0;
+  var maxAttempts = 20;
+  var interval = setInterval(function() {
+    attempts++;
+    if (tryWrap() || attempts >= maxAttempts) {
+      clearInterval(interval);
     }
-  });
+  }, 50);
 
-  document.querySelectorAll(".mermaid").forEach(el => {
-    observer.observe(el, { childList: true, subtree: true });
+  // final fallback на load
+  window.addEventListener("load", function() {
+    setTimeout(tryWrap, 0);
   });
-});
+})();
