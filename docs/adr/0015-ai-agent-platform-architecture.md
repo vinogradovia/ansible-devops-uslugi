@@ -750,3 +750,4 @@ flowchart TB
   агенты/фреймворки, люди 0019; вход — те же группы, не кабинет клиента.
 - `docs/adr/0015.2.1-admin-panel-architecture.md` — каркас admin-ui + platform-api, стык с Homer.
 - `docs/adr/0015.3-contracts.md` — контракты lk-api: Intent, Plan, Estate, Inventory.
+- `docs/adr/0028-platform-network.md` — сеть платформы: ProjectNet, edge, плоскости, WG/IPsec.
