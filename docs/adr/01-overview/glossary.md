@@ -78,7 +78,8 @@ L3), `overlay` (туннель, часто после bootstrap dedicated).
 **`offered`.** Виден ли `user`-ресурс в LK. `system` в кабинет клиента не публикуем.
 
 **`ExternalResource` / `InternalResource`.** Купили у провайдера / своя нода (0014.1). Метку
-`allocation` пишет оператор, не контроллер учёта.
+`allocation` пишет оператор, не контроллер учёта. **FundNode** в админке — та же строка
+`InternalResource`, не отдельный kind.
 
 **`CloudAccount`.** Подключение платёжного кабинета провайдера (IAM, возможности, list/order
 dedicated). Не нода и не строка фонда. `owner: platform` — админка; `owner: client` — LK.
