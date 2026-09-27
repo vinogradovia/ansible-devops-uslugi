@@ -28,6 +28,10 @@
   background-color: #43a047;
 }
 
+.adr-status-plan {
+  background-color: #8e24aa;
+}
+
 .adr-status-unknown {
   background-color: #757575;
 }

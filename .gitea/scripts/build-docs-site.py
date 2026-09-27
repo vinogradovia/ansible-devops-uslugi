@@ -80,6 +80,8 @@ def classify_status(label: str) -> str:
         return "proposed"
     if lowered.startswith("черновик"):
         return "draft"
+    if lowered.startswith("операционный план"):
+        return "plan"
     return "unknown"
 
 
