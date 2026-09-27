@@ -39,7 +39,10 @@
 ## Кто и где живёт
 
 **Project.** Контур одного заказчика в LK. Один Project — один `provider_id`. Мультиклауда нет
-(0015.1).
+(0015.1). Карточка (0015.3 §6) — SoT этапа; то же зеркало в админке, без секретов.
+
+**Оболочка Project (этап 1).** При регистрации: карточка + ProjectNet/`vlan_id` + орг Gitea
+(`app` + пустой `infra`). Init кабинета и код — этап 2, не здесь (0015.1 §1.1).
 
 **LK.** Кабинет владельца Project. Раздел «Инфраструктура» — меню и чат infra-агента. Не
 админка, не Semaphore, не Open WebUI.
@@ -77,7 +80,13 @@ L3), `overlay` (туннель, часто после bootstrap dedicated).
 **`ExternalResource` / `InternalResource`.** Купили у провайдера / своя нода (0014.1). Метку
 `allocation` пишет оператор, не контроллер учёта.
 
+**`CloudAccount`.** Подключение платёжного кабинета провайдера (IAM, возможности, list/order
+dedicated). Не нода и не строка фонда. `owner: platform` — админка; `owner: client` — LK.
+У Selectel имя сервисного пользователя ≠ имя их проекта; list ящиков — обычно
+project-scope. Спека — 0015.2 §7.1.
+
 **`ProviderAccount`.** Наш счёт и квоты **кабинета** у Selectel/Yandex. Не потолок тенанта.
+Деньги; подключение — `CloudAccount`.
 
 **`ProjectQuota`.** Потолок потребления **этого** Project (у нас). Не PVE Resource Pool и не
 квота Selectel.
@@ -124,8 +133,9 @@ Init не нужен. Ключ `partner` клиент не кладёт.
 **Inventory.** Книга фактов: как контур выглядит (placement + гость + k8s). Ansible
 `inventory.yml` из неё **выводится** после Approve.
 
-**Два слоя create (P1).** Слой 1 — API облака (dedicated, белый IP). Слой 2 — API PVE (VM,
-VLAN, vm-router). Два state, два раннера, оба у нас.
+**Два слоя create (P1).** Слой 1 — API облака (dedicated, белый IP) через `CloudAccount`.
+Слой 2 — API PVE (VM, VLAN, vm-router) после SSH-init. Два state, два раннера, оба у нас
+(0015.2 §7.1).
 
 ## Прочее, что часто путают
 

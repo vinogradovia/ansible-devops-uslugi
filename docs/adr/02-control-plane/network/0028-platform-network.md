@@ -1,7 +1,7 @@
 # ADR-0028: Сеть платформы — ProjectNet, edge, плоскости, туннели
 
 - **Статус:** Предложено (архитектура; код, чарт и роль не реализованы)
-- **Дата:** 2026-09-26
+- **Дата:** 2026-09-26 (дополнено 2026-09-27: объект кабинета — 0015.2 §7.1)
 - **Авторы:** Alexandr Yankov (решения), Cursor (оформление по итогам обсуждения)
 
 ## Контекст
@@ -280,8 +280,11 @@ VLAN проекта целиком.
 
 | Кто платит | `procurement` | Ключ API | Слой 1 |
 |---|---|---|---|
-| Мы | `partner` | `ProviderAccount` платформы | заказ в нашем аккаунте; клиенту ЛК Selectel нет |
-| Клиент | `byo` | ключ Project в OpenBao | сначала discover, потом заказ в **его** аккаунте |
+| Мы | `partner` | `CloudAccount` + `ProviderAccount` платформы (0015.2 §7.1) | заказ в нашем аккаунте; клиенту ЛК Selectel нет |
+| Клиент | `byo` | `CloudAccount` Project, ключ в OpenBao | сначала discover, потом заказ в **его** аккаунте |
+
+Объект кабинета, заявка `OrderDedicated` и SSH-init ящика (PVE + vm-router + WG) —
+[0015.2](0015.2-admin-panel.md) §7.1. Этот § — нарезка сети на уже заказанном ящике.
 
 Сеть на ящике режется **до** гостей, как у U7, даже если Project на dedicated пока один.
 
@@ -376,7 +379,8 @@ East-west — у провайдера (VLAN / VPC). Edge — mgmt, published, ho
 
 ### 7. Порядок: сначала сеть проекта, потом гость
 
-1. Создали Project → allocator выдал ProjectNet (ещё нет FIB).
+1. Этап 1 (0015.1 §1.1): создали Project → allocator выдал ProjectNet **и** зарезервировал
+   `vlan_id` (ещё нет FIB, нет WG, площадки может не быть).
 2. Approve → Attachment в объекте (ещё нет пакета).
 3. Apply на площадке → интерфейс / WG / endpoint.
 4. Edge ставит маршрут «CIDR проекта → этот стык».
@@ -643,6 +647,7 @@ Compute и БД у **одного** провайдера (P4 в 0015.1, без �
 
 - [ADR-0014.1.1](0014.1.1-resource-onboarding-protocol.md) — mgmt до ноды в фонде.
 - [ADR-0014.1](0014.1-platform-resource-controller.md) — фонд, не маршруты тенанта.
+- [0028.1](0028.1-wave-home-import-plan.md) — операционный план: домашний CP, живой `wg-prox`, импорт Wave.
 - [ADR-0015.1](0015.1-infra-agent.md) §8–§9 — Inventory `network_plane`, `connect`.
 - [ADR-0015.2](0015.2-admin-panel.md), [0015.2.1](0015.2.1-admin-panel-architecture.md) —
   каталог площадок, allocator.
