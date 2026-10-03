@@ -1,0 +1,135 @@
+# Автоматизация docs/proxmox-templates.md, часть 2 — собирает Rocky 9 cloud-init шаблон на
+# Proxmox-ноде (группа inventory "proxmox_hosts", обычный SSH/root или sudo-пользователь, не
+# API Proxmox). Перед этим файлом шаблон собирался вручную по шагам из документа — вынесено в
+# плейбук после того, как найденный живьём нюанс (см. ниже) показал, что шаги легко перепутать.
+#
+# НАЙДЕНО ЖИВЫМ ПРОГОНОМ (клиент wave/sel, 2026-10-04): документ писался под LVM-датастор
+# ("local-lvm"), где `qm importdisk` даёт volume-id `<storage>:vm-<vmid>-disk-0`. На
+# dir-датасторе ("local", без LVM — тоже реальный случай, см.
+# terraform-modules/site-proxmox/README.md про проксnode1) `qm importdisk` вместо этого создаёт
+# `<storage>:<vmid>/vm-<vmid>-disk-0.raw` — хардкодить имя тома нельзя, плейбук вместо этого
+# вычисляет его из `qm config` (unused0) после импорта, независимо от типа датастора.
+#
+# Идемпотентность: если VMID уже существует (шаблон или просто VM) — создание целиком
+# пропускается, существующая конфигурация не трогается.
+#
+# Запуск (скопируйте/адаптируйте под свой inventory — см. examples/playbooks/README.md):
+#   ansible-playbook -i inventory.yml prepare-rocky9-template.yml \
+#       -e rocky9_template_vmid=9001 -e rocky9_datastore_id=local
+---
+- name: Подготовить Rocky 9 cloud-init шаблон на Proxmox-ноде
+  hosts: proxmox_hosts
+  become: true
+  gather_facts: false
+
+  vars:
+    # Свободный VMID, отдельный от Ubuntu-шаблона (docs/proxmox-templates.md часть 1) на той же
+    # ноде — без дефолта с умыслом, подтвердите реальный свободный VMID перед запуском (`qm
+    # list`), не полагайтесь на значение ниже как на универсальное.
+    rocky9_template_vmid: 9001
+    rocky9_datastore_id: local
+    rocky9_image_url: https://download.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud-Base.latest.x86_64.qcow2
+    rocky9_image_dest: /var/lib/vz/template/iso/Rocky-9-GenericCloud-Base.latest.x86_64.qcow2
+
+  tasks:
+    - name: Проверить, существует ли уже VMID {{ rocky9_template_vmid }}
+      ansible.builtin.command:
+        cmd: qm status {{ rocky9_template_vmid }}
+      register: rocky9_vm_status
+      changed_when: false
+      failed_when: false
+
+    - name: Собрать шаблон (пропускается, если VMID уже существует)
+      when: rocky9_vm_status.rc != 0
+      block:
+        - name: Скачать GenericCloud-образ Rocky 9
+          ansible.builtin.get_url:
+            url: "{{ rocky9_image_url }}"
+            dest: "{{ rocky9_image_dest }}"
+            mode: "0644"
+          register: rocky9_image_download
+
+        - name: Создать пустую VM-заготовку
+          ansible.builtin.command:
+            cmd: >
+              qm create {{ rocky9_template_vmid }}
+              --name rocky9-cloudinit
+              --memory 2048 --cores 2 --cpu host
+              --net0 virtio,bridge=vmbr0
+              --ostype l26
+          changed_when: true
+
+        - name: Импортировать образ как диск в датастор {{ rocky9_datastore_id }}
+          ansible.builtin.command:
+            cmd: >
+              qm importdisk {{ rocky9_template_vmid }} {{ rocky9_image_dest }}
+              {{ rocky9_datastore_id }}
+          changed_when: true
+
+        - name: Прочитать итоговый volume-id импортированного диска
+          ansible.builtin.command:
+            cmd: "qm config {{ rocky9_template_vmid }}"
+          register: rocky9_config_after_import
+          changed_when: false
+
+        - name: Определить volume-id unused-диска (naming зависит от типа датастора — dir vs LVM)
+          ansible.builtin.set_fact:
+            rocky9_imported_volid: >-
+              {{ (rocky9_config_after_import.stdout
+                 | regex_search('unused0:\s*(\S+)', '\1'))[0] }}
+
+        - name: Подключить импортированный диск через virtio-scsi-pci на scsi0
+          ansible.builtin.command:
+            cmd: >
+              qm set {{ rocky9_template_vmid }}
+              --scsihw virtio-scsi-pci
+              --scsi0 {{ rocky9_imported_volid }}
+          changed_when: true
+
+        - name: Добавить cloud-init диск
+          ansible.builtin.command:
+            cmd: "qm set {{ rocky9_template_vmid }} --ide2 {{ rocky9_datastore_id }}:cloudinit"
+          changed_when: true
+
+        - name: Выставить порядок загрузки и серийную консоль
+          ansible.builtin.command:
+            cmd: "{{ item }}"
+          loop:
+            - "qm set {{ rocky9_template_vmid }} --boot order=scsi0"
+            - "qm set {{ rocky9_template_vmid }} --serial0 socket --vga serial0"
+          changed_when: true
+
+        - name: Включить qemu-guest-agent на уровне конфигурации VM
+          ansible.builtin.command:
+            cmd: "qm set {{ rocky9_template_vmid }} --agent enabled=1"
+          changed_when: true
+
+        - name: Проверить наличие дефолтного authorized_keys для cloud-init шаблона
+          ansible.builtin.stat:
+            path: ~/.ssh/authorized_keys.pub
+          register: rocky9_authorized_keys
+
+        - name: Выставить дефолтные cloud-init данные шаблона (диагностика клона, terraform их переопределит)
+          ansible.builtin.command:
+            cmd: >
+              qm set {{ rocky9_template_vmid }}
+              --ciuser rocky
+              --sshkeys ~/.ssh/authorized_keys.pub
+              --ipconfig0 ip=dhcp
+          when: rocky9_authorized_keys.stat.exists
+          changed_when: true
+
+        - name: Конвертировать VM в шаблон
+          ansible.builtin.command:
+            cmd: "qm template {{ rocky9_template_vmid }}"
+          changed_when: true
+
+    - name: Показать итоговую конфигурацию VMID {{ rocky9_template_vmid }}
+      ansible.builtin.command:
+        cmd: qm config {{ rocky9_template_vmid }}
+      register: rocky9_final_config
+      changed_when: false
+
+    - name: Вывести итоговую конфигурацию
+      ansible.builtin.debug:
+        var: rocky9_final_config.stdout_lines

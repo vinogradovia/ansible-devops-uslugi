@@ -9,6 +9,14 @@ inventory-репозиторий оператора). Перед боевым и
   (`roles/postgresql_replication/README.md`).
 - `odyssey.yml` — оркестратор роли `devops.uslugi.odyssey` (`roles/odyssey/README.md`),
   запускать после `postgresql-replicas.yml`.
+- `prepare-rocky9-template.yml` — автоматизация `docs/proxmox-templates.md` часть 2 (сборка
+  Rocky 9 cloud-init шаблона на Proxmox-ноде, группа inventory `proxmox_hosts`). Не роль
+  коллекции и не часть `terraform-modules/site-proxmox` — ручная одноразовая подготовка
+  хоста, которую Terraform-модуль сознательно не делает сам (см. README модуля,
+  «Предусловия»). Параметры (`rocky9_template_vmid`, `rocky9_datastore_id`) имеют дефолты
+  (`9001`/`local`) только как иллюстрация — подтвердите реальный свободный VMID (`qm list`) и
+  тип датастора (`pvesm status`) на конкретном хосте перед запуском, не копируйте значения из
+  примера бездумно.
 
 Оба файла закрывают условные имена, на которые ссылается
 [`docs/runbooks/postgresql-failover.md`](../../docs/runbooks/postgresql-failover.md)

@@ -79,6 +79,15 @@ qm template 9000
 
 Тот же порядок действий, с поправками под RHEL-семейство.
 
+**Автоматизация:** шаги ниже вынесены в плейбук
+[`examples/playbooks/prepare-rocky9-template.yml`](../examples/playbooks/prepare-rocky9-template.yml)
+(группа inventory `proxmox_hosts`, идемпотентен — пропускает сборку, если VMID уже существует).
+Живой прогон (клиент wave/sel, 2026-10-04) нашёл нюанс, которого нет в ручных шагах ниже: на
+dir-датасторе (`local`, без LVM — см. `terraform-modules/site-proxmox/README.md` про
+проксnode1) `qm importdisk` создаёт volume-id вида `<storage>:<vmid>/vm-<vmid>-disk-0.raw`, а
+не `<storage>:vm-<vmid>-disk-0`, как на LVM — плейбук вычисляет реальный volume-id из `qm
+config` после импорта, не хардкодит его.
+
 ```bash
 # 1. Скачать GenericCloud-образ Rocky 9
 cd /var/lib/vz/template/iso
