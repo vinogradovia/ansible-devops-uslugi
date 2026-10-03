@@ -21,7 +21,8 @@ resource-блок; здесь — весь список ВМ клиента ср
 
 ## Переменные
 
-См. `variables.tf` — `vms` (карта, один элемент на ВМ), `ansible_user`, `ssh_public_key_path`.
+См. `variables.tf` — `vms` (карта, один элемент на ВМ), `ansible_user`, `ssh_public_key_paths`
+(список — один и более ключей попадают на все ВМ сайта через `user_account.keys`).
 
 `vms[*].vendor_data_file_id` — оставьте `null` для НОВОГО, ещё не настроенного шаблона. Задавайте
 только если у конкретного `template_vmid` уже есть свой cicustom cloud-init snippet, который
@@ -31,9 +32,9 @@ resource-блок; здесь — весь список ВМ клиента ср
 
 ```hcl
 module "site" {
-  source = "git::<url-репозитория-devops.uslugi>//terraform-modules/site-proxmox?ref=v1.0.0"
+  source = "git::<url-репозитория-devops.uslugi>//terraform-modules/site-proxmox?ref=v2.0.0-rc2"
 
-  ssh_public_key_path = "~/.ssh/id_ed25519.pub"
+  ssh_public_key_paths = ["~/.ssh/id_ed25519.pub"]
 
   vms = {
     dns = {

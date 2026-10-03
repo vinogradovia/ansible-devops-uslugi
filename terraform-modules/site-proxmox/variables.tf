@@ -32,7 +32,7 @@ variable "ansible_user" {
   default     = "ansible"
 }
 
-variable "ssh_public_key_path" {
-  description = "Путь к публичному SSH-ключу, который получит ansible_user на всех ВМ сайта"
-  type        = string
+variable "ssh_public_key_paths" {
+  description = "Пути к публичным SSH-ключам, которые получит ansible_user на всех ВМ сайта (список — минимум один элемент)"
+  type        = list(string)
 }

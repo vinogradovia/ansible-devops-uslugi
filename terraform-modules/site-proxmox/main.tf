@@ -50,7 +50,7 @@ resource "proxmox_virtual_environment_vm" "this" {
 
     user_account {
       username = var.ansible_user
-      keys     = [trimspace(file(var.ssh_public_key_path))]
+      keys     = [for p in var.ssh_public_key_paths : trimspace(file(p))]
     }
   }
 
