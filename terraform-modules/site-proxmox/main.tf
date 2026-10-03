@@ -38,6 +38,15 @@ resource "proxmox_virtual_environment_vm" "this" {
     enabled = true
   }
 
+  # virtio-rng: без него у гостя нет аппаратного источника энтропии вообще (/dev/hwrng
+  # отсутствует) — PKI-тяжёлые роли (FreeIPA CA/Kerberos, любая генерация ключей) могут
+  # упираться в это при живой нагрузке. source = "/dev/urandom" — рекомендация самого
+  # провайдера для KVM-гостей, безвредно для всех ВМ карты, не только для тех, где это
+  # реально всплыло (найдено на freeipa, см. terraform/main.tf клиентского репозитория).
+  rng {
+    source = "/dev/urandom"
+  }
+
   initialization {
     # Без явного datastore_id провайдер дефолтит cloud-init диск на "local-lvm" независимо от
     # того, где лежит основной disk{} блока выше — на хостах без LVM (например, wave/proxnode1,
