@@ -39,6 +39,10 @@ resource "proxmox_virtual_environment_vm" "this" {
   }
 
   initialization {
+    # Без явного datastore_id провайдер дефолтит cloud-init диск на "local-lvm" независимо от
+    # того, где лежит основной disk{} блока выше — на хостах без LVM (например, wave/proxnode1,
+    # см. terraform-modules/site-proxmox/README.md) apply падает: такого стораджа не существует.
+    datastore_id        = each.value.datastore_id
     vendor_data_file_id = each.value.vendor_data_file_id
 
     ip_config {
