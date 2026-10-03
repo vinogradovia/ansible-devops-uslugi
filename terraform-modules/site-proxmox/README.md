@@ -40,7 +40,11 @@ module "site" {
     dns = {
       node           = "pve1"
       template_vmid  = 9000
-      datastore_id   = "local-lvm"
+      # Имя датастора — всегда host-specific, подтвердите фактическое на конкретной площадке
+      # (`pvesh get /storage`), не копируйте это значение бездумно: "local-lvm" (LVM-thin) —
+      # частый дефолт после стандартной ISO-установки, но не универсальный — на одном из
+      # клиентских хостов (wave/proxnode1) LVM не было вовсе, реальный датастор — "local" (dir).
+      datastore_id   = "local"
       network_bridge = "vmbr1"
       cores          = 1
       memory         = 1024
