@@ -57,6 +57,13 @@ vms:
 
   - name: ex-i-ipa01            # env "i" — каталог (LDAP/Kerberos/CA), та же логика
     role: devops.uslugi.freeipa
+    # template_vmid переопределяет дефолтный proxmox.template_vmid клиента ТОЛЬКО для этой ВМ —
+    # freeipa требует RHEL-семейство (dnf), пакета freeipa-server для Ubuntu/Debian не
+    # существует (roles/freeipa/README.md, «Целевая ОС»). Значение — VMID отдельного Rocky 9
+    # cloud-init шаблона (docs/proxmox-templates.md часть 2), подготовленного на том же node
+    # ДО apply; без этого поля ВМ молча получит Ubuntu-шаблон клиента и роль freeipa упадёт на
+    # первом же реальном ansible-playbook (не ловится --syntax-check).
+    template_vmid: 9001
     cores: 2
     memory: 2048
     disk_gb: 20
