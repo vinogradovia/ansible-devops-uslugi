@@ -5,6 +5,13 @@
 client: example                     # slug клиента: [a-z0-9-]+, используется как имя релиза/сети/пула
 domain_internal: infra.example.com  # внутренний домен для DNS/TLS-CN клиентских ВМ
 
+# Host Naming Policy (ADR-0025 §6) — ОТДЕЛЬНОЕ от `client` поле: `client` может быть длиннее и
+# используется для релиза/сети/домена, `site_code` — короткий код площадки (2-3 символа, до 6,
+# если внутри площадки нужно уточнить регион), входит в hostname каждой ВМ ниже
+# ([site_code]-[env]-[сервис][nn]). Только [a-z0-9], без дефисов внутри самого кода (дефис —
+# разделитель шаблона).
+site_code: ex
+
 provider: proxmox                   # proxmox | libvirt — определяет, какой terraform-modules/site-* используется
 
 # Присутствует только если provider: proxmox (см. terraform-modules/site-proxmox/README.md
@@ -26,63 +33,71 @@ proxmox:
 ssh_public_key_path: ~/.ssh/id_ed25519.pub
 ansible_user: ansible
 
-# Список ВМ клиента. `role` — что заводит Ansible поверх ВМ:
+# Список ВМ клиента. `name` — НЕ свободный текст: собирается скиллом по шаблону Host Naming
+# Policy (ADR-0025 §6) — [site_code]-[env]-[сервис][nn]. `env` по умолчанию "p" (prod), КРОМЕ
+# dns/ipa/gitlab — у них дефолт "i" (infra: обслуживают саму инфраструктуру клиента, не прямая
+# бизнес-нагрузка). Можно переопределить на уровне ВМ в любую сторону (см. k3s-agent ниже —
+# явный "i", служебный узел, не prod-нагрузка). Код сервиса выводится из `role` (закрытый
+# словарь ADR-0025 §6: dns/ipa/db/cache/doc/stor/gitlab/srv/k8s), не задаётся отдельно.
+# Порядковый номер — в рамках одной пары site_code+env+сервис, не сквозной.
+#
+# `role` — что заводит Ansible поверх ВМ:
 #   - devops.uslugi.<role> — уже существующая роль коллекции, применяется как есть
 #   - stub:<name> — роли нет, ВМ поднимается и получает только базовый hardening
 #     (devops.uslugi.fail2ban), установка софта — TODO в сгенерированном site.yml
 #   - k3s_server / k3s_agent_tainted — не роль, отдельный k3s-bootstrap play (см. SKILL.md §4)
 #   - none — голая ВМ без единой прикладной задачи (например, будущий gitlab-хост "просто ВМ")
 vms:
-  - name: dns
+  - name: ex-i-dns01            # env "i" — DNS обслуживает саму инфраструктуру клиента
     role: devops.uslugi.infra_dns
     cores: 1
     memory: 1024
     disk_gb: 10
     ip_cidr: 10.0.0.10/24
 
-  - name: freeipa
+  - name: ex-i-ipa01            # env "i" — каталог (LDAP/Kerberos/CA), та же логика
     role: devops.uslugi.freeipa
     cores: 2
     memory: 2048
     disk_gb: 20
     ip_cidr: 10.0.0.11/24
 
-  - name: postgres
+  - name: ex-p-db01
     role: devops.uslugi.postgresql
     cores: 2
     memory: 4096
     disk_gb: 40
     ip_cidr: 10.0.0.12/24
 
-  - name: redis
+  - name: ex-p-cache01
     role: stub:redis
     cores: 1
     memory: 2048
     disk_gb: 15
     ip_cidr: 10.0.0.13/24
 
-  - name: minio
+  - name: ex-p-stor01
     role: stub:minio
     cores: 2
     memory: 2048
     disk_gb: 100
     ip_cidr: 10.0.0.14/24
 
-  - name: gitlab
+  - name: ex-p-srv01
     role: none
     cores: 4
     memory: 8192
     disk_gb: 60
     ip_cidr: 10.0.0.15/24
 
-  - name: k3s-main
+  - name: ex-p-k8s01
     role: k3s_server
     cores: 2
     memory: 4096
     disk_gb: 40
     ip_cidr: 10.0.0.20/24
 
-  - name: k3s-monitoring
+  - name: ex-i-k8s02             # env "i", не "p" — служебный узел под мониторинг, не prod-нагрузка
     role: k3s_agent_tainted
     taint: monitoring
     cores: 2

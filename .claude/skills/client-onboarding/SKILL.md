@@ -46,6 +46,21 @@ Proxmox/libvirt) — обычными уточняющими вопросами.
 что реально различается между клиентами и не имеет безопасного дефолта (см. предупреждения в
 `terraform-modules/site-proxmox/README.md` и `site-libvirt/README.md` про коллизии bridge/CIDR).
 
+**`name` каждой ВМ — НЕ спрашивай у оператора свободным текстом.** Собери его сам по Host Naming
+Policy (`docs/adr/0025-client-onboarding-architecture.md` §6):
+`[site_code]-[env]-[сервис][nn]`. `site_code` (2–3 символа, до 6 при необходимости) — спроси
+через `AskUserQuestion` вместе с `provider`, один раз на всю анкету. `env` — по умолчанию `p`,
+КРОМЕ `dns`/`ipa`/`gitlab` (дефолт `i` — обслуживают инфраструктуру клиента, не прямая
+бизнес-нагрузка, ADR-0025 §6); переопределяй в любую сторону только для явно служебных узлов
+(например, второй k3s-агент под мониторинг — см. пример в `client-profile.example.yaml`), не
+спрашивай отдельно, если оператор не поднял тему окружений сам. Код сервиса — выводится из
+`role` той же ВМ по словарю ADR-0025 §6 (`devops.uslugi.infra_dns`→`dns`,
+`devops.uslugi.freeipa`→`ipa`, `devops.uslugi.postgresql`→`db`, `stub:redis`→`cache`,
+`stub:minio`→`stor`, `stub:gitlab-ce`→`gitlab`, `role: none`→`srv`,
+`k3s_server`/`k3s_agent_tainted`→`k8s`) — если роль не из этого словаря, уточни код у оператора
+явно (не изобретай новый код сам, словарь закрытый). Порядковый номер — `01`, увеличивай только
+если в анкете уже есть ВМ с тем же `site_code`+`env`+сервисом.
+
 Результат интервью сохрани как `client-profile.yaml` в корне целевого репозитория (шаг 2) —
 единственный источник истины для генерации, не проговаривай данные клиента в этом скилле.
 
@@ -133,7 +148,8 @@ ansible-playbook ansible/site.yml --syntax-check -i ansible/inventory.yml
 ## Ссылки для расширения скилла
 
 - `docs/adr/0025-client-onboarding-architecture.md` — архитектурное решение целиком, включая
-  открытые вопросы (интеграция с platform-controller, что делать при появлении третьего облака).
+  открытые вопросы (интеграция с platform-controller, что делать при появлении третьего облака);
+  §6 — Host Naming Policy, обязательна к применению при сборке `name` каждой ВМ (см. §1 выше).
 - `terraform-modules/site-proxmox/`, `terraform-modules/site-libvirt/` — сами модули + README с
   предусловиями/ограничениями.
 - `platform/aicd-devops-labs-ru/terraform/`, `platform/aicd-devops-labs-ru/ansible/site.yml` —
