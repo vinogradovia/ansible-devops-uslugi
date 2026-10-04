@@ -57,7 +57,8 @@ Policy (`docs/adr/0025-client-onboarding-architecture.md` §6):
 `role` той же ВМ по словарю ADR-0025 §6 (`devops.uslugi.infra_dns`→`dns`,
 `devops.uslugi.freeipa`→`ipa`, `devops.uslugi.postgresql`→`db`, `stub:redis`→`cache`,
 `stub:minio`→`stor`, `stub:gitlab-ce`→`gitlab`, `role: none`→`srv`,
-`k3s_server`/`k3s_agent_tainted`→`k8s`) — если роль не из этого словаря, уточни код у оператора
+`k3s_server`/`k3s_agent_tainted`→`k8s`, `devops.uslugi.nginx_multidomain`→`prx`) — если роль не
+из этого словаря, уточни код у оператора
 явно (не изобретай новый код сам, словарь закрытый). Порядковый номер — `01`, увеличивай только
 если в анкете уже есть ВМ с тем же `site_code`+`env`+сервисом.
 

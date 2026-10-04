@@ -38,7 +38,7 @@ ansible_user: ansible
 # dns/ipa/gitlab — у них дефолт "i" (infra: обслуживают саму инфраструктуру клиента, не прямая
 # бизнес-нагрузка). Можно переопределить на уровне ВМ в любую сторону (см. k3s-agent ниже —
 # явный "i", служебный узел, не prod-нагрузка). Код сервиса выводится из `role` (закрытый
-# словарь ADR-0025 §6: dns/ipa/db/cache/doc/stor/gitlab/srv/k8s), не задаётся отдельно.
+# словарь ADR-0025 §6: dns/ipa/db/cache/doc/stor/gitlab/srv/k8s/prx), не задаётся отдельно.
 # Порядковый номер — в рамках одной пары site_code+env+сервис, не сквозной.
 #
 # `role` — что заводит Ansible поверх ВМ:
@@ -89,6 +89,13 @@ vms:
     memory: 2048
     disk_gb: 100
     ip_cidr: 10.0.0.14/24
+
+  - name: ex-p-prx01
+    role: devops.uslugi.nginx_multidomain   # reverse-proxy / shared-hosting nginx
+    cores: 2
+    memory: 2048
+    disk_gb: 20
+    ip_cidr: 10.0.0.16/24
 
   - name: ex-p-srv01
     role: none
