@@ -1,0 +1,97 @@
+# Раннер Gitea Actions (docs/adr/0012-cicd-platform-architecture.md §4 — "более лёгкие CI-задачи
+# (ansible-lint, сборка документации) при необходимости могут использовать k3s-раннеры", в
+# отличие от раннера molecule/KVM, сознательно вынесенного за пределы k3s тем же ADR; docs/adr/
+# 0022-new-component-requirements.md §12 — первый компонент, добавленный полностью по её чек-листу)
+# — host-режим (labels: linux_amd64:host), БЕЗ Docker-исполнителя/DinD-сайдкара: gitea.com
+# официально документирует actions/checkout как рабочий в host-режиме ("This works the same way
+# whether you're using Docker or host runners", docs.gitea.com/usage/actions/act-runner/) — тот же
+# паттерн уже используется в этой коллекции (trial/swissmakers/fail2ban-ui/.gitea/workflows/
+# build-harbor.yml, runs-on: linux_amd64, без docker:// суффикса). Базовый образ (не
+# -dind/-dind-rootless) — alpine 3.24 + git/bash/tini, без Docker вообще: минимальный периметр под
+# задачу lint (.gitea/workflows/lint.yml в корне коллекции), не универсальный CI-раннер на все
+# случаи — если понадобится docker://-исполнитель, это отдельное решение, не расширение этого.
+#
+# ИЗВЕСТНЫЙ РИСК, не проверенный живым прогоном: как минимум один пользователь на форуме Gitea
+# сообщал, что даже при :host-лейбле демон отказывался стартовать без доступного Docker
+# (forum.gitea.com/t/using-actions-without-docker/12184) — не подтверждено официальной
+# документацией и не воспроизведено здесь намеренно (нет живого кластера в момент написания).
+# Если первый реальный прогон .gitea/workflows/lint.yml упадёт на этом — откат: сменить imageTag
+# ниже на "3.3.2-dind-rootless" и добавить второй контейнер dind (securityContext — по образцу
+# официального чарта gitea/helm-actions, statefulset.dind.rootless: true), а не сразу привилегированный DinD.
+#
+# Образ — gitea/runner на docker.io (не docker.gitea.com/runner, дефолт официального Helm-чарта
+# gitea/helm-actions) — тот же бинарь, публикуется на оба реестра, но docker.io уже зеркалируется
+# Nexus (docker-hub-proxy, docs/adr/0018-internal-caching-proxy.md), а docker.gitea.com — нет;
+# использование docker.io закрывает требование №1 (ADR-0022) без создания второго
+# docker-proxy-репозитория в Nexus. gitea/act_runner (без "-": act_runner) на docker.io —
+# deprecated с 2026, заменён на gitea/runner (проверено на Docker Hub, 2026-09-06).
+#
+# Официальный Helm-чарт gitea/helm-actions существует, но обязательно тянет DinD-сайдкар (нет
+# тумблера отключить) — для единственной сегодняшней задачи (lint, без docker://-экшенов) это
+# лишний privileged/rootless-контейнер без необходимости, поэтому здесь голый Deployment через
+# universal-chart (тот же приём, что semaphore/homer), а не тот чарт.
+#
+# ADR-0022 §10 (NetworkPolicy — явное решение, не default-deny по умолчанию): решение для этого
+# конкретного workload — не заводить. Раннер не открывает ни одного входящего порта (нет Service/
+# Ingress вообще, только исходящие соединения к Gitea и, при выполнении джобы, наружу за
+# pip-пакетами), поэтому входной NetworkPolicy для него бессмысленен; риск — не сетевой, а
+# прикладной (что может сделать код самой CI-джобы), решается составом workflow-файлов
+# (.gitea/workflows/), не сетевым периметром. Общее решение про default-deny в самом namespace
+# platform по-прежнему не принято (ADR-0022 §10, известное исключение) — этот компонент его не
+# меняет ни в одну, ни в другую сторону.
+#
+# ADR-0022 §11 (бэкап — явное решение для нового stateful-компонента): решение — не регистрировать
+# в Bareos. Единственное состояние на PVC ниже — файл идентичности раннера (.runner), тривиально
+# восстановимый повторной регистрацией по тому же (переиспользуемому) токену; не данные, потеря
+# которых болезненна.
+#
+# gomplate vault:// — тот же датасорс/путь, что helm/values/platform/namespaces/platform/gitea/
+# values.yaml (secret/gitea): actions_runner_token — новое поле в том же секрете, не отдельный.
+[[ defineDatasource "vault" "vault:///secret/data/gitea" ]]
+
+# Без него .runner-файл терялся бы при каждом рестарте/пересоздании пода, и run.sh регистрировал
+# бы НОВЫЙ раннер в Gitea при каждом рестарте (тот же переиспользуемый токен это допускает, но
+# копит бесконечно растущий список офлайн-раннеров в админке без необходимости).
+pvcs:
+  data:
+    accessModes:
+      - ReadWriteOnce
+    size: 1Gi
+    storageClassName: local-path
+
+deployments:
+  gitea-actions-runner:
+    containers:
+      - name: runner
+        image: gitea/runner
+        imageTag: "3.3.2"
+        env:
+          # ClusterIP Gitea напрямую (http, порт service.http чарта Gitea) — не через Ingress/
+          # домен: раннер живёт в том же кластере, что сам Gitea, внешний TLS не нужен, тот же
+          # принцип, что LiteLLM → llama-server (ADR-0015 §7, внутренний трафик мимо Traefik).
+          - name: GITEA_INSTANCE_URL
+            value: http://gitea-http.platform.svc.cluster.local:3000
+          - name: GITEA_RUNNER_REGISTRATION_TOKEN
+            value: '[[ (ds "vault").data.actions_runner_token ]]'
+          - name: GITEA_RUNNER_NAME
+            value: k3s-platform-lint
+          # host (без схемы docker://) — без Docker-исполнителя вообще, см. риск в шапке файла.
+          # linux_amd64, не ubuntu-latest — явное неймспейсирование лейбла (рекомендация
+          # документации Gitea, "special name... to avoid misusing it"), совпадает с уже
+          # используемым в этой коллекции trial/swissmakers/fail2ban-ui/.gitea/workflows/
+          # build-harbor.yml (runs-on: linux_amd64).
+          - name: GITEA_RUNNER_LABELS
+            value: "linux_amd64:host"
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+          - name: data
+            mountPath: /data
+    volumes:
+      - name: data
+        type: pvc

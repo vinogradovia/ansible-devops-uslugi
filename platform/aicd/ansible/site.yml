@@ -412,13 +412,15 @@
         K8S_CLUSTER: platform
         NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
         no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
-      # --file helmwave.platform.yml (не дефолтный helmwave.yml) — тот дефолтный файл уже
-      # закоммичен как референсный рендер для K8S_CLUSTER=k3s-monitoring
-      # (roles/monitoring_server), --yml безусловно перезаписывает его под ТЕКУЩИЙ K8S_CLUSTER —
-      # найдено вручную при отладке этого плейбука: ручной запуск с K8S_CLUSTER=platform
-      # перезаписал чужой референс, пришлось откатывать через git checkout.
+      # --file helmwave.platform.yml (не дефолтный helmwave.yml) — исторически, пока helm/ был
+      # общим каталогом коллекции, дефолтный helmwave.yml был закоммичен как референсный рендер
+      # для K8S_CLUSTER=k3s-monitoring (roles/monitoring_server), и --yml без --file перезаписал
+      # бы его под ТЕКУЩИЙ K8S_CLUSTER (найдено вручную при отладке, пришлось откатывать через
+      # git checkout). С переносом в platform/aicd/helm/ (ROADMAP №71) коллизия больше
+      # невозможна — каталог свой, не общий, — но --file оставлен из той же дисциплины
+      # (именованный рендер понятнее дефолтного).
       ansible.builtin.command:
-        chdir: "{{ playbook_dir }}/../../../helm"
+        chdir: "{{ playbook_dir }}/../helm"
         argv:
           - helmwave
           - up
@@ -1894,7 +1896,7 @@
         # что понимает Vault/OpenBao CLI.
         VAULT_CACERT: "{{ platform_aicd_openbao_ca_path }}"
       ansible.builtin.command:
-        chdir: "{{ playbook_dir }}/../../../helm"
+        chdir: "{{ playbook_dir }}/../helm"
         argv:
           - helmwave
           - up
@@ -2074,7 +2076,7 @@
         VAULT_TOKEN: "{{ platform_aicd_openbao_render_token_value }}"
         VAULT_CACERT: "{{ platform_aicd_openbao_ca_path }}"
       ansible.builtin.command:
-        chdir: "{{ playbook_dir }}/../../../helm"
+        chdir: "{{ playbook_dir }}/../helm"
         argv:
           - helmwave
           - up
@@ -3264,6 +3266,21 @@
       ansible.builtin.systemd:
         name: k3s
         state: restarted
+
+- name: "GPU-нода llm (ADR-0015 Фаза 1): host bootstrap (NVIDIA driver + toolkit + gVisor)"
+  hosts: k3s_gpu_agents
+  become: true
+
+  pre_tasks:
+    - name: Дождаться завершения cloud-init
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+      failed_when: false
+
+  tasks:
+    - name: Подготовить хост к работе с GPU (NVIDIA driver + toolkit + gVisor)
+      ansible.builtin.include_role:
+        name: k3s_gpu_node
 
 - name: "Standalone PostgreSQL (ADR-0023): postgresql-infra-1"
   hosts: postgresql_infra_hosts

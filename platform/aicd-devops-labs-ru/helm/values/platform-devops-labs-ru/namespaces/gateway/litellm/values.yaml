@@ -1,0 +1,220 @@
+# LiteLLM (https://github.com/BerriAI/litellm) — гейтвей перед локальным инференсом ADR-0021
+# (llama-server/TEI, namespace llm, нода llm1) — ADR-0015 §6/§7: единственный HTTP-эндпоинт,
+# который знают агенты и moon-local-engineer, ни адреса `llm1`, ни ключей внешних провайдеров они
+# не видят (§6 диаграммы: "agent-job не знает адреса vllm... видит только svc litellm").
+#
+# Официального Helm-чарта под этот же паттерн (простой ConfigMap+Deployment+Service из
+# декларативных полей) нет — тот же generic-чарт, что nexus/semaphore/authelia/infra-panel
+# (helm/localrepo/universal-chart).
+#
+# master_key НЕ читается gomplate-датасорсом vault:// (в отличие от secret/gitea/semaphore/
+# authelia) — render-token, которым пользуется gomplate, ограничен policy
+# aicd-devops-labs-ru-render строго тремя путями, secret/litellm в их числе нет (см. site.yml,
+# комментарий у "OpenBao: проверить наличие secret/litellm"). Вместо этого — обычный k8s Secret
+# litellm-master-key (создан задачей той же play в site.yml ДО этого Helm-релиза), подключён
+# переменной окружения LITELLM_MASTER_KEY — тот же приём, что secret/grafana →
+# grafana-admin-credentials-custom. LiteLLM поддерживает `os.environ/VAR_NAME` прямо в
+# config.yaml (официальный механизм подстановки секретов в конфиг), поэтому сам этот файл —
+# обычный YAML, без gomplate-делимитеров.
+
+configMaps:
+  config:
+    data:
+      # БД (docs/adr/0023-postgresql-standalone-role.md, postgresql-infra-1) подключена — LiteLLM
+      # больше не в чистом конфиг-режиме: virtual keys/spend tracking/UI доступны. DATABASE_URL —
+      # тот же секрет litellm-master-key (site.yml, play "ADR-0015 §6/§7 — LiteLLM-гейтвей"),
+      # DSN собирается из secret/litellm (master_key + db_password) в OpenBao. Grafana остаётся
+      # на sqlite — миграция явно вне скоупа этого подключения (не запрошена).
+      config.yaml: |
+        model_list:
+          - model_name: local-default
+            litellm_params:
+              model: openai/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf
+              api_base: http://llama-server.llm.svc.cluster.local:8080/v1
+              api_key: "sk-noauth"
+          - model_name: local-embeddings
+            litellm_params:
+              model: openai/bge-m3
+              api_base: http://tei.llm.svc.cluster.local:80/v1
+              api_key: "sk-noauth"
+        general_settings:
+          master_key: os.environ/LITELLM_MASTER_KEY
+          database_url: os.environ/DATABASE_URL
+        # docs/adr/0022-new-component-requirements.md §4 — нативный /metrics (docs.litellm.ai/
+        # docs/proxy/prometheus), тот же порт 4000, что сам API. Без callbacks: ["prometheus"]
+        # эндпоинт не регистрируется вовсе (не 404 — маршрута просто нет). prometheus_metrics_config
+        # не задаём — дефолтный набор метрик (litellm_proxy_total_requests_metric,
+        # litellm_request_total_latency_metric, litellm_spend_metric и т.п.) уже покрывает
+        # дашборд ниже, тонкую настройку меток добавлять незачем без конкретной задачи под неё.
+        litellm_settings:
+          callbacks: ["prometheus"]
+          # Направляет кастомные заголовки OpenCode напрямую в логи/трассировку LiteLLM
+          user_header_metadata_dict:
+            "X-Session-Id": "session_id"
+            "x-opencode-session": "session_id"
+        # ADR-0015 §6/§7 — MCP-гейтвей: не отдельный продукт (IBM mcp-context-forge и т.п.
+        # тянут за собой Postgres+Redis, забегая вперёд ns: data), а встроенная в LiteLLM
+        # proxy поддержка MCP (тот же процесс, тот же config.yaml, БД не требуется для
+        # статической регистрации — `mcp>=1.28.1` в базовых зависимостях litellm[proxy]).
+        # Пока пусто — ни одного реального MCP-инструмента-бэкенда ещё нет (git/shell/browser
+        # песочницы, ADR-0015 §9 шаг 9), задача этого этапа — только поднять и проверить сам
+        # `/mcp`/`/mcp-rest` эндпоинт. Добавлять сюда серверы вида
+        # `<name>: {transport: http, url: ..., allow_all_keys: true}` по мере появления
+        # реальных инструментов.
+        mcp_servers: {}
+
+deployments:
+  litellm:
+    # Найдено реальным прогоном на Authelia (ADR-0013) — kubelet не перечитывает subPath-моунт
+    # ConfigMap для уже запущенного пода само по себе. checksum/config через тот же
+    # helpers.workload.checksum, что уже применяется в этой коллекции — при изменении
+    # config.yaml Deployment получает новую аннотацию, что вызывает штатный rollout.
+    podAnnotations:
+      checksum/config: '{{ include "helpers.workload.checksum" (.Values.configMaps.config.data | toYaml) }}'
+    # Найдено реальным прогоном (добавление mcp_servers): дефолт Deployment — RollingUpdate,
+    # который пытается поднять новый под ДО того, как убьёт старый — застряло в Pending
+    # ("Insufficient cpu") на единственном подходящем узле (aicd-labs; llm1 занят taint'ом).
+    # Recreate — тот же приём, что уже используется для llama-server/tei (site.yml, ADR-0021).
+    strategy:
+      type: Recreate
+    containers:
+      - name: litellm
+        image: ghcr.io/berriai/litellm
+        imageTag: v1.99.1
+        args:
+          - "--config"
+          - "/app/config.yaml"
+          - "--host"
+          - "0.0.0.0"
+          - "--port"
+          - "4000"
+        env:
+          - name: LITELLM_MASTER_KEY
+            valueFrom:
+              secretKeyRef:
+                name: litellm-master-key
+                key: master_key
+          - name: DATABASE_URL
+            valueFrom:
+              secretKeyRef:
+                name: litellm-master-key
+                key: database_url
+          # ROADMAP.md №59 — LiteLLM как ещё один OIDC-клиент Authelia (docs.litellm.ai/docs/
+          # proxy/admin_ui_sso), тем же классом решения, что Gitea/Semaphore/Grafana. Redirect URI,
+          # который ждёт LiteLLM: {PROXY_BASE_URL}/sso/callback — заведён в клиенте Authelia
+          # (helm/values/.../platform/authelia/values.yaml). Endpoint'ы — реальные пути Authelia,
+          # подтверждённые живым запросом .well-known/openid-configuration, не угаданы. Fallback
+          # на master_key остаётся доступен на /fallback/login — SSO не единственный вход.
+          # GENERIC_USER_ROLE_ATTRIBUTE НЕ используется (ждёт одиночное значение claim'а, а
+          # 'groups' — список) — маппинг platform-admins→proxy_admin/platform-engineers→
+          # internal_user заведён через role_mappings (SSOConfig, PATCH /update/sso_settings,
+          # site.yml, play этой же секции ниже).
+          - name: GENERIC_CLIENT_ID
+            value: litellm
+          - name: GENERIC_CLIENT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: litellm-master-key
+                key: client_secret
+          - name: GENERIC_AUTHORIZATION_ENDPOINT
+            value: https://sso.aicd.devops-labs.ru/api/oidc/authorization
+          - name: GENERIC_TOKEN_ENDPOINT
+            value: https://sso.aicd.devops-labs.ru/api/oidc/token
+          - name: GENERIC_USERINFO_ENDPOINT
+            value: https://sso.aicd.devops-labs.ru/api/oidc/userinfo
+          - name: PROXY_BASE_URL
+            value: https://litellm.aicd.devops-labs.ru
+          # Найдено реальным прогоном: PATCH /update/sso_settings (role_mappings) без этого флага
+          # падает 500 "Set `STORE_MODEL_IN_DB='True'` in your env to enable this feature" — общий
+          # переключатель admin-API на запись динамической конфигурации в БД (LiteLLM_SSOConfig
+          # и аналоги), отдельный от general_settings.database_url, который БД лишь подключает.
+          - name: STORE_MODEL_IN_DB
+            value: "True"
+          # ROADMAP.md №59 — 'groups' нужен для role_mappings (SSOConfig, /update/sso_settings),
+          # без него userinfo от Authelia не содержит groups для этого клиента (см. scopes у
+          # client_id: 'litellm' в helm/values/.../platform/authelia/values.yaml).
+          - name: GENERIC_SCOPE
+            value: "openid profile email groups"
+          # Найдено реальным прогоном: без доверия к внутреннему PKI CA generic-OIDC-клиент падал
+          # на POST токен-эндпоинта Authelia с "certificate verify failed: self-signed certificate
+          # in certificate chain" (SSO возвращал голый "Internal server error"). Тот же приём, что
+          # уже применён для Gitea/Grafana (helm/values/.../platform/gitea/values.yaml) — Python
+          # (httpx, как и Go crypto/x509) уважает SSL_CERT_FILE как путь к доп. доверенному CA.
+          - name: SSL_CERT_FILE
+            value: /etc/ssl/certs/aicd-platform-ca.pem
+        ports:
+          - name: http
+            containerPort: 4000
+        volumeMounts:
+          - name: config
+            mountPath: /app/config.yaml
+            subPath: config.yaml
+          - name: aicd-platform-ca
+            mountPath: /etc/ssl/certs/aicd-platform-ca.pem
+            subPath: ca.pem
+        # Найдено реальным прогоном (подключение database_url, ADR-0023): под уходил в
+        # OOMKilled (exit 137) на лимите 1Gi при первом старте с БД — Prisma-миграция поднимает
+        # отдельный node-процесс query-engine поверх основного python-процесса litellm.
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "512Mi"
+          limits:
+            memory: "2Gi"
+        # /health/liveliness — только пинг самого процесса, не ходит к бэкендам (в отличие от
+        # /health, который реально дёргает каждую model_list-запись и был бы нестабильной пробой,
+        # если llama-server временно перезагружается).
+        readinessProbe:
+          httpGet:
+            path: /health/liveliness
+            port: 4000
+          periodSeconds: 10
+          failureThreshold: 12
+        livenessProbe:
+          httpGet:
+            path: /health/liveliness
+            port: 4000
+          periodSeconds: 30
+          failureThreshold: 3
+    volumes:
+      - name: config
+        type: configMap
+      - name: aicd-platform-ca
+        type: secret
+        originalName: aicd-platform-ca
+
+services:
+  litellm:
+    ports:
+      - name: http
+        port: 4000
+
+# ROADMAP.md №59 — сетевой периметр перед UI: тот же паттерн, что radar/infra-panel
+# (helm/values/.../platform/infra-panel/values.yaml), общий Middleware authelia-forward-auth
+# (site.yml, "Authelia: Middleware authelia-forward-auth (Traefik)"), доступ ограничен группами
+# platform-admins/platform-engineers (authorization_policy: platform_engineers_admins в клиенте
+# Authelia) — не то же самое, что OIDC-логин самого /ui выше: forwardAuth решает, кто вообще может
+# достучаться до сети, LiteLLM решает, кто залогинится внутри приложения.
+ingressroutes:
+  litellm:
+    entryPoints:
+      - websecure
+    routes:
+      "Host(`litellm.aicd.devops-labs.ru`)":
+        # Найдено реальным прогоном: встроенный в k3s Traefik НЕ поддерживает cross-namespace
+        # ссылку на Middleware без явного флага контроллера
+        # (--providers.kubernetescrd.allowCrossNamespace, который здесь не включён) — попытка
+        # сослаться на Middleware authelia-forward-auth из ns "platform" отсюда (ns "gateway")
+        # ловила "middleware platform/authelia-forward-auth is not in the IngressRoute namespace
+        # gateway" и роут молча становился невалидным (голый 404 от Traefik вместо ожидаемого
+        # редиректа на sso.aicd.devops-labs.ru). radar/infra-panel не ловили эту проблему, потому
+        # что оба живут в том же ns "platform", что и сам Middleware — их ссылка уже локальная.
+        # Решение — не opt-in флаг на весь Traefik (шире нужного), а свой Middleware с тем же
+        # именем и тем же spec в ns "gateway" (site.yml, play "ADR-0015 §6/§7 — LiteLLM-гейтвей").
+        middlewares:
+          - name: authelia-forward-auth
+        services:
+          litellm-litellm:
+            port: 4000
+    tls:
+      secretName: litellm-tls

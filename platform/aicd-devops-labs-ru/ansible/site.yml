@@ -410,9 +410,9 @@
     # читают admin-пароли/TLS через gomplate-датасорс vault://, который должен достучаться до
     # УЖЕ поднятого и распечатанного OpenBao в момент рендера — helmwave/gomplate работают на
     # control-хосте до всякого apply, поэтому OpenBao поднимается и наполняется первым, отдельным
-    # `helmwave up --tags openbao` (тег объявлен в helm/envs/platform.yaml), а Gitea/Semaphore/
-    # Flux — вторым, уже безусловным вызовом ниже.
-    - name: Helmwave up (OpenBao only, helm/envs/platform.yaml)
+    # `helmwave up --tags openbao` (тег объявлен в helm/envs/platform-devops-labs-ru.yaml), а
+    # Gitea/Semaphore/Flux — вторым, уже безусловным вызовом ниже.
+    - name: Helmwave up (OpenBao only, helm/envs/platform-devops-labs-ru.yaml)
       delegate_to: localhost
       become: false
       run_once: true
@@ -421,13 +421,15 @@
         K8S_CLUSTER: platform-devops-labs-ru
         NO_PROXY: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
         no_proxy: "127.0.0.1,localhost,{{ ansible_facts['default_ipv4']['address'] }}"
-      # --file helmwave.platform-devops-labs-ru.yml (не дефолтный helmwave.yml) — тот дефолтный файл уже
-      # закоммичен как референсный рендер для K8S_CLUSTER=k3s-monitoring
-      # (roles/monitoring_server), --yml безусловно перезаписывает его под ТЕКУЩИЙ K8S_CLUSTER —
-      # найдено вручную при отладке этого плейбука: ручной запуск с K8S_CLUSTER=platform-devops-labs-ru
-      # перезаписал чужой референс, пришлось откатывать через git checkout.
+      # --file helmwave.platform-devops-labs-ru.yml (не дефолтный helmwave.yml) — исторически,
+      # пока helm/ был общим каталогом коллекции, дефолтный helmwave.yml был закоммичен как
+      # референсный рендер для K8S_CLUSTER=k3s-monitoring (roles/monitoring_server), и --yml без
+      # --file перезаписал бы его под ТЕКУЩИЙ K8S_CLUSTER (найдено вручную при отладке, пришлось
+      # откатывать через git checkout). С переносом в platform/aicd-devops-labs-ru/helm/
+      # (ROADMAP №71) коллизия больше невозможна — каталог свой, не общий, — но --file оставлен
+      # из той же дисциплины (именованный рендер понятнее дефолтного).
       ansible.builtin.command:
-        chdir: "{{ playbook_dir }}/../../../helm"
+        chdir: "{{ playbook_dir }}/../helm"
         argv:
           - helmwave
           - up
@@ -2132,8 +2134,8 @@
     # (platform_aicd_devops_labs_ru_default_addons/_extra_addons/_disabled_addons,
     # platform/aicd-devops-labs-ru/ansible/group_vars/platform_hosts.yml). Каждый релиз в helmwave уже
     # автоматически тегируется своим именем (helm/helmwave.yml.tpl:76-78) — отдельный tags: в
-    # envs/platform.yaml не нужен.
-    - name: Helmwave up (Gitea + Semaphore + Flux + аддоны, helm/envs/platform.yaml)
+    # envs/platform-devops-labs-ru.yaml не нужен.
+    - name: Helmwave up (Gitea + Semaphore + Flux + аддоны, helm/envs/platform-devops-labs-ru.yaml)
       delegate_to: localhost
       become: false
       run_once: true
@@ -2159,7 +2161,7 @@
         # что понимает Vault/OpenBao CLI.
         VAULT_CACERT: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
       ansible.builtin.command:
-        chdir: "{{ playbook_dir }}/../../../helm"
+        chdir: "{{ playbook_dir }}/../helm"
         argv:
           - helmwave
           - up
@@ -2329,7 +2331,7 @@
         VAULT_TOKEN: "{{ platform_aicd_devops_labs_ru_openbao_render_token_value }}"
         VAULT_CACERT: "{{ platform_aicd_devops_labs_ru_openbao_ca_path }}"
       ansible.builtin.command:
-        chdir: "{{ playbook_dir }}/../../../helm"
+        chdir: "{{ playbook_dir }}/../helm"
         argv:
           - helmwave
           - up
@@ -4735,7 +4737,7 @@
       become: false
       run_once: true
       ansible.builtin.command:
-        chdir: "{{ playbook_dir }}/../../../helm"
+        chdir: "{{ playbook_dir }}/../helm"
         argv:
           - helmwave
           - up
@@ -5014,7 +5016,7 @@
       become: false
       run_once: true
       ansible.builtin.command:
-        chdir: "{{ playbook_dir }}/../../../helm"
+        chdir: "{{ playbook_dir }}/../helm"
         argv:
           - helmwave
           - up

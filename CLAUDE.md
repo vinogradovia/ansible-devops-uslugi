@@ -422,8 +422,16 @@ ansible-playbook -i inventory.yml monitoring-server.yml \
 
 - `trial/swissmakers/fail2ban-ui/` — сторонний вендоренный проект (со своим `.git`, Go + Tailwind),
   не является Ansible-контентом этой коллекции; исключён из ansible-lint.
-- `helm/` — сейчас пустой каталог-заготовка (исключён из ansible-lint); k3s-стек мониторинга Helm
-  charts *не* использует (см. заметки про monitoring_server выше).
+- `helm/` (исключён из ansible-lint) — helmwave-конфигурация для `K8S_CLUSTER=k3s-monitoring`
+  (`roles/monitoring_server` k3s-путь, `extensions/molecule/monitoring_server_k3s/`), которая
+  используется напрямую этой коллекцией, а не отдельным репозиторием окружения. Helm-конфигурация
+  `platform/aicd` и `platform/aicd-devops-labs-ru` раньше жила здесь же
+  (`helm/envs/platform*.yaml`, `helm/values/platform*/`), но перенесена в собственные
+  `platform/aicd/helm/`/`platform/aicd-devops-labs-ru/helm/` (ROADMAP №71, 2026-10-04) — репозиторий
+  каждого окружения теперь самодостаточен, тот же приём, что ADR-0025 §4a для клиентских
+  репозиториев `client-onboarding`. `helm/values/platform-cicd/` — осиротевший остаток
+  переименования `platform/cicd` → `platform/aicd` (2026-08-25), не используется ни одним
+  `K8S_CLUSTER`, не удалён за пределами этой находки.
 - `uslugi/` — оставшаяся локальная директория с артефактами `.ansible`/`.vscode`, не является исходным кодом.
 - `.gitea/workflows/`, `.gitea/scripts/`, `mkdocs.yml`, `docs/stylesheets/` — CI платформы (Gitea
   Actions), не Ansible-контент. `lint.yml` — `ansible-lint` всей коллекции на лёгком in-cluster

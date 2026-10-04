@@ -498,3 +498,25 @@ generation, последний — `changed=0` (полная идемпотен�
    единственная) ветка зеркала `platform/devops-uslugi` — `feat/new-cloud-platform-development`
    (та, что была реально запушена пользователем) — `ansible-galaxy` падал на
    `git checkout main: pathspec 'main' did not match any file(s) known to git`.
+
+## helm/ — собственный каталог окружения (ROADMAP №71, 2026-10-04)
+
+Раньше `helm/` этого окружения жил в общем каталоге коллекции (`ansible-devops-uslugi/helm/`,
+выбор конкретного окружения — через `K8S_CLUSTER=platform-devops-labs-ru`), т.е. репозиторий,
+описывающий само окружение, не содержал своей Helm-конфигурации. Перенесён в
+`platform/aicd-devops-labs-ru/helm/` — полная копия общих частей (`helmwave.yml.tpl`,
+`envs/_helm-repos.yaml`, `localrepo/universal-chart/`) на коммите, актуальном на момент переноса,
+плюс собственные `envs/platform-devops-labs-ru.yaml` и `values/platform-devops-labs-ru/` (перенесены
+как есть, без изменений содержимого). Тот же приём и то же обоснование (полная копия, не
+submodule и не runtime-раскладка), что ADR-0025 §4a для клиентских репозиториев
+`client-onboarding` — коллекция больше не владеет Helm-конфигурацией этого окружения, только
+библиотекой ролей/модулей.
+
+`site.yml` — все 4 вызова `helmwave up` правлены: `chdir: "{{ playbook_dir }}/../helm"` вместо
+`{{ playbook_dir }}/../../../helm` (три уровня вверх до корня коллекции). `--file helmwave.platform-devops-labs-ru.yml`
+оставлен (не дефолтный `helmwave.yml`) из дисциплины «именованный рендер понятнее дефолтного» —
+коллизия с `K8S_CLUSTER=k3s-monitoring`, из-за которой это правило возникло исторически, теперь
+физически невозможна (каталог не общий). Проверено без применения: `ansible-lint`/
+`--syntax-check` зелёные; `K8S_CLUSTER=platform-devops-labs-ru helmwave yml` рендерит корректно из
+нового каталога. Живой `helmwave up` на работающей платформе — отдельный, явно подтверждённый шаг
+(см. ROADMAP №71).

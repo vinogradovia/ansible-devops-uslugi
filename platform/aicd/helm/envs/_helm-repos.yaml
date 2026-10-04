@@ -1,0 +1,28 @@
+---
+repositories:
+  - name: vm
+    url: https://victoriametrics.github.io/helm-charts/
+  # - name: nixys
+  #   url: https://registry.nixys.io/chartrepo/public
+  - name: grafana
+    url: https://grafana.github.io/helm-charts
+  # platform/aicd (ROADMAP.md, «Предлагаемая последовательность работ», пункт 7, Фаза 0) —
+  # официальный Helm-чарт Gitea (https://gitea.com/gitea/helm-gitea).
+  - name: gitea-charts
+    url: https://dl.gitea.com/charts/
+  # platform/aicd (ROADMAP.md, пункт 7, Фаза 2; docs/adr/0014-platform-controller-architecture.md
+  # §4) — Flux (GitOps-синхронизация Module-манифестов из Gitea в кластер).
+  - name: fluxcd-community
+    url: https://fluxcd-community.github.io/helm-charts
+  # platform/aicd (docs/adr/0016-openbao-secrets-pki.md) — секреты и внутренний PKI CA стенда.
+  - name: openbao
+    url: https://openbao.github.io/openbao-helm
+  # platform/aicd (docs/adr/0017-platform-cicd-default-addons.md) — Radar, первый стандартный
+  # аддон k3s-стенда (Kubernetes UI/дашборд).
+  - name: skyhook
+    url: https://skyhook-io.github.io/helm-charts
+
+registries:
+  - host: ghcr.io
+    # username: default_user
+    # password: default_pass
