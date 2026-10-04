@@ -104,8 +104,8 @@ vms:
     disk_gb: 60
     ip_cidr: 10.0.0.15/24
 
-  - name: ex-p-k8s01
-    role: k3s_server
+  - name: ex-p-k8s01            # присутствие этой роли в анкете запускает генерацию helm/ в
+    role: k3s_server            # целевом репозитории (SKILL.md §4a, ADR-0025 §4a)
     cores: 2
     memory: 4096
     disk_gb: 40
