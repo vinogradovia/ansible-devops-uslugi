@@ -7,8 +7,11 @@ description: >-
   or similar). Covers why Go-based GitLab clients reject self-signed certs that
   browsers/openssl accept, why Omnibus's own trust-store mechanism sometimes isn't
   enough, why nginx can silently keep serving a stale certificate after you regenerate
-  it, and why DNS that resolves correctly on a host still fails inside a Kubernetes
-  pod. Use this skill proactively whenever the user is deploying, reconfiguring, or
+  it, why two independently-generated self-signed certs with the same CommonName (e.g.
+  one on GitLab itself and another on a reverse-proxy in front of it) confuse Go's
+  certificate-pool verification even when both are individually valid, and why DNS that
+  resolves correctly on a host still fails inside a Kubernetes pod. Use this skill
+  proactively whenever the user is deploying, reconfiguring, or
   debugging GitLab CE with a self-signed cert, setting up the GitLab Kubernetes Agent
   (KAS/agentk) or GitLab Runner's kubernetes executor, or troubleshooting gRPC/TLS
   "Unavailable" errors, "x509: certificate signed by unknown authority", "crypto/rsa:
@@ -284,6 +287,61 @@ done
   (тянет чарты/values, рендерит манифесты) из уже отрендеренного `.yml`-файла — он не
   рендерит сам `.yml` из `.tpl`. Сначала запустить `helmwave yml`, затем `helmwave up --build`.
 
+## 8. Два независимых self-signed сертификата с одинаковым CN за реверс-прокси путают Go ещё раз
+
+Этот кейс всплывает на следующем шаге после §1-§4, когда перед GitLab ставят reverse-proxy
+(nginx, Traefik и т.п.) как единую точку входа вместо прямого доступа к самому GitLab —
+например, чтобы завести один внешний домен на несколько внутренних сервисов. Выглядит так,
+будто вы уже всё сделали правильно: оба сертификата — и на самом GitLab (§1), и на
+reverse-proxy — сгенерированы с `CA:TRUE`, serial'ы совпадают с тем, что реально отдаётся
+(§3 пройден), а KAS всё равно падает:
+
+```
+x509: certificate signed by unknown authority
+```
+
+**Причина:** если на reverse-proxy сгенерировать *свою* независимую self-signed пару
+ключ+сертификат для того же самого `CommonName` (естественное желание — у него такой же
+домен, зачем копировать сертификат с другого хоста), то в итоге существуют **два разных**
+self-signed сертификата с одинаковым Subject `CN=your.domain.tld`, но с разными ключевыми
+парами. Это классическая проблема Go-x509 с bundle-пулами: когда в пуле доверенных
+сертификатов есть несколько кандидатов с одинаковым Subject, построитель цепочки может
+выбрать не того кандидата для проверки подписи конкретного пришедшего сертификата — и подпись,
+естественно, не сойдётся, с той же обманчивой ошибкой "unknown authority", что и в §3, хотя
+оба сертификата сами по себе корректны.
+
+**Фикс:** не генерировать вторую независимую пару ключей на то же имя. Если домен уже
+обслуживается самим GitLab с self-signed сертификатом (§1), **зеркалировать** этот же
+сертификат+ключ на reverse-proxy, а не создавать новый:
+
+```yaml
+- name: "Забрать сертификат+ключ с GitLab"
+  ansible.builtin.slurp:
+    src: "/etc/gitlab/ssl/your.domain.tld.{{ item }}"
+  loop: ["crt", "key"]
+  register: cert_key_raw
+  delegate_to: "{{ groups['gitlab_hosts'][0] }}"
+
+- name: "Разложить тот же сертификат+ключ на reverse-proxy"
+  ansible.builtin.copy:
+    dest: "/etc/nginx/ssl/your.domain.tld/{{ 'fullchain.pem' if item.item == 'crt' else 'privkey.pem' }}"
+    content: "{{ item.content | b64decode }}"
+    mode: "{{ '0644' if item.item == 'crt' else '0640' }}"
+  loop: "{{ cert_key_raw.results }}"
+  notify: reload nginx
+```
+
+Тогда обе стороны — и KAS (который доверяет сертификату, снятому с самого GitLab), и
+gitlab-agent/gitlab-runner (которые доверяют тому, что реально сняли живым TLS-коннектом,
+см. §3) — видят буквально один и тот же сертификат независимо от того, через какой хост
+физически прошёл запрос. Один сертификат на одно доменное имя — не два разных с одинаковым
+CN — устраняет саму возможность неоднозначности для Go.
+
+Если вы ставите reverse-proxy как единую точку входа для нескольких внутренних HTTP(S)-
+сервисов, заодно проверьте, что сам reverse-proxy умеет проксировать WebSocket (для
+`wss://.../kubernetes-agent/`, на который ходит gitlab-agent) — без явного включения этого в
+конфиге прокси хендшейк падает на уровне HTTP с кодом 426 вместо ожидаемого 101.
+
 ## Чек-лист отладки (самый быстрый путь через всё вышеперечисленное)
 
 Когда gitlab-agent или gitlab-runner не могут подключиться к самостоятельно развёрнутому
@@ -301,3 +359,6 @@ GitLab с self-signed сертификатом, проверяйте в этом
 4. Проверить `/var/log/gitlab/gitlab-kas/current` (или логи пода runner'а) на *точный* текст
    ошибки — "unknown authority" / "crypto/rsa", указывающий на собственный исходящий вызов KAS
    (не на входящий хендшейк клиента) → §2.
+5. §1-§4 пройдены, serial'ы из п.3 совпадают, но ошибка "unknown authority" всё ещё есть, а в
+   инфраструктуре есть reverse-proxy перед GitLab → проверить, не сгенерирована ли у прокси
+   *своя независимая* self-signed пара на тот же CN → §8.
