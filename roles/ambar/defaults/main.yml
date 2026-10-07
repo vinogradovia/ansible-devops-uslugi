@@ -23,6 +23,10 @@ ambar_data_dir: /var/lib/seaweedfs
 # Каталог для PID-файла (systemd user-mode не нужен, используем system-mode).
 ambar_pid_file: /var/run/seaweedfs/seaweedfs.pid
 
+# Каталог для IAM config (S3 credentials).
+ambar_iam_config_dir: /etc/seaweedfs
+ambar_iam_config_file: "{{ ambar_iam_config_dir }}/iam.config.json"
+
 # Конфигурация master server.
 ambar_master_mode: false  # true на одном узле кластера — master.
 ambar_master_port: 9333
@@ -44,16 +48,47 @@ ambar_volume_dir: "{{ ambar_data_dir }}/volume"
 ambar_volume_size_unit_mb: 2048  # 2GB per volume file.
 
 # Конфигурация S3 gateway.
+# SeaweedFS S3 gateway поддерживает встроенный IAM (включён по умолчанию, -iam, true).
+# Credentials задаются через iam.config.json — отдельные identity для каждого S3-клиента,
+# каждая с own accessKey/secretKey и scoped permissions (actions с опциональным :bucket suffix).
+# Legacy-флаги -s3.accessKey/-s3.secretKey (единые на весь инстанс) не используются.
 ambar_s3_gateway_enabled: false  # S3 API на том же порту что volume (port + 1000 по умолчанию).
 ambar_s3_gateway_port: 9000
-ambar_s3_gateway_access_key: ""  # должен быть задан при включении.
-ambar_s3_gateway_secret_key: ""  # должен быть задан при включении.
-ambar_s3_gateway_bucket: "loki"  # дефолтный бакет.
 ambar_s3_gateway_read_only: false
 ambar_s3_gateway_root_accessible: false
 ambar_s3_gateway_region: ""
 ambar_s3_gateway_backend: "none"  # "none" | "ceph" | "cos" | "azure" | "alibabacloud"
 ambar_s3_gateway_endpoint: ""  # для S3-compatible бэкендов.
+
+# S3-клиенты: dict, каждый элемент — S3-идентичность (accessKey/secretKey + permissions + bucket).
+# Формат:
+#   ambar_s3_clients:
+#     gitlab:
+#       access_key: "{{ vault_ambar_gitlab_s3_access_key }}"
+#       secret_key: "{{ vault_ambar_gitlab_s3_secret_key }}"
+#       bucket: gitlab-backups
+#       actions:
+#         - Read:gitlab-backups
+#         - Write:gitlab-backups
+#         - List:gitlab-backups
+#         - Tagging:gitlab-backups
+#     loki:
+#       access_key: "{{ vault_ambar_loki_s3_access_key }}"
+#       secret_key: "{{ vault_ambar_loki_s3_secret_key }}"
+#       bucket: loki
+#       actions:
+#         - Read:loki
+#         - Write:loki
+#         - List:loki
+#         - Tagging:loki
+#
+# Ключ dict'а (gitlab, loki) → имя identity в iam.config.json.
+# bucket — имя бакета (клиент сам обращается к http://host:9000/bucket-name).
+# actions — S3-действия с префиксом :bucket для ограничения по bucket.
+#   Возможные: Admin, Read, Write, List, Tagging, Delete
+#   Scoped: Read:bucket-name, Write:bucket-name и т.д.
+#   Если bucket не указан — действия применяются ко всем bucket'ам (не рекомендуется).
+ambar_s3_clients: {}
 
 # Конфигурация fitness server.
 ambar_fitness_mode: false
@@ -77,19 +112,14 @@ ambar_service_state: started
 # Аргументы командной строки для weed server (переопределять только если нужно).
 # Формат: weed server [flags] — субкоманда server объединяет master + volume + filer + s3.
 # Пример для single-node: -master -dir=/var/lib/seaweedfs/volume -s3
-# S3-ключи передаются через -s3.accessKey/-s3.secretKey (единые для всех клиентов),
-# defaultBucket задаёт bucket по умолчанию для S3-клиентов, которые не указывают bucket явно.
+# IAM: iam.config=/etc/seaweedfs/iam.config.json (path к файлу с identity/credentials/permissions).
 ambar_config_args: >-
   -dir={{ ambar_volume_dir }}
   -master.port={{ ambar_master_port }}
   -master.heartbeatInterval={{ ambar_master_dir_heartbeat_interval_seconds }}s
   -s3 -s3.port={{ ambar_s3_gateway_port }}
-  {% if ambar_s3_gateway_enabled and ambar_s3_gateway_access_key and ambar_s3_gateway_secret_key %}
-  -s3.accessKey={{ ambar_s3_gateway_access_key }}
-  -s3.secretKey={{ ambar_s3_gateway_secret_key }}
-  {% endif %}
-  {% if ambar_s3_gateway_enabled and ambar_s3_gateway_bucket %}
-  -s3.defaultBucket={{ ambar_s3_gateway_bucket }}
+  {% if ambar_s3_clients and ambar_s3_clients | length > 0 %}
+  -iam.config={{ ambar_iam_config_file }}
   {% endif %}
 
 # Прокси: если включено, рендерит nginx reverse-proxy конфигурацию для S3 API.

@@ -1,0 +1,30 @@
+{
+  "identities": [
+{% for client_name, client_config in ambar_s3_clients|dictsort %}
+    {
+      "name": "{{ client_name }}",
+{% if client_config.access_key and client_config.secret_key %}
+      "credentials": [
+        {
+          "accessKey": "{{ client_config.access_key }}",
+          "secretKey": "{{ client_config.secret_key }}"
+        }
+      ],
+{% endif %}
+{% if client_config.actions %}
+      "actions": [
+{% for action in client_config.actions %}
+        "{{ action }}"{% if not loop.last %},{% endif %}
+{% endfor %}
+      ],
+{% else %}
+      "actions": [
+        "Read",
+        "List"
+      ],
+{% endif %}
+      "description": "S3 client: {{ client_name }}"
+    }{% if not loop.last %},{% endif %}
+{% endfor %}
+  ]
+}
