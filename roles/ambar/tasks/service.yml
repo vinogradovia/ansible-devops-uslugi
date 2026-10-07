@@ -1,0 +1,10 @@
+---
+# service | Ensure ambar service is running
+
+- name: "[service] Включить и запустить ambar"
+  ansible.builtin.systemd:
+    name: seaweedfs
+    enabled: "{{ ambar_service_enabled }}"
+    state: "{{ ambar_service_state }}"
+    daemon_reload: true
+  tags: [service]

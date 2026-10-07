@@ -1,0 +1,17 @@
+---
+# handlers file for ambar
+
+- name: Reload systemd
+  ansible.builtin.systemd:
+    name: systemd
+    daemon_reload: true
+
+- name: Restart ambar
+  ansible.builtin.systemd:
+    name: seaweedfs
+    state: restarted
+
+- name: Reload nginx
+  ansible.builtin.systemd:
+    name: nginx
+    state: reloaded

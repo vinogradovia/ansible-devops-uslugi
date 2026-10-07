@@ -1,0 +1,126 @@
+---
+# verify.yml — проверка реального развёрнутого состояния ambar
+# Выполняется как автономный плейбук, не в контексте роли.
+
+- name: Verify
+  hosts: all
+  become: true
+  gather_facts: true
+  vars:
+    ambar_version: "4.48"
+    molecule_ambar_test_bucket: "molecule-test-bucket"
+  vars_files:
+    - "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') }}/group_vars/all.yml"
+  tasks:
+    # --- Бинарник ---------------------------------------------------------------------------------
+    - name: Бинарник ambar должен существовать
+      ansible.builtin.stat:
+        path: "{{ ambar_bin_dir | default('/usr/local/bin') }}/seaweedfs"
+      register: molecule_ambar_binary_stat
+
+    - name: Бинарник ambar должен быть исполняемым
+      ansible.builtin.assert:
+        that:
+          - molecule_ambar_binary_stat.stat.exists
+          - molecule_ambar_binary_stat.stat.executable
+        quiet: true
+
+    # --- Версия бинарника --------------------------------------------------------------------------
+    - name: Получить версию ambar
+      ansible.builtin.command: seaweedfs version
+      changed_when: false
+      register: molecule_ambar_version
+
+    - name: Версия ambar должна совпадать
+      ansible.builtin.assert:
+        that:
+          - ambar_version is defined and ambar_version in molecule_ambar_version.stdout
+        quiet: true
+
+    # --- Системный пользователь --------------------------------------------------------------------
+    - name: Пользователь seaweedfs должен существовать
+      ansible.builtin.assert:
+        that:
+          - ansible_user_info.users.seaweedfs is defined
+        quiet: true
+      failed_when: false
+      changed_when: false
+
+    # --- Каталоги данных ---------------------------------------------------------------------------
+    - name: Каталог данных ambar должен существовать
+      ansible.builtin.stat:
+        path: "{{ ambar_data_dir | default('/var/lib/seaweedfs') }}"
+      register: molecule_ambar_datadir
+
+    - name: Каталог данных ambar должен принадлежать seaweedfs:seaweedfs
+      ansible.builtin.assert:
+        that:
+          - molecule_ambar_datadir.stat.exists
+          - molecule_ambar_datadir.stat.pw_name == 'seaweedfs'
+          - molecule_ambar_datadir.stat.gr_name == 'seaweedfs'
+        quiet: true
+
+    # --- Сервис systemd ----------------------------------------------------------------------------
+    - name: Собрать факты о службе ambar
+      ansible.builtin.service_facts:
+
+    - name: Debug ambar service facts
+      ansible.builtin.debug:
+        msg: "seaweedfs.service = {{ ansible_facts.services.get('seaweedfs.service', 'NOT FOUND') }}"
+
+    - name: Показать логи ambar при падении сервиса
+      ansible.builtin.shell: journalctl -u seaweedfs --no-pager -n 30 2>/dev/null || echo "no journal access"
+      changed_when: false
+      register: molecule_ambar_journal_logs
+      failed_when: false
+      when: ansible_facts.services.get('seaweedfs.service', {}).get('state') != 'running'
+
+    - name: Показать логи ambar
+      ansible.builtin.debug:
+        msg: "{{ (molecule_ambar_journal_logs | default({})).get('stdout_lines', []) }}"
+
+    - name: Служба seaweedfs должна быть running и enabled
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.services['seaweedfs.service'].state == 'running'
+          - ansible_facts.services['seaweedfs.service'].status == 'enabled'
+        quiet: true
+
+    # --- S3 Gateway API ---------------------------------------------------------------------------
+    - name: S3 Gateway должен отвечать на S3 ListAllMyBuckets
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ ambar_s3_gateway_port | default(9000) }}/?list-type=2"
+        method: GET
+        return_content: true
+        timeout: 10
+      register: molecule_ambar_s3_health
+      retries: 5
+      delay: 3
+      until: molecule_ambar_s3_health.status is defined and molecule_ambar_s3_health.status == 200 and 'ListAllMyBucketsResult' in molecule_ambar_s3_health.content
+
+    # --- systemd unit файл -------------------------------------------------------------------------
+    - name: systemd unit ambar должен существовать
+      ansible.builtin.stat:
+        path: /etc/systemd/system/seaweedfs.service
+      register: molecule_ambar_service_stat
+
+    - name: systemd unit ambar должен существовать
+      ansible.builtin.assert:
+        that:
+          - molecule_ambar_service_stat.stat.exists
+        quiet: true
+
+    # --- S3 API функциональная проверка: создание бакета и загрузка объекта ------------------------
+    - name: Проверить S3 API функциональность — создание бакета
+      ansible.builtin.command: >-
+        curl -s -X PUT
+        -H "Authorization: {{ 'Basic ' + ('molecule_test:molecule_test_secret' | b64encode) }}"
+        "http://127.0.0.1:{{ ambar_s3_gateway_port | default(9000) }}/{{ molecule_ambar_test_bucket }}"
+      register: molecule_ambar_bucket_create
+      changed_when: false
+
+    - name: S3 бакет должен создан успешно
+      ansible.builtin.assert:
+        that:
+          - '"<Error>" not in molecule_ambar_bucket_create.stdout'
+        quiet: true

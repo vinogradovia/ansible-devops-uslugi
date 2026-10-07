@@ -1,0 +1,17 @@
+---
+# group_vars для converge/verify ambar сценария.
+# Переменные лежат в group_vars/, а не в converge.yml — чтобы их видели и prepare.yml, и verify.yml.
+
+ambar_enabled: true
+
+# Разворачиваем single-node cluster: master + volume + S3 gateway на одной ВМ.
+ambar_master_mode: true
+ambar_volume_mode: true
+ambar_s3_gateway_enabled: true
+ambar_s3_gateway_access_key: molecule_test
+ambar_s3_gateway_secret_key: molecule_test_secret
+ambar_s3_gateway_bucket: loki-molecule
+
+# Tuning для molecule-теста: быстрый heartbeat, маленький GC interval.
+ambar_master_dir_heartbeat_interval_seconds: 5
+ambar_gc_interval_seconds: 120

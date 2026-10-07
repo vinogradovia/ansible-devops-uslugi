@@ -1,0 +1,210 @@
+---
+# meta/argument_specs.yml for ambar
+
+# argument_specs for ambar
+# Generated according to CoP good practices.
+# All arguments correspond to defaults/main.yml variables.
+
+argument_specs:
+  main:
+    short_description: Install and configure SeaweedFS (S3-compatible distributed storage)
+    version_added: "1.0.0"
+    description:
+      - "Install SeaweedFS from official GitHub releases and configure as master, volume, or S3 gateway server."
+      - "Supports systemd service management, optional nginx reverse proxy for S3 API, and LDAP integration."
+      - "Only Debian/Ubuntu (apt)."
+    options:
+      ambar_enabled:
+        description: "Enable or disable the role on the target host."
+        type: bool
+        default: false
+      ambar_version:
+        description: "SeaweedFS version to install (without 'v' prefix)."
+        type: str
+        default: "3.88"
+      ambar_bin_dir:
+        description: "Directory for the seaweedfs binary."
+        type: str
+        default: "/usr/local/bin"
+      ambar_user:
+        description: "System user for the seaweedfs service."
+        type: str
+        default: "seaweedfs"
+      ambar_group:
+        description: "System group for the seaweedfs service."
+        type: str
+        default: "seaweedfs"
+      ambar_data_dir:
+        description: "Data directory for seaweedfs state."
+        type: str
+        default: "/var/lib/seaweedfs"
+      ambar_master_mode:
+        description: "Run as master server (single node in cluster)."
+        type: bool
+        default: false
+      ambar_master_port:
+        description: "Port for master server API."
+        type: int
+        default: 9333
+      ambar_master_dir_heartbeat_interval_seconds:
+        description: "Interval for master heartbeat from volume servers."
+        type: int
+        default: 10
+      ambar_volume_max_count:
+        description: "Maximum number of volumes (0 = unlimited)."
+        type: int
+        default: 0
+      ambar_master_ldap_server:
+        description: "LDAP server host for master server."
+        type: str
+        default: ""
+      ambar_master_ldap_base:
+        description: "LDAP base DN."
+        type: str
+        default: ""
+      ambar_master_ldap_user:
+        description: "LDAP bind DN."
+        type: str
+        default: ""
+      ambar_master_ldap_password:
+        description: "LDAP password (should come from Vault)."
+        type: str
+        default: ""
+        no_log: true
+      ambar_master_ldap_server_url:
+        description: "LDAP server URL (ldap:// or ldaps://)."
+        type: str
+        default: ""
+      ambar_master_ldap_tls_enabled:
+        description: "Enable LDAP TLS."
+        type: bool
+        default: false
+      ambar_master_ldap_tls_skip_verify:
+        description: "Skip LDAP TLS verification."
+        type: bool
+        default: false
+      ambar_volume_mode:
+        description: "Run as volume server (storage nodes)."
+        type: bool
+        default: false
+      ambar_volume_port:
+        description: "Port for volume server."
+        type: int
+        default: 8080
+      ambar_volume_max:
+        description: "Maximum storage in GB per volume server."
+        type: int
+        default: 50
+      ambar_volume_dir:
+        description: "Directory for volume data."
+        type: str
+        default: "/var/lib/seaweedfs/volume"
+      ambar_volume_size_unit_mb:
+        description: "Size limit for each volume file in MB."
+        type: int
+        default: 2048
+      ambar_s3_gateway_enabled:
+        description: "Enable S3 API gateway on this node."
+        type: bool
+        default: false
+      ambar_s3_gateway_port:
+        description: "Port for S3 gateway API."
+        type: int
+        default: 9000
+      ambar_s3_gateway_access_key:
+        description: "S3 access key (should come from Vault)."
+        type: str
+        default: ""
+        no_log: false
+      ambar_s3_gateway_secret_key:
+        description: "S3 secret key (should come from Vault)."
+        type: str
+        default: ""
+        no_log: true
+      ambar_s3_gateway_bucket:
+        description: "Default bucket name."
+        type: str
+        default: "loki"
+      ambar_s3_gateway_read_only:
+        description: "Run S3 gateway in read-only mode."
+        type: bool
+        default: false
+      ambar_s3_gateway_root_accessible:
+        description: "Allow root bucket access."
+        type: bool
+        default: false
+      ambar_s3_gateway_region:
+        description: "S3 region string (e.g., us-east-1)."
+        type: str
+        default: ""
+      ambar_s3_gateway_backend:
+        description: "S3 backend type: none, ceph, cos, azure, alibabacloud."
+        type: str
+        choices:
+          - none
+          - ceph
+          - cos
+          - azure
+          - alibabacloud
+        default: "none"
+      ambar_s3_gateway_endpoint:
+        description: "S3-compatible endpoint URL (for non-local backends)."
+        type: str
+        default: ""
+      ambar_fitness_mode:
+        description: "Run fitness server."
+        type: bool
+        default: false
+      ambar_fitness_port:
+        description: "Port for fitness server."
+        type: int
+        default: 9334
+      ambar_fitness_delete_monitor_sec:
+        description: "Delete monitor interval in seconds."
+        type: int
+        default: 600
+      ambar_listen_host:
+        description: "Network address to bind to."
+        type: str
+        default: "0.0.0.0"
+      ambar_gc_interval_seconds:
+        description: "Garbage collection interval in seconds."
+        type: int
+        default: 600
+      ambar_gc_delete_delay:
+        description: "Delay before deleting expired volumes."
+        type: str
+        default: "30m"
+      ambar_verbosity:
+        description: "Log verbosity level."
+        type: int
+        default: 0
+      ambar_service_enabled:
+        description: "Enable seaweedfs to start at boot."
+        type: bool
+        default: true
+      ambar_service_state:
+        description: "Desired state of seaweedfs service."
+        type: str
+        choices:
+          - started
+          - stopped
+          - restarted
+          - reloaded
+        default: "started"
+      ambar_nginx_reverse_proxy_enabled:
+        description: "Deploy nginx reverse proxy for S3 API."
+        type: bool
+        default: false
+      ambar_nginx_reverse_proxy_server_name:
+        description: "Server name for nginx reverse proxy."
+        type: str
+        default: "s3.<fqdn>"
+      ambar_nginx_reverse_proxy_ssl_certificate:
+        description: "Path to SSL certificate for nginx reverse proxy."
+        type: str
+        default: ""
+      ambar_nginx_reverse_proxy_ssl_certificate_key:
+        description: "Path to SSL key for nginx reverse proxy."
+        type: str
+        default: ""

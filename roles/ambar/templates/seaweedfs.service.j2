@@ -1,0 +1,29 @@
+[Unit]
+Description=SeaweedFS distributed storage system
+Documentation=https://github.com/seaweedfs/seaweedfs
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ ambar_user }}
+Group={{ ambar_group }}
+ExecStart={{ ambar_bin_dir }}/seaweedfs server {{ ambar_config_args }}
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=seaweedfs
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths={{ ambar_data_dir }} /var/run/seaweedfs
+PrivateTmp=true
+
+# Resource limits
+LimitNOFILE={{ ambar_limit_nofile | default(65536) }}
+
+[Install]
+WantedBy=multi-user.target

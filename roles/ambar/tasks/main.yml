@@ -1,0 +1,14 @@
+---
+# tasks file for ambar
+
+- name: Include install tasks
+  ansible.builtin.include_tasks:
+    file: install.yml
+
+- name: Include configure tasks
+  ansible.builtin.include_tasks:
+    file: configure.yml
+
+- name: Include service tasks
+  ansible.builtin.include_tasks:
+    file: service.yml

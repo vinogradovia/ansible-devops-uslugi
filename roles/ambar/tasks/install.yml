@@ -1,0 +1,53 @@
+---
+# install | Install ambar binary
+
+- name: "[install] Проверить наличие бинарника ambar"
+  ansible.builtin.stat:
+    path: "{{ ambar_bin_dir }}/seaweedfs"
+  register: ambar_bin_stat
+  tags: [install]
+
+- name: "[install] Пропустить установку, если бинарник уже установлен"
+  ansible.builtin.meta: end_play
+  when: ambar_bin_stat.stat.exists
+  tags: [install]
+
+- name: "[install] Установить пакеты, необходимые для загрузки бинарника"
+  ansible.builtin.apt:
+    name:
+      - curl
+      - ca-certificates
+      - coreutils
+    state: present
+    update_cache: true
+  tags: [install]
+
+- name: "[install] Скачать бинарник ambar"
+  ansible.builtin.get_url:
+    url: "{{ ambar_download_url }}"
+    dest: "/tmp/{{ ambar_github_os }}_{{ ambar_arch }}.tar.gz"
+    mode: '0644'
+    checksum: "{{ 'sha256:' + ambar_checksum if ambar_checksum != '' else '' }}"
+  tags: [install]
+
+- name: "[install] Распаковать бинарник ambar"
+  ansible.builtin.unarchive:
+    src: "/tmp/{{ ambar_github_os }}_{{ ambar_arch }}.tar.gz"
+    dest: "/tmp"
+    remote_src: true
+  tags: [install]
+
+- name: "[install] Установить бинарник ambar"
+  ansible.builtin.copy:
+    src: "/tmp/weed"
+    dest: "{{ ambar_bin_dir }}/seaweedfs"
+    mode: '0755'
+    backup: true
+    remote_src: true
+  tags: [install]
+
+- name: "[install] Очистить временные файлы"
+  ansible.builtin.file:
+    path: "/tmp/{{ ambar_github_os }}_{{ ambar_arch }}.tar.gz"
+    state: absent
+  tags: [install]

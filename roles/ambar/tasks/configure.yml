@@ -1,0 +1,101 @@
+---
+# configure | Deploy ambar configuration
+
+# --- Create user/group ---
+- name: "[configure] Создать группу ambar"
+  ansible.builtin.group:
+    name: "{{ ambar_group }}"
+    system: true
+    state: present
+  tags: [install]
+
+- name: "[configure] Создать пользователя ambar"
+  ansible.builtin.user:
+    name: "{{ ambar_user }}"
+    group: "{{ ambar_group }}"
+    system: true
+    shell: /usr/sbin/nologin
+    createhome: false
+    state: present
+  tags: [install]
+
+# --- Create directories ---
+- name: "[configure] Создать каталог данных ambar"
+  ansible.builtin.file:
+    path: "{{ ambar_data_dir }}"
+    state: directory
+    owner: "{{ ambar_user }}"
+    group: "{{ ambar_group }}"
+    mode: '0755'
+  tags: [install]
+
+- name: "[configure] Создать каталог volume data"
+  ansible.builtin.file:
+    path: "{{ ambar_volume_dir }}"
+    state: directory
+    owner: "{{ ambar_user }}"
+    group: "{{ ambar_group }}"
+    mode: '0755'
+  tags: [install]
+
+- name: "[configure] Создать каталог для PID-файла"
+  ansible.builtin.file:
+    path: /var/run/seaweedfs
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  tags: [install]
+
+# --- Deploy systemd unit ---
+- name: "[configure] Debug: ambar_config_args и ambar_s3_gateway_enabled"
+  ansible.builtin.debug:
+    msg: "config_args={{ ambar_config_args }} | s3_enabled={{ ambar_s3_gateway_enabled }} | s3_port={{ ambar_s3_gateway_port }}"
+  tags: [config]
+
+- name: "[configure] Развернуть systemd unit ambar"
+  ansible.builtin.template:
+    src: seaweedfs.service.j2
+    dest: /etc/systemd/system/seaweedfs.service
+    owner: root
+    group: root
+    mode: '0644'
+    backup: true
+  notify:
+    - Reload systemd
+    - Restart ambar
+  tags: [config]
+
+- name: "[configure] Показать ExecStart из service file на хосте"
+  ansible.builtin.command: cat /etc/systemd/system/seaweedfs.service
+  register: ambar_service_file_content
+  changed_when: false
+  tags: [config]
+
+- name: "[configure] Debug ExecStart из service file"
+  ansible.builtin.debug:
+    msg: "{{ ambar_service_file_content.stdout_lines }}"
+  tags: [config]
+
+# --- Nginx reverse proxy для S3 API ---
+- name: "[configure] Проверить наличие nginx reverse proxy (опционально)"
+  ansible.builtin.stat:
+    path: /etc/nginx/nginx.conf
+  register: ambar_nginx_exists
+  when: ambar_nginx_reverse_proxy_enabled
+  tags: [config]
+
+- name: "[configure] Развернуть nginx reverse proxy для S3 API"
+  ansible.builtin.template:
+    src: seaweedfs-s3-nginx.j2
+    dest: /etc/nginx/conf.d/seaweedfs-s3.conf
+    owner: root
+    group: root
+    mode: '0644'
+    backup: true
+  notify:
+    - Reload nginx
+  when:
+    - ambar_nginx_reverse_proxy_enabled
+    - ambar_nginx_exists is changed or ambar_nginx_exists.stat.exists | default(false)
+  tags: [config]

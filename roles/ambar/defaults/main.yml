@@ -1,0 +1,86 @@
+---
+# defaults file for ambar
+#
+# Только Debian/Ubuntu (apt) — аналогично docker, infra_dns, postgresql.
+# SeaweedFS ставится статическим бинарником с GitHub Releases.
+
+# Выключатель: если false, роль не применяется на хосте.
+ambar_enabled: false
+
+# Версия SeaweedFS (без `v`-префикса).
+ambar_version: "4.48"
+
+# Каталог для бинарника.
+ambar_bin_dir: /usr/local/bin
+
+# Системный пользователь и группа под которыми работает сервис.
+ambar_user: seaweedfs
+ambar_group: seaweedfs
+
+# Каталог данных.
+ambar_data_dir: /var/lib/seaweedfs
+
+# Каталог для PID-файла (systemd user-mode не нужен, используем system-mode).
+ambar_pid_file: /var/run/seaweedfs/seaweedfs.pid
+
+# Конфигурация master server.
+ambar_master_mode: false  # true на одном узле кластера — master.
+ambar_master_port: 9333
+ambar_master_dir_heartbeat_interval_seconds: 10
+ambar_volume_max_count: 0  # 0 = без ограничений.
+ambar_master_ldap_server: ""  # пустой = без LDAP.
+ambar_master_ldap_base: ""
+ambar_master_ldap_user: ""
+ambar_master_ldap_password: ""
+ambar_master_ldap_server_url: ""
+ambar_master_ldap_tls_enabled: false
+ambar_master_ldap_tls_skip_verify: false
+
+# Конфигурация volume server.
+ambar_volume_mode: false  # true на узлах-хранилищах.
+ambar_volume_port: 8080
+ambar_volume_max: 50  # max GB на volume server.
+ambar_volume_dir: "{{ ambar_data_dir }}/volume"
+ambar_volume_size_unit_mb: 2048  # 2GB per volume file.
+
+# Конфигурация S3 gateway.
+ambar_s3_gateway_enabled: false  # S3 API на том же порту что volume (port + 1000 по умолчанию).
+ambar_s3_gateway_port: 9000
+ambar_s3_gateway_access_key: ""  # должен быть задан при включении.
+ambar_s3_gateway_secret_key: ""  # должен быть задан при включении.
+ambar_s3_gateway_bucket: "loki"  # дефолтный бакет.
+ambar_s3_gateway_read_only: false
+ambar_s3_gateway_root_accessible: false
+ambar_s3_gateway_region: ""
+ambar_s3_gateway_backend: "none"  # "none" | "ceph" | "cos" | "azure" | "alibabacloud"
+ambar_s3_gateway_endpoint: ""  # для S3-compatible бэкендов.
+
+# Конфигурация fitness server.
+ambar_fitness_mode: false
+ambar_fitness_port: 9334
+ambar_fitness_delete_monitor_sec: 600
+
+# Network: адрес который слушать.
+ambar_listen_host: "0.0.0.0"
+
+# Tuning: garbage collection.
+ambar_gc_interval_seconds: 600
+ambar_gc_delete_delay: "30m"
+
+# Логирование.
+ambar_verbosity: 0
+
+# Системный сервис.
+ambar_service_enabled: true
+ambar_service_state: started
+
+# Аргументы командной строки для weed server (переопределять только если нужно).
+# Формат: weed server [flags] — субкоманда server объединяет master + volume + filer + s3.
+# Пример для single-node: -master -dir=/var/lib/seaweedfs/volume -s3
+ambar_config_args: "-dir={{ ambar_volume_dir }} -master.port={{ ambar_master_port }} -master.heartbeatInterval={{ ambar_master_dir_heartbeat_interval_seconds }}s -s3 -s3.port={{ ambar_s3_gateway_port }}"
+
+# Прокси: если включено, рендерит nginx reverse-proxy конфигурацию для S3 API.
+ambar_nginx_reverse_proxy_enabled: false
+ambar_nginx_reverse_proxy_server_name: "s3.{{ ansible_fqdn | default('localhost') }}"
+ambar_nginx_reverse_proxy_ssl_certificate: ""
+ambar_nginx_reverse_proxy_ssl_certificate_key: ""

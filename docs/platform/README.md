@@ -43,6 +43,7 @@ PR/прогоне, а изменения в существующем компо�
 | infra-panel | Дашборд-стартовая страница (k3s-путь роли `infra_panel`) | [infra-panel.md](infra-panel.md) | реализовано, оба окружения |
 | monitoring (VictoriaMetrics + Grafana) | Self-мониторинг самого k3s-кластера платформы | [monitoring.md](monitoring.md) | реализовано, оба окружения |
 | agent-platform | Локальный LLM-инференс + гейтвей (ADR-0015/0021) | [agent-platform.md](agent-platform.md) | пилот (Фаза 1), только `platform/aicd-devops-labs-ru` |
+| SeaweedFS | S3-совместимое распределённое хранилище (systemd, вне k3s) | [seaweedfs.md](seaweedfs.md) | роль коллекции, оба окружения |
 
 ## Сквозные схемы (не отдельные компоненты)
 
