@@ -77,7 +77,20 @@ ambar_service_state: started
 # Аргументы командной строки для weed server (переопределять только если нужно).
 # Формат: weed server [flags] — субкоманда server объединяет master + volume + filer + s3.
 # Пример для single-node: -master -dir=/var/lib/seaweedfs/volume -s3
-ambar_config_args: "-dir={{ ambar_volume_dir }} -master.port={{ ambar_master_port }} -master.heartbeatInterval={{ ambar_master_dir_heartbeat_interval_seconds }}s -s3 -s3.port={{ ambar_s3_gateway_port }}"
+# S3-ключи передаются через -s3.accessKey/-s3.secretKey (единые для всех клиентов),
+# defaultBucket задаёт bucket по умолчанию для S3-клиентов, которые не указывают bucket явно.
+ambar_config_args: >-
+  -dir={{ ambar_volume_dir }}
+  -master.port={{ ambar_master_port }}
+  -master.heartbeatInterval={{ ambar_master_dir_heartbeat_interval_seconds }}s
+  -s3 -s3.port={{ ambar_s3_gateway_port }}
+  {% if ambar_s3_gateway_enabled and ambar_s3_gateway_access_key and ambar_s3_gateway_secret_key %}
+  -s3.accessKey={{ ambar_s3_gateway_access_key }}
+  -s3.secretKey={{ ambar_s3_gateway_secret_key }}
+  {% endif %}
+  {% if ambar_s3_gateway_enabled and ambar_s3_gateway_bucket %}
+  -s3.defaultBucket={{ ambar_s3_gateway_bucket }}
+  {% endif %}
 
 # Прокси: если включено, рендерит nginx reverse-proxy конфигурацию для S3 API.
 ambar_nginx_reverse_proxy_enabled: false
