@@ -1685,6 +1685,26 @@ mysql_replication/` и `extensions/molecule/proxysql/` (не входят в э�
     site.yml` на обоих окружениях — убедиться, что реальный рендер с `--templater gomplate` и
     обращением к живому OpenBao проходит из новых путей так же, как раньше из общего `helm/`.
 
+72. **cert-manager — выкатить на остальные окружения.** Первый раз установлен на клиентском
+    окружении `wavemessenger-infra` (k3s `wave`, 2026-10-07): Helm-чарт `jetstack/cert-manager`
+    `v1.21.2`, release `cert-manager`/namespace `cert-manager`, `crds.enabled: true` +
+    `crds.keep: true` (CRD не удаляются при `helm uninstall`), requests/limits на все три
+    компонента (controller/webhook/cainjector); `helmwave up --tags cert-manager` — 3 пода
+    `Running`, 6 CRD `*.cert-manager.io`. Issuer/ClusterIssuer там пока не заведены.
+
+    **Не сделано — окружения `platform/aicd`, `platform/aicd-devops-labs-ru`** (и новые клиентские
+    репозитории по `client-onboarding`): добавить репозиторий `jetstack`
+    (`https://charts.jetstack.io`) и release в `helm/envs/*.yaml`, `helm/values/releases_common/
+    cert-manager.yaml`, живой прогон. Перед этим решить вопросы, которых у `wave` нет:
+    - **Связь с ADR-0016** (§4 «TLS через PKI secrets engine, без cert-manager»): там cert-manager
+      отвергнут, т.к. Let's Encrypt недоступен на приватной сети, а issuance идёт через OpenBao
+      PKI + ansible. Либо cert-manager ставится с `ClusterIssuer` типа `vault` (OpenBao PKI как
+      backend — дополняет ADR-0016, не заменяет), либо ADR-0016 пересматривается. Нужен ADR.
+    - **Связь с №56** (`trust-manager`): ставится поверх cert-manager, решать вместе.
+    - Соответствие чек-листу ADR-0022 (метрики через `VMServiceScrape`, docs-site, ресурсы).
+    - Какие компоненты первыми переходят на `Certificate` CRD (Traefik/Ingress, внутренний
+      TLS Gitea/Nexus/Semaphore — сейчас сертификаты выпускает ansible).
+
 ---
 
 ## Предлагаемая последовательность работ
