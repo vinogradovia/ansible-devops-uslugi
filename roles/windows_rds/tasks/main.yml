@@ -34,39 +34,81 @@
       tags:
         - install
 
+    - name: Write the session deployment script
+      when: windows_rds_deploy
+      ansible.windows.win_copy:
+        dest: C:\Windows\Temp\rds-deploy.ps1
+        content: |
+          $ErrorActionPreference = 'Stop'
+          $log = 'C:\Windows\Temp\rds-deploy.log'
+          function Note($m) { Add-Content -Path $log -Value ((Get-Date -Format o) + ' ' + $m) }
+          try {
+            Import-Module RemoteDesktop
+            $broker = '{{ windows_rds_broker }}'
+            $hosts = @('{{ windows_rds_session_hosts | join("','") }}')
+            $deployment = $null
+            try { $deployment = @(Get-RDServer -ConnectionBroker $broker) } catch { $deployment = $null }
+            if (-not $deployment) {
+              Note 'creating deployment'
+              New-RDSessionDeployment -ConnectionBroker $broker -SessionHost $hosts[0] -WebAccessServer '{{ windows_rds_web_access }}'
+            }
+            foreach ($sessionHost in $hosts) {
+              $present = @(Get-RDServer -ConnectionBroker $broker -ErrorAction SilentlyContinue |
+                Where-Object { $_.Server -eq $sessionHost -and $_.Roles -contains 'RDS-RD-SERVER' })
+              if ($present.Count -eq 0) {
+                Note ('adding ' + $sessionHost)
+                Add-RDServer -Server $sessionHost -Role RDS-RD-SERVER -ConnectionBroker $broker
+              }
+            }
+            $collection = Get-RDSessionCollection -CollectionName '{{ windows_rds_collection }}' -ConnectionBroker $broker -ErrorAction SilentlyContinue
+            if (-not $collection) {
+              Note 'creating collection'
+              New-RDSessionCollection -CollectionName '{{ windows_rds_collection }}' -SessionHost $hosts -ConnectionBroker $broker -CollectionDescription 'Office desktops'
+            } else {
+              $members = @((Get-RDSessionHost -CollectionName '{{ windows_rds_collection }}' -ConnectionBroker $broker).SessionHost)
+              foreach ($sessionHost in $hosts) {
+                if ($members -notcontains $sessionHost) {
+                  Note ('adding host ' + $sessionHost)
+                  Add-RDSessionHost -CollectionName '{{ windows_rds_collection }}' -SessionHost $sessionHost -ConnectionBroker $broker
+                }
+              }
+            }
+            $license = @(Get-RDServer -ConnectionBroker $broker | Where-Object { $_.Server -eq $broker -and $_.Roles -contains 'RDS-LICENSING' })
+            if ($license.Count -eq 0) {
+              Add-RDServer -Server $broker -Role RDS-LICENSING -ConnectionBroker $broker
+            }
+            Set-RDLicenseConfiguration -LicenseServer $broker -Mode {{ windows_rds_license_mode }} -ConnectionBroker $broker -Force
+            Note 'done'
+          } catch {
+            Note ('ERROR ' + $_.Exception.Message)
+            exit 1
+          }
+      tags:
+        - config
+
+    # The RDS cmdlets open their own WinRM session. A playbook session cannot
+    # delegate that second hop, so the script runs as a local scheduled task.
     - name: Deploy the session collection
       when: windows_rds_deploy
+      no_log: true
+      environment:
+        RDS_TASK_PASSWORD: "{{ ansible_password }}"
       ansible.windows.win_shell: |
-        Import-Module RemoteDesktop
-        $broker = '{{ windows_rds_broker }}'
-        $hosts = @('{{ windows_rds_session_hosts | join("','") }}')
         $ErrorActionPreference = 'Stop'
-        $deployment = Get-RDSessionDeployment -ConnectionBroker $broker -ErrorAction SilentlyContinue
-        if (-not $deployment) {
-          New-RDSessionDeployment -ConnectionBroker $broker -SessionHost $hosts[0] -WebAccessServer '{{ windows_rds_web_access }}'
-        }
-        foreach ($sessionHost in $hosts) {
-          $present = @(Get-RDServer -ConnectionBroker $broker -ErrorAction SilentlyContinue |
-            Where-Object { $_.Server -eq $sessionHost -and $_.Roles -contains 'RDS-RD-SERVER' })
-          if ($present.Count -eq 0) {
-            Add-RDServer -Server $sessionHost -Role RDS-RD-SERVER -ConnectionBroker $broker
-          }
-        }
-        $collection = Get-RDSessionCollection -CollectionName '{{ windows_rds_collection }}' -ConnectionBroker $broker -ErrorAction SilentlyContinue
-        if (-not $collection) {
-          New-RDSessionCollection -CollectionName '{{ windows_rds_collection }}' -SessionHost $hosts -ConnectionBroker $broker -CollectionDescription 'Office desktops'
-        } else {
-          $members = @((Get-RDSessionHost -CollectionName '{{ windows_rds_collection }}' -ConnectionBroker $broker).SessionHost)
-          foreach ($sessionHost in $hosts) {
-            if ($members -notcontains $sessionHost) {
-              Add-RDSessionHost -CollectionName '{{ windows_rds_collection }}' -SessionHost $sessionHost -ConnectionBroker $broker
-            }
-          }
-        }
-        $license = @(Get-RDServer -ConnectionBroker $broker | Where-Object { $_.Server -eq $broker -and $_.Roles -contains 'RDS-LICENSING' })
-        if ($license.Count -eq 0) {
-          Add-RDServer -Server $broker -Role RDS-LICENSING -ConnectionBroker $broker
-        }
-        Set-RDLicenseConfiguration -LicenseServer $broker -Mode {{ windows_rds_license_mode }} -ConnectionBroker $broker -Force
+        Remove-Item C:\Windows\Temp\rds-deploy.log -ErrorAction SilentlyContinue
+        $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -ExecutionPolicy Bypass -File C:\Windows\Temp\rds-deploy.ps1'
+        Register-ScheduledTask -TaskName 'rds-deploy' -Action $action -User '{{ ansible_user }}' -Password $env:RDS_TASK_PASSWORD -RunLevel Highest -Force | Out-Null
+        Start-ScheduledTask -TaskName 'rds-deploy'
+        $deadline = (Get-Date).AddMinutes(12)
+        $text = ''
+        do {
+          Start-Sleep -Seconds 5
+          if (Test-Path C:\Windows\Temp\rds-deploy.log) { $text = Get-Content C:\Windows\Temp\rds-deploy.log -Raw }
+        } until ($text -match 'done|ERROR' -or (Get-Date) -gt $deadline)
+        Unregister-ScheduledTask -TaskName 'rds-deploy' -Confirm:$false -ErrorAction SilentlyContinue
+        if ($text -notmatch '(?m)done\s*$') { throw "RDS deployment failed: $text" }
+        $text
+      async: 900
+      poll: 15
       tags:
         - config

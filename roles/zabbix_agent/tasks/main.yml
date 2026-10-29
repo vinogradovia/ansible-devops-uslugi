@@ -5,59 +5,49 @@
     - name: Install the Linux agent
       when: ansible_os_family != "Windows"
       block:
-        - name: Download the static agent
+        - name: Remove the static-agent unit
+          ansible.builtin.file:
+            path: /etc/systemd/system/zabbix-agent2.service
+            state: absent
+          tags:
+            - install
+
+        - name: Download the Zabbix repository package
           ansible.builtin.get_url:
-            url: "https://cdn.zabbix.com/zabbix/binaries/stable/7.0/{{ zabbix_agent_version }}/zabbix_agent2-{{ zabbix_agent_version }}-linux-amd64-static.tar.gz"
-            dest: /tmp/zabbix-agent2.tar.gz
+            url: https://repo.zabbix.com/zabbix/7.0/debian/pool/main/z/zabbix-release/zabbix-release_latest_7.0+debian13_all.deb
+            dest: /tmp/zabbix-release.deb
             mode: "0644"
           tags:
             - install
 
-        - name: Unpack the agent
+        - name: Install the Zabbix repository and agent
           ansible.builtin.shell: |
             set -eu
-            tar -C /usr/local -xzf /tmp/zabbix-agent2.tar.gz
-            if [ ! -x /usr/local/sbin/zabbix_agent2 ]; then
-              bin=$(find /usr/local -type f -name zabbix_agent2 | head -1)
-              install -m 0755 "$bin" /usr/local/sbin/zabbix_agent2
-            fi
+            dpkg -i /tmp/zabbix-release.deb
+            list=$(ls /etc/apt/sources.list.d/zabbix*.list | head -1)
+            apt-get update -o Dir::Etc::sourcelist="$list" -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0
+            apt-get install -y zabbix-agent2
           args:
-            creates: /usr/local/sbin/zabbix_agent2
+            creates: /usr/sbin/zabbix_agent2
           tags:
             - install
 
-        - name: Write the agent config
-          ansible.builtin.copy:
-            dest: /usr/local/etc/zabbix_agent2.conf
-            mode: "0644"
-            content: |
-              Server={{ zabbix_agent_server }}
-              ServerActive={{ zabbix_agent_server }}
-              Hostname={{ zabbix_agent_hostname }}
-              ListenPort=10050
-          tags:
-            - config
-
-        - name: Install the systemd unit
-          ansible.builtin.copy:
-            dest: /etc/systemd/system/zabbix-agent2.service
-            mode: "0644"
-            content: |
-              [Unit]
-              Description=Zabbix Agent 2
-              After=network-online.target
-              [Service]
-              ExecStart=/usr/local/sbin/zabbix_agent2 -c /usr/local/etc/zabbix_agent2.conf
-              Restart=on-failure
-              [Install]
-              WantedBy=multi-user.target
+        - name: Point the agent at the Zabbix server
+          ansible.builtin.lineinfile:
+            path: /etc/zabbix/zabbix_agent2.conf
+            regexp: "^{{ item.key }}="
+            line: "{{ item.key }}={{ item.value }}"
+          loop:
+            - { key: Server, value: "{{ zabbix_agent_server }}" }
+            - { key: ServerActive, value: "{{ zabbix_agent_server }}" }
+            - { key: Hostname, value: "{{ zabbix_agent_hostname }}" }
           tags:
             - config
 
         - name: Start the agent
           ansible.builtin.systemd:
             name: zabbix-agent2
-            state: started
+            state: restarted
             enabled: true
             daemon_reload: true
           tags:

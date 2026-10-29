@@ -76,8 +76,15 @@
       ansible.windows.win_shell: |
         $ErrorActionPreference = 'Stop'
         if (Test-Path 'C:\Program Files\FSLogix\Apps\frxsvc.exe') { exit 0 }
-        $setup = '{{ windows_fslogix_sysvol }}\FSLogixAppsSetup.exe'
-        if (-not (Test-Path $setup)) { throw "FSLogix setup is not in SYSVOL yet: $setup" }
+        $dest = 'C:\Windows\Temp\fslogix.zip'
+        $extract = 'C:\Windows\Temp\fslogix'
+        if (-not (Test-Path "$extract\FSLogixAppsSetup.exe")) {
+          Invoke-WebRequest -Uri '{{ windows_fslogix_download_url }}' -OutFile $dest
+          if (Test-Path $extract) { Remove-Item $extract -Recurse -Force }
+          Expand-Archive -Path $dest -DestinationPath $extract
+        }
+        $setup = (Get-ChildItem -Path $extract -Recurse -Filter FSLogixAppsSetup.exe | Select-Object -First 1).FullName
+        if (-not $setup) { throw 'FSLogixAppsSetup.exe was not in the archive' }
         Start-Process -FilePath $setup -ArgumentList '/install /quiet /norestart' -Wait
         if (-not (Test-Path 'C:\Program Files\FSLogix\Apps\frxsvc.exe')) { throw 'FSLogix service file is missing after setup' }
       tags:

@@ -21,7 +21,7 @@
 
     - name: Promote the first domain controller
       when: windows_ad_ds_promote
-      ansible.windows.win_domain:
+      microsoft.ad.domain:
         dns_domain_name: "{{ windows_ad_ds_domain }}"
         safe_mode_password: "{{ windows_ad_ds_safe_mode_password }}"
         create_dns_delegation: false
@@ -50,7 +50,7 @@
 
     - name: Promote the replica domain controller
       when: windows_ad_ds_replica
-      ansible.windows.win_domain_controller:
+      microsoft.ad.domain_controller:
         dns_domain_name: "{{ windows_ad_ds_domain }}"
         domain_admin_user: "{{ windows_ad_ds_domain_admin_user }}"
         domain_admin_password: "{{ windows_ad_ds_domain_admin_password }}"

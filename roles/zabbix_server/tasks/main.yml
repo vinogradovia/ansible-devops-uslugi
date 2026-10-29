@@ -107,6 +107,11 @@
               id: 1
           register: zabbix_server_factory
 
+        - name: Show the factory login error
+          when: zabbix_server_factory.json.result is not defined
+          ansible.builtin.fail:
+            msg: "{{ zabbix_server_factory.json.error | default(zabbix_server_factory) }}"
+
         - name: Set the admin password
           ansible.builtin.uri:
             url: http://127.0.0.1/api_jsonrpc.php
