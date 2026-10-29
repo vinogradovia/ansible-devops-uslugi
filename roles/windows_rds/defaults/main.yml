@@ -1,0 +1,10 @@
+---
+windows_rds_enabled: false
+windows_rds_deploy: false
+windows_rds_broker: rds-broker.ad.rusagricom.ru
+windows_rds_collection: Office
+windows_rds_session_hosts:
+  - rds1.ad.rusagricom.ru
+  - rds2.ad.rusagricom.ru
+windows_rds_web_access: rds-broker.ad.rusagricom.ru
+windows_rds_license_mode: PerUser

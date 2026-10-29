@@ -1,0 +1,73 @@
+---
+- name: Prepare the profile share
+  when: truenas_profiles_enabled
+  delegate_to: localhost
+  become: false
+  block:
+    - name: Refuse to call TrueNAS without a password
+      when: truenas_profiles_password | length == 0
+      ansible.builtin.fail:
+        msg: TrueNAS admin password is empty
+
+    - name: Create the profiles dataset
+      ansible.builtin.uri:
+        url: "{{ truenas_profiles_url }}/api/v2.0/pool/dataset"
+        method: POST
+        url_username: "{{ truenas_profiles_user }}"
+        url_password: "{{ truenas_profiles_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ truenas_profiles_validate_certs }}"
+        status_code: [200, 422]
+        body_format: json
+        body:
+          name: "{{ truenas_profiles_dataset }}"
+          share_type: SMB
+      register: truenas_profiles_dataset_result
+      failed_when: >
+        truenas_profiles_dataset_result.status == 422 and
+        ('already exists' not in (truenas_profiles_dataset_result.json | string))
+      tags:
+        - config
+
+    - name: Publish the profiles share
+      ansible.builtin.uri:
+        url: "{{ truenas_profiles_url }}/api/v2.0/sharing/smb"
+        method: POST
+        url_username: "{{ truenas_profiles_user }}"
+        url_password: "{{ truenas_profiles_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ truenas_profiles_validate_certs }}"
+        status_code: [200, 422]
+        body_format: json
+        body:
+          name: "{{ truenas_profiles_share }}"
+          path: "/mnt/{{ truenas_profiles_dataset }}"
+          purpose: DEFAULT_SHARE
+      register: truenas_profiles_share_result
+      failed_when: >
+        truenas_profiles_share_result.status == 422 and
+        ('already exists' not in (truenas_profiles_share_result.json | string) and
+         'unique' not in (truenas_profiles_share_result.json | string))
+      tags:
+        - config
+
+    - name: Join the domain for the profile ACL
+      when: truenas_profiles_bind_password | length > 0
+      ansible.builtin.uri:
+        url: "{{ truenas_profiles_url }}/api/v2.0/activedirectory"
+        method: PUT
+        url_username: "{{ truenas_profiles_user }}"
+        url_password: "{{ truenas_profiles_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ truenas_profiles_validate_certs }}"
+        status_code: [200]
+        body_format: json
+        body:
+          domainname: "{{ truenas_profiles_domain }}"
+          bindname: "{{ truenas_profiles_bind_user }}"
+          bindpw: "{{ truenas_profiles_bind_password }}"
+          enable: true
+          netbiosname: TRUENAS
+          use_default_domain: true
+      tags:
+        - config

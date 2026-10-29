@@ -1,0 +1,79 @@
+---
+- name: Install the Zabbix agent
+  when: zabbix_agent_enabled
+  block:
+    - name: Install the Linux agent
+      when: ansible_os_family != "Windows"
+      block:
+        - name: Download the static agent
+          ansible.builtin.get_url:
+            url: "https://cdn.zabbix.com/zabbix/binaries/stable/7.0/{{ zabbix_agent_version }}/zabbix_agent2-{{ zabbix_agent_version }}-linux-amd64-static.tar.gz"
+            dest: /tmp/zabbix-agent2.tar.gz
+            mode: "0644"
+          tags:
+            - install
+
+        - name: Unpack the agent
+          ansible.builtin.shell: |
+            set -eu
+            tar -C /usr/local -xzf /tmp/zabbix-agent2.tar.gz
+            if [ ! -x /usr/local/sbin/zabbix_agent2 ]; then
+              bin=$(find /usr/local -type f -name zabbix_agent2 | head -1)
+              install -m 0755 "$bin" /usr/local/sbin/zabbix_agent2
+            fi
+          args:
+            creates: /usr/local/sbin/zabbix_agent2
+          tags:
+            - install
+
+        - name: Write the agent config
+          ansible.builtin.copy:
+            dest: /usr/local/etc/zabbix_agent2.conf
+            mode: "0644"
+            content: |
+              Server={{ zabbix_agent_server }}
+              ServerActive={{ zabbix_agent_server }}
+              Hostname={{ zabbix_agent_hostname }}
+              ListenPort=10050
+          tags:
+            - config
+
+        - name: Install the systemd unit
+          ansible.builtin.copy:
+            dest: /etc/systemd/system/zabbix-agent2.service
+            mode: "0644"
+            content: |
+              [Unit]
+              Description=Zabbix Agent 2
+              After=network-online.target
+              [Service]
+              ExecStart=/usr/local/sbin/zabbix_agent2 -c /usr/local/etc/zabbix_agent2.conf
+              Restart=on-failure
+              [Install]
+              WantedBy=multi-user.target
+          tags:
+            - config
+
+        - name: Start the agent
+          ansible.builtin.systemd:
+            name: zabbix-agent2
+            state: started
+            enabled: true
+            daemon_reload: true
+          tags:
+            - config
+
+    - name: Install the Windows agent
+      when: ansible_os_family == "Windows"
+      ansible.windows.win_shell: |
+        $ErrorActionPreference = 'Stop'
+        $service = Get-Service -Name 'Zabbix Agent 2' -ErrorAction SilentlyContinue
+        if ($service) { exit 0 }
+        $msi = "$env:TEMP\zabbix-agent2.msi"
+        $url = 'https://cdn.zabbix.com/zabbix/binaries/stable/7.0/{{ zabbix_agent_version }}/zabbix_agent2-{{ zabbix_agent_version }}-windows-amd64-openssl.msi'
+        Invoke-WebRequest -Uri $url -OutFile $msi
+        $args = '/i "{0}" /qn SERVER={1} SERVERACTIVE={1} HOSTNAME={2} /l*v {3}' -f $msi, '{{ zabbix_agent_server }}', '{{ zabbix_agent_hostname }}', "$env:TEMP\zabbix-agent2.log"
+        $proc = Start-Process msiexec.exe -ArgumentList $args -Wait -PassThru
+        if ($proc.ExitCode -ne 0) { throw "msiexec exit $($proc.ExitCode)" }
+      tags:
+        - install

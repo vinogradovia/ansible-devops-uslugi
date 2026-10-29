@@ -1,0 +1,11 @@
+---
+truenas_profiles_enabled: false
+truenas_profiles_url: https://192.168.50.20
+truenas_profiles_user: truenas_admin
+truenas_profiles_password: ""
+truenas_profiles_dataset: files/profiles
+truenas_profiles_share: profiles
+truenas_profiles_domain: ad.rusagricom.ru
+truenas_profiles_bind_user: Administrator
+truenas_profiles_bind_password: ""
+truenas_profiles_validate_certs: false

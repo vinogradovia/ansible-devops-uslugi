@@ -1,0 +1,152 @@
+---
+- name: Run Zabbix
+  when: zabbix_server_enabled
+  block:
+    - name: Refuse to start without passwords
+      when: zabbix_server_db_password | length == 0 or zabbix_server_admin_password | length == 0
+      ansible.builtin.fail:
+        msg: Zabbix passwords are empty
+
+    - name: Give the guest a resolver before package installs
+      ansible.builtin.copy:
+        dest: /etc/resolv.conf
+        mode: "0644"
+        content: |
+          nameserver {{ zabbix_server_dns }}
+      tags:
+        - install
+
+    - name: Install Docker
+      ansible.builtin.shell: |
+        set -eu
+        if command -v docker >/dev/null && docker compose version >/dev/null 2>&1; then
+          exit 0
+        fi
+        dnf -y install dnf-plugins-core
+        dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+        dnf -y install docker-ce docker-ce-cli containerd.io docker-compose-plugin
+        systemctl enable --now docker
+      args:
+        creates: /usr/bin/docker
+      tags:
+        - install
+
+    - name: Ensure the compose directory exists
+      ansible.builtin.file:
+        path: /opt/zabbix
+        state: directory
+        mode: "0750"
+      tags:
+        - config
+
+    - name: Lay down the compose file
+      ansible.builtin.template:
+        src: compose.yml.j2
+        dest: /opt/zabbix/compose.yml
+        mode: "0600"
+      tags:
+        - config
+
+    - name: Start Zabbix
+      ansible.builtin.command: docker compose up -d
+      args:
+        chdir: /opt/zabbix
+      changed_when: true
+      tags:
+        - config
+
+    - name: Wait until the API answers
+      ansible.builtin.uri:
+        url: http://127.0.0.1/api_jsonrpc.php
+        method: POST
+        body_format: json
+        status_code: [200, 412]
+        body:
+          jsonrpc: "2.0"
+          method: apiinfo.version
+          params: {}
+          id: 1
+      register: zabbix_server_api
+      retries: 36
+      delay: 10
+      until: zabbix_server_api.status | default(0) == 200
+      tags:
+        - config
+
+    - name: Log in with the chosen admin password
+      ansible.builtin.uri:
+        url: http://127.0.0.1/api_jsonrpc.php
+        method: POST
+        body_format: json
+        body:
+          jsonrpc: "2.0"
+          method: user.login
+          params:
+            username: Admin
+            password: "{{ zabbix_server_admin_password }}"
+          id: 1
+      register: zabbix_server_login
+      failed_when: false
+      tags:
+        - config
+
+    - name: Replace the default admin password
+      when: zabbix_server_login.json.result is not defined
+      block:
+        - name: Log in with the factory password
+          ansible.builtin.uri:
+            url: http://127.0.0.1/api_jsonrpc.php
+            method: POST
+            body_format: json
+            body:
+              jsonrpc: "2.0"
+              method: user.login
+              params:
+                username: Admin
+                password: zabbix
+              id: 1
+          register: zabbix_server_factory
+
+        - name: Set the admin password
+          ansible.builtin.uri:
+            url: http://127.0.0.1/api_jsonrpc.php
+            method: POST
+            body_format: json
+            headers:
+              Authorization: "Bearer {{ zabbix_server_factory.json.result }}"
+            body:
+              jsonrpc: "2.0"
+              method: user.update
+              params:
+                userid: "1"
+                current_passwd: zabbix
+                passwd: "{{ zabbix_server_admin_password }}"
+              id: 2
+      tags:
+        - config
+
+    - name: Open a session for the inventory import
+      ansible.builtin.uri:
+        url: http://127.0.0.1/api_jsonrpc.php
+        method: POST
+        body_format: json
+        body:
+          jsonrpc: "2.0"
+          method: user.login
+          params:
+            username: Admin
+            password: "{{ zabbix_server_admin_password }}"
+          id: 3
+      register: zabbix_server_session
+      tags:
+        - config
+
+    - name: Import the server network
+      ansible.builtin.script: import_hosts.py
+      args:
+        executable: python3
+      environment:
+        ZABBIX_TOKEN: "{{ zabbix_server_session.json.result }}"
+        ZABBIX_HOSTS: "{{ zabbix_server_hosts | to_json }}"
+      tags:
+        - config

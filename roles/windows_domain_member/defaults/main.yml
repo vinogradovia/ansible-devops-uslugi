@@ -1,0 +1,9 @@
+---
+windows_domain_member_enabled: false
+windows_domain_member_domain: ad.rusagricom.ru
+windows_domain_member_admin_user: Administrator@ad.rusagricom.ru
+windows_domain_member_admin_password: ""
+windows_domain_member_dns:
+  - 192.168.50.10
+  - 192.168.50.11
+windows_domain_member_ou: OU=Servers,OU=RUSAGRICOM,DC=ad,DC=rusagricom,DC=ru

@@ -1,0 +1,28 @@
+---
+- name: Join the domain
+  when: windows_domain_member_enabled
+  block:
+    - name: Use the domain controllers for DNS
+      ansible.windows.win_shell: |
+        $up = @(Get-NetAdapter | Where-Object Status -eq 'Up')
+        if ($up.Count -lt 1) { throw 'no connected adapter' }
+        $up | Set-DnsClientServerAddress -ServerAddresses @('{{ windows_domain_member_dns | join("','") }}')
+      tags:
+        - config
+
+    - name: Join ad.rusagricom.ru
+      ansible.windows.win_domain_membership:
+        dns_domain_name: "{{ windows_domain_member_domain }}"
+        domain_admin_user: "{{ windows_domain_member_admin_user }}"
+        domain_admin_password: "{{ windows_domain_member_admin_password }}"
+        domain_ou_path: "{{ windows_domain_member_ou }}"
+        state: domain
+      register: windows_domain_member_join
+      tags:
+        - config
+
+    - name: Reboot into the domain
+      when: windows_domain_member_join.reboot_required | default(false)
+      ansible.windows.win_reboot:
+      tags:
+        - config

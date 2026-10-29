@@ -1,0 +1,12 @@
+---
+windows_fslogix_enabled: false
+windows_fslogix_install_agent: false
+windows_fslogix_publish_gpo: false
+windows_fslogix_share: \\192.168.50.20\profiles
+windows_fslogix_size_mb: 30720
+windows_fslogix_gpo_name: FSLogix profiles
+windows_fslogix_gpo_targets:
+  - OU=Workstations,OU=RUSAGRICOM,DC=ad,DC=rusagricom,DC=ru
+  - OU=RDS,OU=RUSAGRICOM,DC=ad,DC=rusagricom,DC=ru
+windows_fslogix_download_url: https://aka.ms/fslogix_download
+windows_fslogix_sysvol: \\ad.rusagricom.ru\SYSVOL\ad.rusagricom.ru\scripts

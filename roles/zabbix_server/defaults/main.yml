@@ -1,0 +1,34 @@
+---
+zabbix_server_enabled: false
+zabbix_server_timezone: Europe/Moscow
+zabbix_server_db_password: ""
+zabbix_server_admin_password: ""
+zabbix_server_dns: 192.168.0.98
+zabbix_server_hosts:
+  - name: zabbix
+    address: 192.168.50.30
+    agent: true
+  - name: rusagricom
+    address: 192.168.50.251
+    agent: true
+  - name: rusagricom2
+    address: 192.168.50.252
+    agent: true
+  - name: truenas
+    address: 192.168.50.20
+    agent: false
+  - name: dc1
+    address: 192.168.50.10
+    agent: true
+  - name: dc2
+    address: 192.168.50.11
+    agent: true
+  - name: rds-broker
+    address: 192.168.50.12
+    agent: true
+  - name: rds1
+    address: 192.168.50.13
+    agent: true
+  - name: rds2
+    address: 192.168.50.14
+    agent: true

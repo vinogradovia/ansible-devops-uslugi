@@ -1,0 +1,53 @@
+---
+- name: Create the office directory
+  when: windows_ad_directory_enabled
+  block:
+    - name: Create the company OU
+      ansible.windows.win_domain_ou:
+        name: RUSAGRICOM
+        path: "DC=ad,DC=rusagricom,DC=ru"
+        state: present
+      tags:
+        - config
+
+    - name: Create the child OUs
+      ansible.windows.win_domain_ou:
+        name: "{{ item }}"
+        path: "OU=RUSAGRICOM,DC=ad,DC=rusagricom,DC=ru"
+        state: present
+      loop: "{{ windows_ad_directory_ous }}"
+      tags:
+        - config
+
+    - name: Refuse an account without a password
+      when: windows_ad_directory_passwords[item.sam] | default('') | length == 0
+      ansible.builtin.fail:
+        msg: "No password for {{ item.sam }}"
+      loop: "{{ windows_ad_directory_users }}"
+      tags:
+        - config
+
+    - name: Create office accounts
+      ansible.windows.win_domain_user:
+        name: "{{ item.sam }}"
+        surname: "{{ item.display }}"
+        description: "{{ item.display }}"
+        upn: "{{ item.sam }}@{{ windows_ad_directory_domain }}"
+        password: "{{ windows_ad_directory_passwords[item.sam] }}"
+        update_password: on_create
+        password_never_expires: false
+        state: present
+        path: "OU=Users,{{ windows_ad_directory_base }}"
+        groups:
+          - Domain Users
+      loop: "{{ windows_ad_directory_users }}"
+      tags:
+        - config
+
+    - name: Show the surname as the display name
+      ansible.windows.win_shell: |
+        Import-Module ActiveDirectory
+        Set-ADUser -Identity '{{ item.sam }}' -DisplayName '{{ item.display }}' -Surname '{{ item.display }}'
+      loop: "{{ windows_ad_directory_users }}"
+      tags:
+        - config

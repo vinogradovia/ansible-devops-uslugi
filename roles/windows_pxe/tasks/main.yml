@@ -1,0 +1,40 @@
+---
+- name: Prepare the install image service
+  when: windows_pxe_enabled
+  block:
+    - name: Install Windows Deployment Services
+      ansible.windows.win_feature:
+        name:
+          - WDS
+          - WDS-Deployment
+          - WDS-Transport
+        state: present
+        include_management_tools: true
+      register: windows_pxe_feature
+      tags:
+        - install
+
+    - name: Reboot after the deployment service install
+      when: windows_pxe_feature.reboot_required | default(false)
+      ansible.windows.win_reboot:
+      tags:
+        - install
+
+    - name: Initialize the deployment service and add the boot image
+      ansible.windows.win_shell: |
+        $ErrorActionPreference = 'Stop'
+        $root = '{{ windows_pxe_install_root }}'
+        if (-not (Test-Path $root)) {
+          & wdsutil /Initialize-Server /RemInst:$root /Standalone
+        }
+        $boot = '{{ windows_pxe_boot_wim }}'
+        if (-not (Test-Path $boot)) {
+          Write-Output "boot image is not mounted at $boot"
+          exit 0
+        }
+        $listed = & wdsutil /Get-AllImages /ImageType:Boot /Show:ImageName 2>$null
+        if ($listed -notmatch 'Microsoft Windows Setup') {
+          & wdsutil /Add-Image /ImageFile:$boot /ImageType:Boot
+        }
+      tags:
+        - config

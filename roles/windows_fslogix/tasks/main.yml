@@ -1,0 +1,84 @@
+---
+- name: Publish the floating profile
+  when: windows_fslogix_enabled
+  block:
+    - name: Download FSLogix on the domain controller
+      when: windows_fslogix_publish_gpo
+      ansible.windows.win_shell: |
+        $ErrorActionPreference = 'Stop'
+        $dest = 'C:\Windows\Temp\fslogix.zip'
+        $extract = 'C:\Windows\Temp\fslogix'
+        if (-not (Test-Path "$extract\FSLogixAppsSetup.exe")) {
+          Invoke-WebRequest -Uri '{{ windows_fslogix_download_url }}' -OutFile $dest
+          if (Test-Path $extract) { Remove-Item $extract -Recurse -Force }
+          Expand-Archive -Path $dest -DestinationPath $extract
+        }
+        $setup = Get-ChildItem -Path $extract -Recurse -Filter FSLogixAppsSetup.exe | Select-Object -First 1
+        if (-not $setup) { throw 'FSLogixAppsSetup.exe was not in the archive' }
+        $sysvol = '{{ windows_fslogix_sysvol }}'
+        New-Item -ItemType Directory -Force -Path $sysvol | Out-Null
+        Copy-Item $setup.FullName (Join-Path $sysvol 'FSLogixAppsSetup.exe') -Force
+        @'
+        $setup = "{{ windows_fslogix_sysvol }}\FSLogixAppsSetup.exe"
+        $installed = Test-Path "C:\Program Files\FSLogix\Apps\frxsvc.exe"
+        if (-not $installed) {
+          Start-Process -FilePath $setup -ArgumentList "/install /quiet /norestart" -Wait
+        }
+        '@ | Set-Content -Encoding ASCII (Join-Path $sysvol 'install-fslogix.ps1')
+      tags:
+        - install
+
+    - name: Create the profile policy
+      when: windows_fslogix_publish_gpo
+      ansible.windows.win_shell: |
+        Import-Module GroupPolicy
+        $name = '{{ windows_fslogix_gpo_name }}'
+        if (-not (Get-GPO -Name $name -ErrorAction SilentlyContinue)) {
+          New-GPO -Name $name | Out-Null
+        }
+        $values = @{
+          Enabled = 1
+          DeleteLocalProfileWhenVHDShouldApply = 1
+          FlipFlopProfileDirectoryName = 1
+          SizeInMBs = {{ windows_fslogix_size_mb }}
+          VolumeType = 'VHDX'
+          VHDLocations = '{{ windows_fslogix_share }}'
+        }
+        foreach ($entry in $values.GetEnumerator()) {
+          $type = 'DWord'
+          if ($entry.Value -is [string]) { $type = 'String' }
+          Set-GPRegistryValue -Name $name -Key 'HKLM\SOFTWARE\FSLogix\Profiles' -ValueName $entry.Key -Type $type -Value $entry.Value | Out-Null
+        }
+        $gpo = Get-GPO -Name $name
+        $startup = "C:\Windows\SYSVOL\sysvol\ad.rusagricom.ru\Policies\{$($gpo.Id)}\Machine\Scripts\Startup"
+        New-Item -ItemType Directory -Force -Path $startup | Out-Null
+        Copy-Item '{{ windows_fslogix_sysvol }}\install-fslogix.ps1' (Join-Path $startup 'install-fslogix.ps1') -Force
+        "[Startup]`r`n0CmdLine=install-fslogix.ps1`r`n0Parameters=`r`n" | Set-Content -Encoding ASCII (Join-Path $startup 'psscripts.ini')
+        $dn = "CN={$($gpo.Id)},CN=Policies,CN=System,DC=ad,DC=rusagricom,DC=ru"
+        $obj = Get-ADObject $dn -Properties gPCMachineExtensionNames
+        $current = [string]$obj.gPCMachineExtensionNames
+        $pair = '[{42B5FAAE-6536-11D2-AE5A-0000F87571E3}{40B6664F-4972-11D1-A7CA-00C04FC297EB}]'
+        if ($current -notlike '*42B5FAAE-6536-11D2-AE5A-0000F87571E3*') {
+          Set-ADObject $dn -Replace @{gPCMachineExtensionNames = ($current + $pair)}
+        }
+        $targets = @('{{ windows_fslogix_gpo_targets | join("','") }}')
+        foreach ($target in $targets) {
+          $linked = @(Get-GPInheritance -Target $target).GpoLinks | Where-Object { $_.DisplayName -eq $name }
+          if (-not $linked) {
+            New-GPLink -Name $name -Target $target | Out-Null
+          }
+        }
+      tags:
+        - config
+
+    - name: Install FSLogix on this server
+      when: windows_fslogix_install_agent
+      ansible.windows.win_shell: |
+        $ErrorActionPreference = 'Stop'
+        if (Test-Path 'C:\Program Files\FSLogix\Apps\frxsvc.exe') { exit 0 }
+        $setup = '{{ windows_fslogix_sysvol }}\FSLogixAppsSetup.exe'
+        if (-not (Test-Path $setup)) { throw "FSLogix setup is not in SYSVOL yet: $setup" }
+        Start-Process -FilePath $setup -ArgumentList '/install /quiet /norestart' -Wait
+        if (-not (Test-Path 'C:\Program Files\FSLogix\Apps\frxsvc.exe')) { throw 'FSLogix service file is missing after setup' }
+      tags:
+        - install

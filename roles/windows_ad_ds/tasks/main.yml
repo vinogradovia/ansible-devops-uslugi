@@ -2,6 +2,13 @@
 - name: Install Active Directory domain services
   when: windows_ad_ds_enabled
   block:
+    - name: Refuse to promote a new forest and a replica at once
+      when:
+        - windows_ad_ds_promote
+        - windows_ad_ds_replica
+      ansible.builtin.fail:
+        msg: windows_ad_ds_promote and windows_ad_ds_replica cannot both be true
+
     - name: Install AD DS and DNS features
       ansible.windows.win_feature:
         name:
@@ -29,5 +36,50 @@
         - windows_ad_ds_promote
         - windows_ad_ds_promotion.reboot_required | default(false)
       ansible.windows.win_reboot:
+      tags:
+        - config
+
+    - name: Point the replica at the first domain controller
+      when: windows_ad_ds_replica
+      ansible.windows.win_shell: |
+        $up = @(Get-NetAdapter | Where-Object Status -eq 'Up')
+        if ($up.Count -lt 1) { throw 'no connected adapter' }
+        $up | Set-DnsClientServerAddress -ServerAddresses '{{ windows_ad_ds_existing_dc }}'
+      tags:
+        - config
+
+    - name: Promote the replica domain controller
+      when: windows_ad_ds_replica
+      ansible.windows.win_domain_controller:
+        dns_domain_name: "{{ windows_ad_ds_domain }}"
+        domain_admin_user: "{{ windows_ad_ds_domain_admin_user }}"
+        domain_admin_password: "{{ windows_ad_ds_domain_admin_password }}"
+        safe_mode_password: "{{ windows_ad_ds_safe_mode_password }}"
+        install_dns: true
+        state: domain_controller
+      register: windows_ad_ds_replica_promotion
+      tags:
+        - config
+
+    - name: Reboot after the replica promotion
+      when:
+        - windows_ad_ds_replica
+        - windows_ad_ds_replica_promotion.reboot_required | default(false)
+      ansible.windows.win_reboot:
+      tags:
+        - config
+
+    - name: Send external queries to the office resolver
+      when: windows_ad_ds_promote or windows_ad_ds_replica
+      ansible.windows.win_shell: |
+        Set-DnsServerForwarder -IPAddress @('{{ windows_ad_ds_dns_forwarders | join("','") }}')
+      tags:
+        - config
+
+    - name: Use this controller and its peer for DNS
+      when: windows_ad_ds_promote or windows_ad_ds_replica
+      ansible.windows.win_shell: |
+        $up = @(Get-NetAdapter | Where-Object Status -eq 'Up')
+        $up | Set-DnsClientServerAddress -ServerAddresses @('{{ windows_ad_ds_dns_servers | join("','") }}')
       tags:
         - config

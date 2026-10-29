@@ -1,0 +1,72 @@
+---
+- name: Prepare Remote Desktop services
+  when: windows_rds_enabled
+  block:
+    - name: Install the session host feature
+      when: not windows_rds_deploy
+      ansible.windows.win_feature:
+        name: RDS-RD-Server
+        state: present
+        include_management_tools: true
+      register: windows_rds_feature
+      tags:
+        - install
+
+    - name: Install broker, web access and licensing
+      when: windows_rds_deploy
+      ansible.windows.win_feature:
+        name:
+          - RDS-Connection-Broker
+          - RDS-Web-Access
+          - RDS-Licensing
+          - RSAT-RDS-Tools
+        state: present
+        include_management_tools: true
+      register: windows_rds_broker_feature
+      tags:
+        - install
+
+    - name: Reboot if a feature asked for it
+      when: >
+        (windows_rds_feature.reboot_required | default(false)) or
+        (windows_rds_broker_feature.reboot_required | default(false))
+      ansible.windows.win_reboot:
+      tags:
+        - install
+
+    - name: Deploy the session collection
+      when: windows_rds_deploy
+      ansible.windows.win_shell: |
+        Import-Module RemoteDesktop
+        $broker = '{{ windows_rds_broker }}'
+        $hosts = @('{{ windows_rds_session_hosts | join("','") }}')
+        $ErrorActionPreference = 'Stop'
+        $deployment = Get-RDSessionDeployment -ConnectionBroker $broker -ErrorAction SilentlyContinue
+        if (-not $deployment) {
+          New-RDSessionDeployment -ConnectionBroker $broker -SessionHost $hosts[0] -WebAccessServer '{{ windows_rds_web_access }}'
+        }
+        foreach ($sessionHost in $hosts) {
+          $present = @(Get-RDServer -ConnectionBroker $broker -ErrorAction SilentlyContinue |
+            Where-Object { $_.Server -eq $sessionHost -and $_.Roles -contains 'RDS-RD-SERVER' })
+          if ($present.Count -eq 0) {
+            Add-RDServer -Server $sessionHost -Role RDS-RD-SERVER -ConnectionBroker $broker
+          }
+        }
+        $collection = Get-RDSessionCollection -CollectionName '{{ windows_rds_collection }}' -ConnectionBroker $broker -ErrorAction SilentlyContinue
+        if (-not $collection) {
+          New-RDSessionCollection -CollectionName '{{ windows_rds_collection }}' -SessionHost $hosts -ConnectionBroker $broker -CollectionDescription 'Office desktops'
+        } else {
+          $members = @((Get-RDSessionHost -CollectionName '{{ windows_rds_collection }}' -ConnectionBroker $broker).SessionHost)
+          foreach ($sessionHost in $hosts) {
+            if ($members -notcontains $sessionHost) {
+              Add-RDSessionHost -CollectionName '{{ windows_rds_collection }}' -SessionHost $sessionHost -ConnectionBroker $broker
+            }
+          }
+        }
+        $license = @(Get-RDServer -ConnectionBroker $broker | Where-Object { $_.Server -eq $broker -and $_.Roles -contains 'RDS-LICENSING' })
+        if ($license.Count -eq 0) {
+          Add-RDServer -Server $broker -Role RDS-LICENSING -ConnectionBroker $broker
+        }
+        Set-RDLicenseConfiguration -LicenseServer $broker -Mode {{ windows_rds_license_mode }} -ConnectionBroker $broker -Force
+      tags:
+        - config

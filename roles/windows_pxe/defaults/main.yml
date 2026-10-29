@@ -1,0 +1,4 @@
+---
+windows_pxe_enabled: false
+windows_pxe_boot_wim: D:\sources\boot.wim
+windows_pxe_install_root: C:\RemoteInstall

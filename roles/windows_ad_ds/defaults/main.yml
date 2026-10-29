@@ -1,6 +1,14 @@
 ---
 windows_ad_ds_enabled: false
 windows_ad_ds_promote: false
+windows_ad_ds_replica: false
 windows_ad_ds_domain: ad.rusagricom.ru
 windows_ad_ds_netbios: RUSAGRICOM
 windows_ad_ds_safe_mode_password: ""
+windows_ad_ds_domain_admin_user: Administrator@ad.rusagricom.ru
+windows_ad_ds_domain_admin_password: ""
+windows_ad_ds_existing_dc: 192.168.50.10
+windows_ad_ds_dns_forwarders:
+  - 192.168.0.98
+windows_ad_ds_dns_servers:
+  - 127.0.0.1

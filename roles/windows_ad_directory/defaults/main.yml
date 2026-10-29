@@ -1,0 +1,11 @@
+---
+windows_ad_directory_enabled: false
+windows_ad_directory_domain: ad.rusagricom.ru
+windows_ad_directory_base: OU=RUSAGRICOM,DC=ad,DC=rusagricom,DC=ru
+windows_ad_directory_ous:
+  - Users
+  - Workstations
+  - Servers
+  - RDS
+windows_ad_directory_users: []
+windows_ad_directory_passwords: {}
