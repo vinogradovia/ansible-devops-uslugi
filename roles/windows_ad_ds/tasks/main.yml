@@ -1,0 +1,33 @@
+---
+- name: Install Active Directory domain services
+  when: windows_ad_ds_enabled
+  block:
+    - name: Install AD DS and DNS features
+      ansible.windows.win_feature:
+        name:
+          - AD-Domain-Services
+          - DNS
+        state: present
+        include_management_tools: true
+      tags:
+        - install
+
+    - name: Promote the first domain controller
+      when: windows_ad_ds_promote
+      ansible.windows.win_domain:
+        dns_domain_name: "{{ windows_ad_ds_domain }}"
+        safe_mode_password: "{{ windows_ad_ds_safe_mode_password }}"
+        create_dns_delegation: false
+        domain_netbios_name: "{{ windows_ad_ds_netbios }}"
+        install_dns: true
+      register: windows_ad_ds_promotion
+      tags:
+        - config
+
+    - name: Reboot after promotion
+      when:
+        - windows_ad_ds_promote
+        - windows_ad_ds_promotion.reboot_required | default(false)
+      ansible.windows.win_reboot:
+      tags:
+        - config

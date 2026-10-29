@@ -1,0 +1,6 @@
+---
+windows_ad_ds_enabled: false
+windows_ad_ds_promote: false
+windows_ad_ds_domain: ad.rusagricom.ru
+windows_ad_ds_netbios: RUSAGRICOM
+windows_ad_ds_safe_mode_password: ""

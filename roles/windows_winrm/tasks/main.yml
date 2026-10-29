@@ -1,0 +1,20 @@
+---
+- name: Enable PowerShell remoting
+  ansible.windows.win_shell: |
+    Enable-PSRemoting -Force -SkipNetworkProfileCheck
+    Set-Item WSMan:\localhost\Service\AllowUnencrypted -Value $false
+    Set-Item WSMan:\localhost\Service\Auth\Basic -Value $false
+  tags:
+    - config
+
+- name: Open WinRM HTTPS in the Windows firewall
+  ansible.windows.win_firewall_rule:
+    name: WinRM-HTTPS-In
+    localport: 5986
+    protocol: tcp
+    direction: in
+    action: allow
+    state: present
+    enabled: true
+  tags:
+    - config
